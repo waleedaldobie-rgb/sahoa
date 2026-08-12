@@ -1,0 +1,111 @@
+nohup: ignoring input
+
+> react-example@0.0.0 dev
+> vite --port=3000 --host=0.0.0.0
+
+
+  VITE v6.4.3  ready in 228 ms
+
+  ➜  Local:   http://localhost:3000/
+  ➜  Network: http://169.254.0.21:3000/
+4:35:26 AM [vite] (client) hmr update /src/components/PrintableInvoice.tsx, /src/index.css
+4:35:44 AM [vite] (client) hmr update /src/index.css
+4:35:56 AM [vite] (client) hmr update /src/index.css
+4:38:06 AM [vite] (client) hmr update /src/components/OrdersView.tsx, /src/index.css
+4:38:30 AM [vite] (client) hmr update /src/components/OrdersView.tsx, /src/index.css
+4:40:04 AM [vite] (client) hmr update /src/components/Sidebar.tsx, /src/index.css
+4:40:04 AM [vite] (client) hmr invalidate /src/components/Sidebar.tsx Could not Fast Refresh ("navItems" export is incompatible). Learn more at https://github.com/vitejs/vite-plugin-react/tree/main/packages/plugin-react#consistent-components-exports
+4:40:04 AM [vite] (client) hmr update /src/App.tsx, /src/index.css
+4:40:04 AM [vite] (client) hmr invalidate /src/App.tsx Could not Fast Refresh ("VALIDATION_SCHEMAS" export is incompatible). Learn more at https://github.com/vitejs/vite-plugin-react/tree/main/packages/plugin-react#consistent-components-exports
+4:40:04 AM [vite] (client) page reload src/App.tsx
+4:40:10 AM [vite] (client) hmr update /src/index.css
+4:40:18 AM [vite] (client) hmr update /src/components/PrintableInvoice.tsx, /src/index.css
+4:40:26 AM [vite] (client) hmr update /src/index.css
+4:42:35 AM [vite] (client) hmr update /src/components/MeasurementsTableForm.tsx, /src/index.css
+4:42:38 AM [vite] (client) hmr invalidate /src/components/MeasurementsTableForm.tsx Could not Fast Refresh ("draftKeyFor" export is incompatible). Learn more at https://github.com/vitejs/vite-plugin-react/tree/main/packages/plugin-react#consistent-components-exports
+4:42:38 AM [vite] (client) hmr update /src/index.css, /src/components/OrdersView.tsx, /src/components/CustomersView.tsx
+4:42:39 AM [vite] (client) hmr update /src/components/MeasurementsTableForm.tsx, /src/index.css
+4:42:42 AM [vite] (client) hmr invalidate /src/components/MeasurementsTableForm.tsx Could not Fast Refresh ("draftKeyFor" export is incompatible). Learn more at https://github.com/vitejs/vite-plugin-react/tree/main/packages/plugin-react#consistent-components-exports
+4:42:42 AM [vite] (client) hmr update /src/index.css, /src/components/OrdersView.tsx, /src/components/CustomersView.tsx
+4:43:31 AM [vite] (client) hmr update /src/components/MeasurementsTableForm.tsx, /src/index.css
+4:43:33 AM [vite] (client) hmr invalidate /src/components/MeasurementsTableForm.tsx Could not Fast Refresh ("draftKeyFor" export is incompatible). Learn more at https://github.com/vitejs/vite-plugin-react/tree/main/packages/plugin-react#consistent-components-exports
+4:43:33 AM [vite] (client) hmr update /src/index.css, /src/components/OrdersView.tsx, /src/components/CustomersView.tsx
+4:43:36 AM [vite] (client) hmr update /src/components/MeasurementsTableForm.tsx, /src/index.css
+4:43:39 AM [vite] (client) hmr invalidate /src/components/MeasurementsTableForm.tsx Could not Fast Refresh ("draftKeyFor" export is incompatible). Learn more at https://github.com/vitejs/vite-plugin-react/tree/main/packages/plugin-react#consistent-components-exports
+4:43:39 AM [vite] (client) hmr update /src/index.css, /src/components/OrdersView.tsx, /src/components/CustomersView.tsx
+4:43:42 AM [vite] (client) hmr update /src/components/MeasurementsTableForm.tsx, /src/index.css
+4:43:44 AM [vite] (client) hmr invalidate /src/components/MeasurementsTableForm.tsx Could not Fast Refresh ("draftKeyFor" export is incompatible). Learn more at https://github.com/vitejs/vite-plugin-react/tree/main/packages/plugin-react#consistent-components-exports
+4:43:44 AM [vite] (client) hmr update /src/index.css, /src/components/OrdersView.tsx, /src/components/CustomersView.tsx
+4:43:49 AM [vite] (client) hmr update /src/components/MeasurementsTableForm.tsx, /src/index.css
+4:43:52 AM [vite] (client) hmr invalidate /src/components/MeasurementsTableForm.tsx Could not Fast Refresh ("draftKeyFor" export is incompatible). Learn more at https://github.com/vitejs/vite-plugin-react/tree/main/packages/plugin-react#consistent-components-exports
+4:43:52 AM [vite] (client) hmr update /src/index.css, /src/components/OrdersView.tsx, /src/components/CustomersView.tsx
+4:45:41 AM [vite] (client) hmr update /src/components/MeasurementsTableForm.tsx, /src/index.css
+4:45:44 AM [vite] (client) hmr invalidate /src/components/MeasurementsTableForm.tsx Could not Fast Refresh ("draftKeyFor" export is incompatible). Learn more at https://github.com/vitejs/vite-plugin-react/tree/main/packages/plugin-react#consistent-components-exports
+4:45:44 AM [vite] (client) hmr update /src/index.css, /src/components/OrdersView.tsx, /src/components/CustomersView.tsx
+4:45:50 AM [vite] (client) hmr update /src/components/MeasurementsTableForm.tsx, /src/index.css
+4:45:55 AM [vite] (client) hmr invalidate /src/components/MeasurementsTableForm.tsx Could not Fast Refresh ("draftKeyFor" export is incompatible). Learn more at https://github.com/vitejs/vite-plugin-react/tree/main/packages/plugin-react#consistent-components-exports
+4:45:55 AM [vite] (client) hmr update /src/index.css, /src/components/OrdersView.tsx, /src/components/CustomersView.tsx
+4:46:00 AM [vite] (client) hmr update /src/components/MeasurementsTableForm.tsx, /src/index.css
+4:46:02 AM [vite] (client) hmr invalidate /src/components/MeasurementsTableForm.tsx Could not Fast Refresh ("draftKeyFor" export is incompatible). Learn more at https://github.com/vitejs/vite-plugin-react/tree/main/packages/plugin-react#consistent-components-exports
+4:46:02 AM [vite] (client) hmr update /src/index.css, /src/components/OrdersView.tsx, /src/components/CustomersView.tsx
+4:46:04 AM [vite] (client) hmr update /src/components/MeasurementsTableForm.tsx, /src/index.css
+4:46:06 AM [vite] (client) hmr invalidate /src/components/MeasurementsTableForm.tsx Could not Fast Refresh ("draftKeyFor" export is incompatible). Learn more at https://github.com/vitejs/vite-plugin-react/tree/main/packages/plugin-react#consistent-components-exports
+4:46:06 AM [vite] (client) hmr update /src/index.css, /src/components/OrdersView.tsx, /src/components/CustomersView.tsx
+4:52:57 AM [vite] (client) hmr update /src/components/OrdersView.tsx, /src/index.css
+4:53:01 AM [vite] (client) hmr update /src/components/OrdersView.tsx, /src/index.css
+4:53:17 AM [vite] (client) hmr update /src/components/OrdersView.tsx, /src/index.css
+4:53:58 AM [vite] (client) hmr update /src/components/InvoiceDrawings.tsx, /src/index.css
+4:54:09 AM [vite] (client) hmr update /src/index.css
+4:54:16 AM [vite] (client) hmr update /src/components/MeasurementsTableForm.tsx, /src/index.css
+4:54:18 AM [vite] (client) hmr invalidate /src/components/MeasurementsTableForm.tsx Could not Fast Refresh ("draftKeyFor" export is incompatible). Learn more at https://github.com/vitejs/vite-plugin-react/tree/main/packages/plugin-react#consistent-components-exports
+4:54:18 AM [vite] (client) hmr update /src/index.css, /src/components/OrdersView.tsx, /src/components/CustomersView.tsx
+4:56:53 AM [vite] (client) hmr update /src/components/MeasurementsTableForm.tsx, /src/index.css
+4:56:56 AM [vite] (client) hmr invalidate /src/components/MeasurementsTableForm.tsx Could not Fast Refresh ("draftKeyFor" export is incompatible). Learn more at https://github.com/vitejs/vite-plugin-react/tree/main/packages/plugin-react#consistent-components-exports
+4:56:56 AM [vite] (client) hmr update /src/index.css, /src/components/OrdersView.tsx, /src/components/CustomersView.tsx
+4:57:36 AM [vite] (client) hmr update /src/components/OrdersView.tsx, /src/index.css
+4:57:42 AM [vite] (client) hmr update /src/index.css
+4:57:51 AM [vite] (client) hmr update /src/components/MeasurementsTableForm.tsx, /src/index.css
+4:57:53 AM [vite] (client) hmr invalidate /src/components/MeasurementsTableForm.tsx Could not Fast Refresh ("draftKeyFor" export is incompatible). Learn more at https://github.com/vitejs/vite-plugin-react/tree/main/packages/plugin-react#consistent-components-exports
+4:57:53 AM [vite] (client) hmr update /src/index.css, /src/components/OrdersView.tsx, /src/components/CustomersView.tsx
+4:58:30 AM [vite] (client) hmr update /src/index.css
+4:59:10 AM [vite] (client) hmr update /src/index.css
+4:59:56 AM [vite] (client) hmr update /src/components/OrdersView.tsx, /src/index.css
+5:00:36 AM [vite] (client) hmr update /src/components/PrintableInvoice.tsx, /src/index.css
+5:02:02 AM [vite] (client) hmr update /src/components/OrdersView.tsx, /src/index.css
+5:02:06 AM [vite] (client) hmr update /src/index.css
+5:03:55 AM [vite] (client) hmr update /src/components/MeasurementsTableForm.tsx, /src/index.css
+5:03:56 AM [vite] (client) hmr invalidate /src/components/MeasurementsTableForm.tsx Could not Fast Refresh ("draftKeyFor" export is incompatible). Learn more at https://github.com/vitejs/vite-plugin-react/tree/main/packages/plugin-react#consistent-components-exports
+5:03:56 AM [vite] (client) hmr update /src/index.css, /src/components/OrdersView.tsx, /src/components/CustomersView.tsx
+5:04:00 AM [vite] (client) hmr update /src/components/MeasurementsTableForm.tsx, /src/index.css
+5:04:00 AM [vite] (client) hmr invalidate /src/components/MeasurementsTableForm.tsx Could not Fast Refresh ("draftKeyFor" export is incompatible). Learn more at https://github.com/vitejs/vite-plugin-react/tree/main/packages/plugin-react#consistent-components-exports
+5:04:00 AM [vite] (client) hmr update /src/index.css, /src/components/OrdersView.tsx, /src/components/CustomersView.tsx
+5:04:03 AM [vite] (client) hmr update /src/components/MeasurementsTableForm.tsx, /src/index.css
+5:04:03 AM [vite] (client) hmr invalidate /src/components/MeasurementsTableForm.tsx Could not Fast Refresh ("draftKeyFor" export is incompatible). Learn more at https://github.com/vitejs/vite-plugin-react/tree/main/packages/plugin-react#consistent-components-exports
+5:04:03 AM [vite] (client) hmr update /src/index.css, /src/components/OrdersView.tsx, /src/components/CustomersView.tsx
+5:04:09 AM [vite] (client) hmr update /src/components/MeasurementsTableForm.tsx, /src/index.css
+5:04:09 AM [vite] (client) hmr invalidate /src/components/MeasurementsTableForm.tsx Could not Fast Refresh ("draftKeyFor" export is incompatible). Learn more at https://github.com/vitejs/vite-plugin-react/tree/main/packages/plugin-react#consistent-components-exports
+5:04:09 AM [vite] (client) hmr update /src/index.css, /src/components/OrdersView.tsx, /src/components/CustomersView.tsx
+5:05:09 AM [vite] (client) hmr update /src/components/MeasurementsTableForm.tsx, /src/index.css
+5:05:09 AM [vite] (client) hmr invalidate /src/components/MeasurementsTableForm.tsx Could not Fast Refresh ("draftKeyFor" export is incompatible). Learn more at https://github.com/vitejs/vite-plugin-react/tree/main/packages/plugin-react#consistent-components-exports
+5:05:09 AM [vite] (client) hmr update /src/index.css, /src/components/OrdersView.tsx, /src/components/CustomersView.tsx
+5:05:51 AM [vite] (client) hmr update /src/components/MeasurementsTableForm.tsx, /src/index.css
+5:05:51 AM [vite] (client) hmr invalidate /src/components/MeasurementsTableForm.tsx Could not Fast Refresh ("draftKeyFor" export is incompatible). Learn more at https://github.com/vitejs/vite-plugin-react/tree/main/packages/plugin-react#consistent-components-exports
+5:05:51 AM [vite] (client) hmr update /src/index.css, /src/components/OrdersView.tsx, /src/components/CustomersView.tsx
+5:07:13 AM [vite] (client) hmr update /src/components/MeasurementsTableForm.tsx, /src/index.css
+5:07:13 AM [vite] (client) hmr invalidate /src/components/MeasurementsTableForm.tsx Could not Fast Refresh ("draftKeyFor" export is incompatible). Learn more at https://github.com/vitejs/vite-plugin-react/tree/main/packages/plugin-react#consistent-components-exports
+5:07:13 AM [vite] (client) hmr update /src/index.css, /src/components/OrdersView.tsx, /src/components/CustomersView.tsx
+5:07:19 AM [vite] (client) hmr update /src/components/MeasurementsTableForm.tsx, /src/index.css
+5:07:19 AM [vite] (client) hmr invalidate /src/components/MeasurementsTableForm.tsx Could not Fast Refresh ("draftKeyFor" export is incompatible). Learn more at https://github.com/vitejs/vite-plugin-react/tree/main/packages/plugin-react#consistent-components-exports
+5:07:19 AM [vite] (client) hmr update /src/index.css, /src/components/OrdersView.tsx, /src/components/CustomersView.tsx
+5:16:02 AM [vite] (client) hmr update /src/components/ui.tsx, /src/index.css
+5:16:09 AM [vite] (client) hmr update /src/index.css
+5:16:30 AM [vite] (client) hmr update /src/components/DashboardView.tsx, /src/index.css
+5:17:14 AM [vite] (client) hmr update /src/components/OrdersView.tsx, /src/index.css
+5:17:43 AM [vite] (client) hmr update /src/components/CustomersView.tsx, /src/index.css
+5:18:11 AM [vite] (client) hmr update /src/components/MeasurementsTableForm.tsx, /src/index.css
+5:18:14 AM [vite] (client) hmr invalidate /src/components/MeasurementsTableForm.tsx Could not Fast Refresh ("draftKeyFor" export is incompatible). Learn more at https://github.com/vitejs/vite-plugin-react/tree/main/packages/plugin-react#consistent-components-exports
+5:18:14 AM [vite] (client) hmr update /src/index.css, /src/components/OrdersView.tsx, /src/components/CustomersView.tsx
+5:18:30 AM [vite] (client) hmr update /src/components/InvoicesView.tsx, /src/index.css
+5:18:53 AM [vite] (client) hmr update /src/components/InventoryView.tsx, /src/index.css
+5:23:34 AM [vite] (client) hmr update /src/index.css
+Killed

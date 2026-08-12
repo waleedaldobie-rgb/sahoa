@@ -1,0 +1,678 @@
+import Database from 'better-sqlite3';
+import fs from 'fs';
+import path from 'path';
+import * as XLSX from 'xlsx';
+import { CREATE_TABLES_SQL, CURRENT_SCHEMA_VERSION, DatabaseSettings } from './schema';
+import { Customer, Order, FabricItem, AccessoryItem, ThobeType, ColorItem, NotificationItem, Invoice } from '../types';
+import { DEFAULT_MEASUREMENTS, DEFAULT_STYLE_DETAILS } from '../services/electronMock';
+
+export class SahwaDatabaseManager {
+  private db: Database.Database | null = null;
+  private dbPath: string;
+  private backupDir: string;
+  private corruptDir: string;
+  private autoBackupTimer: NodeJS.Timeout | null = null;
+
+  constructor(customDir?: string) {
+    const baseDir = customDir || path.join(process.cwd(), 'data');
+    if (!fs.existsSync(baseDir)) {
+      fs.mkdirSync(baseDir, { recursive: true });
+    }
+
+    this.dbPath = path.join(baseDir, 'sahwa_tailoring.db');
+    this.backupDir = path.join(baseDir, 'backups');
+    this.corruptDir = path.join(baseDir, 'corrupt_backups');
+
+    if (!fs.existsSync(this.backupDir)) fs.mkdirSync(this.backupDir, { recursive: true });
+    if (!fs.existsSync(this.corruptDir)) fs.mkdirSync(this.corruptDir, { recursive: true });
+  }
+
+  /**
+   * Initializes SQLite Database with PRAGMA WAL, Foreign Keys & Integrity Verification
+   */
+  public initDatabase(): { success: boolean; corruptedRecoveryMessage?: string; error?: string } {
+    let corruptedRecoveryMessage: string | undefined;
+
+    // Check if existing file needs integrity check
+    if (fs.existsSync(this.dbPath)) {
+      try {
+        const checkDb = new Database(this.dbPath);
+        checkDb.pragma('foreign_keys = ON');
+        const integrityResult = checkDb.pragma('integrity_check') as Array<{ integrity_check: string }>;
+        const isOk = integrityResult && integrityResult.length > 0 && integrityResult[0].integrity_check === 'ok';
+        checkDb.close();
+
+        if (!isOk) {
+          // File is corrupted -> create timestamped copy, do NOT delete, start fresh
+          const timeTag = new Date().toISOString().replace(/[:.]/g, '-');
+          const corruptCopyPath = path.join(this.corruptDir, `sahwa_corrupt_${timeTag}.db`);
+          fs.copyFileSync(this.dbPath, corruptCopyPath);
+          fs.unlinkSync(this.dbPath);
+
+          corruptedRecoveryMessage = `تنبيه: تم اكتشاف تلف في ملف قاعدة البيانات السابق. تم حفظ نسخة احتياطية من الملف التالف بمسار (${corruptCopyPath}) وتم بدء قاعدة بيانات سليمة جديدة.`;
+        }
+      } catch (err) {
+        // Unreadable database -> copy and recreate
+        const timeTag = new Date().toISOString().replace(/[:.]/g, '-');
+        const corruptCopyPath = path.join(this.corruptDir, `sahwa_corrupt_${timeTag}.db`);
+        if (fs.existsSync(this.dbPath)) {
+          fs.copyFileSync(this.dbPath, corruptCopyPath);
+          fs.unlinkSync(this.dbPath);
+        }
+        corruptedRecoveryMessage = `تنبيه: تعذر فتح قاعدة البيانات الحالية. تم إنشاء نسخة للطوارئ بمسار (${corruptCopyPath}) والبدء بملف جديد.`;
+      }
+    }
+
+    try {
+      this.db = new Database(this.dbPath);
+      
+      // Mandatory Pragmas for stability & relations
+      this.db.pragma('journal_mode = WAL');
+      this.db.pragma('foreign_keys = ON');
+
+      // Create Tables & Indexes
+      this.db.exec(CREATE_TABLES_SQL);
+
+      // Initialize default system settings
+      this.initSystemSettings();
+
+      // Seed default initial data if tables are empty
+      this.seedInitialDataIfEmpty();
+
+      // Take initial startup backup and start 1-hour periodic rolling backup
+      this.backupDatabase('startup_auto').catch(err => {
+        console.error('Error in startup backup:', err);
+      });
+      this.startPeriodicAutoBackup();
+
+      return { success: true, corruptedRecoveryMessage };
+    } catch (error: any) {
+      console.error('Failed to initialize Sahwa Database:', error);
+      return { success: false, error: error?.message || 'تعذر تشغيل قاعدة البيانات' };
+    }
+  }
+
+  public getRawDb(): Database.Database {
+    if (!this.db) {
+      throw new Error('قاعدة البيانات غير مفعلة');
+    }
+    return this.db;
+  }
+
+  /**
+   * System settings getter / setter
+   */
+  public getSettings(): DatabaseSettings {
+    const db = this.getRawDb();
+    const rows = db.prepare('SELECT key, value FROM system_settings').all() as Array<{ key: string; value: string }>;
+    
+    const settingsMap = new Map<string, string>();
+    rows.forEach(r => settingsMap.set(r.key, r.value));
+
+    return {
+      fabricConsumptionRatePerGarment: parseFloat(settingsMap.get('fabricConsumptionRatePerGarment') || '3.5'),
+      autoBackupIntervalHours: parseFloat(settingsMap.get('autoBackupIntervalHours') || '1'),
+      maxBackupFiles: parseInt(settingsMap.get('maxBackupFiles') || '14', 10),
+      lastBackupTimestamp: settingsMap.get('lastBackupTimestamp'),
+      schemaVersion: parseInt(settingsMap.get('schemaVersion') || '1', 10)
+    };
+  }
+
+  public updateSetting(key: keyof DatabaseSettings, value: string | number): void {
+    const db = this.getRawDb();
+    db.prepare('INSERT OR REPLACE INTO system_settings (key, value) VALUES (?, ?)').run(key, String(value));
+  }
+
+  private initSystemSettings(): void {
+    const db = this.getRawDb();
+    const defaults: Array<[string, string]> = [
+      ['fabricConsumptionRatePerGarment', '3.5'],
+      ['autoBackupIntervalHours', '1'],
+      ['maxBackupFiles', '14'],
+      ['schemaVersion', String(CURRENT_SCHEMA_VERSION)]
+    ];
+
+    const stmt = db.prepare('INSERT OR IGNORE INTO system_settings (key, value) VALUES (?, ?)');
+    const insertMany = db.transaction((items: Array<[string, string]>) => {
+      for (const [k, v] of items) stmt.run(k, v);
+    });
+    insertMany(defaults);
+  }
+
+  /**
+   * Rolling 14-backups Manager
+   */
+  public async backupDatabase(reason: string = 'auto'): Promise<{ success: boolean; filePath?: string; error?: string }> {
+    try {
+      const db = this.getRawDb();
+      const settings = this.getSettings();
+      const maxFiles = settings.maxBackupFiles || 14;
+
+      const timeTag = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+      const fileName = `sahwa_backup_${reason}_${timeTag}.db`;
+      const targetPath = path.join(this.backupDir, fileName);
+
+      // Perform SQLite online backup / safe copy
+      await db.backup(targetPath);
+
+      // Also create a JSON mirror backup for cross-platform export
+      const jsonFileName = `sahwa_backup_${reason}_${timeTag}.json`;
+      const jsonTargetPath = path.join(this.backupDir, jsonFileName);
+      const exportedData = this.exportFullDataAsJson();
+      fs.writeFileSync(jsonTargetPath, JSON.stringify(exportedData, null, 2), 'utf-8');
+
+      // Update timestamp
+      this.updateSetting('lastBackupTimestamp', new Date().toISOString());
+
+      // Rotate older files keeping max 14 files per extension
+      this.rotateBackups('.db', maxFiles);
+      this.rotateBackups('.json', maxFiles);
+
+      return { success: true, filePath: targetPath };
+    } catch (err: any) {
+      console.error('Backup error:', err);
+      return { success: false, error: err?.message || 'فشل إنشاء النسخة الاحتياطية' };
+    }
+  }
+
+  private rotateBackups(extension: string, maxFiles: number): void {
+    try {
+      const files = fs.readdirSync(this.backupDir)
+        .filter(f => f.endsWith(extension) && f.startsWith('sahwa_backup_'))
+        .map(f => {
+          const fullPath = path.join(this.backupDir, f);
+          return { name: f, path: fullPath, stat: fs.statSync(fullPath) };
+        })
+        .sort((a, b) => b.stat.mtimeMs - a.stat.mtimeMs);
+
+      if (files.length > maxFiles) {
+        const toDelete = files.slice(maxFiles);
+        toDelete.forEach(file => {
+          try { fs.unlinkSync(file.path); } catch (e) {}
+        });
+      }
+    } catch (e) {
+      console.error('Error rotating backups:', e);
+    }
+  }
+
+  private startPeriodicAutoBackup(): void {
+    if (this.autoBackupTimer) clearInterval(this.autoBackupTimer);
+    
+    // Default 1 hour = 3600,000 ms
+    const intervalMs = 60 * 60 * 1000;
+    this.autoBackupTimer = setInterval(() => {
+      this.backupDatabase('hourly_auto').catch(err => {
+        console.error('Error in hourly auto backup:', err);
+      });
+    }, intervalMs);
+  }
+
+  /**
+   * Safe JSON Import & Database Restore with Verification
+   */
+  public async restoreFromJson(jsonString: string): Promise<{ success: boolean; error?: string }> {
+    try {
+      const parsed = JSON.parse(jsonString);
+
+      // 1. Structure Verification
+      if (!parsed || typeof parsed !== 'object') {
+        return { success: false, error: 'الملف غير صالح: يجب أن يكون كائن JSON مقروء.' };
+      }
+
+      // Check required schema keys
+      const requiredCollections = ['customers', 'orders', 'fabrics', 'accessories', 'thobeTypes', 'colors'];
+      for (const col of requiredCollections) {
+        if (!Array.isArray(parsed[col])) {
+          return { success: false, error: `الملف غير متوافق: الحقل المفقود (${col}) غير موجود أو ليس قائمة مجاميع.` };
+        }
+      }
+
+      // 2. Pre-Restore Safety Rolling Backup
+      await this.backupDatabase('pre_restore');
+
+      // 3. Perform Transactional Wipe & Insert
+      const db = this.getRawDb();
+      const restoreTx = db.transaction(() => {
+        // Clear existing tables
+        db.prepare('DELETE FROM invoices').run();
+        db.prepare('DELETE FROM orders').run();
+        db.prepare('DELETE FROM customer_measurement_history').run();
+        db.prepare('DELETE FROM customers').run();
+        db.prepare('DELETE FROM fabrics').run();
+        db.prepare('DELETE FROM accessories').run();
+        db.prepare('DELETE FROM dress_types').run();
+        db.prepare('DELETE FROM colors').run();
+        db.prepare('DELETE FROM notifications').run();
+
+        // Restore Customers
+        const custStmt = db.prepare(`
+          INSERT INTO customers (id, name, phone, created_at, updated_at, measurements_json, style_details_json)
+          VALUES (?, ?, ?, ?, ?, ?, ?)
+        `);
+        for (const c of (parsed.customers as Customer[])) {
+          custStmt.run(
+            c.id, c.name, c.phone, c.createdAt || new Date().toISOString(),
+            null, JSON.stringify(c.measurements || {}), JSON.stringify(c.styleDetails || {})
+          );
+
+          // History
+          if (Array.isArray(c.measurementHistory)) {
+            const histStmt = db.prepare(`
+              INSERT INTO customer_measurement_history (id, customer_id, saved_at, note, measurements_json, style_details_json)
+              VALUES (?, ?, ?, ?, ?, ?)
+            `);
+            for (const h of c.measurementHistory) {
+              histStmt.run(h.id, c.id, h.savedAt, h.note || '', JSON.stringify(h.measurements), JSON.stringify(h.styleDetails));
+            }
+          }
+        }
+
+        // Restore Fabrics
+        const fabStmt = db.prepare(`
+          INSERT INTO fabrics (id, name, color, color_hex, purchase_price, selling_price, quantity_meters, min_stock_meters, created_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `);
+        for (const f of (parsed.fabrics as FabricItem[])) {
+          fabStmt.run(
+            f.id, f.name, f.color, f.colorHex || '#ffffff',
+            f.purchasePrice || 0, f.sellingPrice || 0, f.quantityMeters || 0,
+            f.minStockMeters || 10, new Date().toISOString()
+          );
+        }
+
+        // Restore Accessories
+        const accStmt = db.prepare(`
+          INSERT INTO accessories (id, name, category, quantity, min_stock, unit, created_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?)
+        `);
+        for (const a of (parsed.accessories as AccessoryItem[])) {
+          accStmt.run(a.id, a.name, a.category, a.quantity || 0, a.minStock || 5, a.unit || 'حبة', new Date().toISOString());
+        }
+
+        // Restore Dress Types
+        const thbStmt = db.prepare(`
+          INSERT INTO dress_types (id, name, default_price, description)
+          VALUES (?, ?, ?, ?)
+        `);
+        for (const t of (parsed.thobeTypes as ThobeType[])) {
+          thbStmt.run(t.id, t.name, t.defaultPrice || 0, t.description || '');
+        }
+
+        // Restore Colors
+        const colStmt = db.prepare(`
+          INSERT INTO colors (id, name, hex)
+          VALUES (?, ?, ?)
+        `);
+        for (const cl of (parsed.colors as ColorItem[])) {
+          colStmt.run(cl.id, cl.name, cl.hex);
+        }
+
+        // Restore Orders
+        const ordStmt = db.prepare(`
+          INSERT INTO orders (
+            id, order_number, customer_id, customer_name, customer_phone,
+            thobe_type_id, thobe_type_name, fabric_id, fabric_name, fabric_color,
+            fabric_consumption_meters, fabric_buy_price_at_order, garment_count,
+            order_date, delivery_date, status, total_amount, paid_amount, remaining_amount,
+            is_custom_measurement, measurements_json, style_details_json, notes, created_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `);
+
+        for (const o of (parsed.orders as Order[])) {
+          const total = o.totalAmount || 0;
+          const paid = o.paidAmount || 0;
+          const remaining = total - paid;
+
+          ordStmt.run(
+            o.id, o.orderNumber, o.customerId, o.customerName, o.customerPhone,
+            o.thobeTypeId || null, o.thobeTypeName || 'ثوب', o.fabricId || null,
+            o.fabricName || 'قماش', o.fabricColor || 'أبيض',
+            o.fabricConsumptionMeters || 3.5, o.fabricBuyPriceAtOrder || 0,
+            o.garmentCount || 1, o.orderDate, o.deliveryDate, o.status || 'new',
+            total, paid, remaining, o.isCustomMeasurement ? 1 : 0,
+            JSON.stringify(o.measurements || {}), JSON.stringify(o.styleDetails || {}),
+            o.notes || '', o.createdAt || new Date().toISOString()
+          );
+        }
+
+        // Restore Invoices
+        if (Array.isArray(parsed.invoices)) {
+          const invStmt = db.prepare(`
+            INSERT INTO invoices (
+              id, invoice_number, order_id, customer_name, customer_phone,
+              order_date, total_amount, paid_amount, remaining_amount, payment_status, payments_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `);
+          for (const inv of (parsed.invoices as Invoice[])) {
+            const rem = (inv.totalAmount || 0) - (inv.paidAmount || 0);
+            invStmt.run(
+              inv.id, inv.invoiceNumber, inv.orderId, inv.customerName, inv.customerPhone,
+              inv.orderDate, inv.totalAmount || 0, inv.paidAmount || 0, rem,
+              inv.paymentStatus || 'unpaid', JSON.stringify(inv.payments || [])
+            );
+          }
+        }
+
+        // Restore Notifications
+        if (Array.isArray(parsed.notifications)) {
+          const notifStmt = db.prepare(`
+            INSERT INTO notifications (id, type, title, message, date, read, customer_phone)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+          `);
+          for (const n of (parsed.notifications as NotificationItem[])) {
+            notifStmt.run(n.id, n.type, n.title, n.message, n.date, n.read ? 1 : 0, n.customerPhone || null);
+          }
+        }
+      });
+
+      restoreTx();
+      return { success: true };
+    } catch (err: any) {
+      console.error('Restore error:', err);
+      return { success: false, error: err?.message || 'تعذر استيراد البيانات: فشل التحقق من بنية البيانات.' };
+    }
+  }
+
+  /**
+   * Full Json Exporter helper
+   */
+  public exportFullDataAsJson(): any {
+    const db = this.getRawDb();
+
+    const rawCustomers = db.prepare('SELECT * FROM customers').all() as any[];
+    const rawHistory = db.prepare('SELECT * FROM customer_measurement_history').all() as any[];
+    const rawFabrics = db.prepare('SELECT * FROM fabrics').all() as any[];
+    const rawAccessories = db.prepare('SELECT * FROM accessories').all() as any[];
+    const rawThobeTypes = db.prepare('SELECT * FROM dress_types').all() as any[];
+    const rawColors = db.prepare('SELECT * FROM colors').all() as any[];
+    const rawOrders = db.prepare('SELECT * FROM orders').all() as any[];
+    const rawInvoices = db.prepare('SELECT * FROM invoices').all() as any[];
+    const rawNotifications = db.prepare('SELECT * FROM notifications').all() as any[];
+
+    // Map history to customers
+    const historyMap = new Map<string, any[]>();
+    for (const h of rawHistory) {
+      const list = historyMap.get(h.customer_id) || [];
+      list.push({
+        id: h.id,
+        savedAt: h.saved_at,
+        note: h.note,
+        measurements: JSON.parse(h.measurements_json || '{}'),
+        styleDetails: JSON.parse(h.style_details_json || '{}')
+      });
+      historyMap.set(h.customer_id, list);
+    }
+
+    const customers = rawCustomers.map(c => ({
+      id: c.id,
+      name: c.name,
+      phone: c.phone,
+      createdAt: c.created_at,
+      measurements: JSON.parse(c.measurements_json || '{}'),
+      styleDetails: JSON.parse(c.style_details_json || '{}'),
+      measurementHistory: historyMap.get(c.id) || []
+    }));
+
+    const fabrics = rawFabrics.map(f => ({
+      id: f.id,
+      name: f.name,
+      color: f.color,
+      colorHex: f.color_hex,
+      purchasePrice: f.purchase_price,
+      sellingPrice: f.selling_price,
+      quantityMeters: f.quantity_meters,
+      minStockMeters: f.min_stock_meters
+    }));
+
+    const accessories = rawAccessories.map(a => ({
+      id: a.id,
+      name: a.name,
+      category: a.category,
+      quantity: a.quantity,
+      minStock: a.min_stock,
+      unit: a.unit
+    }));
+
+    const thobeTypes = rawThobeTypes.map(t => ({
+      id: t.id,
+      name: t.name,
+      defaultPrice: t.default_price,
+      description: t.description
+    }));
+
+    const colors = rawColors.map(cl => ({
+      id: cl.id,
+      name: cl.name,
+      hex: cl.hex
+    }));
+
+    const orders = rawOrders.map(o => ({
+      id: o.id,
+      orderNumber: o.order_number,
+      customerId: o.customer_id,
+      customerName: o.customer_name,
+      customerPhone: o.customer_phone,
+      thobeTypeId: o.thobe_type_id,
+      thobeTypeName: o.thobe_type_name,
+      fabricId: o.fabric_id,
+      fabricName: o.fabric_name,
+      fabricColor: o.fabric_color,
+      fabricConsumptionMeters: o.fabric_consumption_meters,
+      fabricBuyPriceAtOrder: o.fabric_buy_price_at_order,
+      garmentCount: o.garment_count,
+      orderDate: o.order_date,
+      deliveryDate: o.delivery_date,
+      status: o.status,
+      totalAmount: o.total_amount,
+      paidAmount: o.paid_amount,
+      remainingAmount: o.remaining_amount,
+      isCustomMeasurement: Boolean(o.is_custom_measurement),
+      measurements: JSON.parse(o.measurements_json || '{}'),
+      styleDetails: JSON.parse(o.style_details_json || '{}'),
+      notes: o.notes,
+      createdAt: o.created_at
+    }));
+
+    const invoices = rawInvoices.map(i => ({
+      id: i.id,
+      invoiceNumber: i.invoice_number,
+      orderId: i.order_id,
+      customerName: i.customer_name,
+      customerPhone: i.customer_phone,
+      orderDate: i.order_date,
+      totalAmount: i.total_amount,
+      paidAmount: i.paid_amount,
+      remainingAmount: i.remaining_amount,
+      paymentStatus: i.payment_status,
+      payments: JSON.parse(i.payments_json || '[]')
+    }));
+
+    const notifications = rawNotifications.map(n => ({
+      id: n.id,
+      type: n.type,
+      title: n.title,
+      message: n.message,
+      date: n.date,
+      read: Boolean(n.read),
+      customerPhone: n.customer_phone
+    }));
+
+    return { customers, fabrics, accessories, thobeTypes, colors, orders, invoices, notifications };
+  }
+
+  /**
+   * Excel Reports Generator (.xlsx)
+   */
+  public generateExcelReport(startDate?: string, endDate?: string): Buffer {
+    const db = this.getRawDb();
+
+    let query = 'SELECT * FROM orders';
+    const params: string[] = [];
+
+    if (startDate && endDate) {
+      query += ' WHERE order_date >= ? AND order_date <= ?';
+      params.push(startDate, endDate);
+    }
+    query += ' ORDER BY order_date DESC';
+
+    const orders = db.prepare(query).all(...params) as any[];
+
+    // Calculate Summary Metrics
+    let totalSales = 0;
+    let totalPaid = 0;
+    let totalRemaining = 0;
+    let totalCost = 0;
+
+    const orderRows = orders.map(o => {
+      totalSales += o.total_amount || 0;
+      totalPaid += o.paid_amount || 0;
+      totalRemaining += o.remaining_amount || 0;
+
+      const fabricCost = (o.fabric_consumption_meters || 3.5) * (o.fabric_buy_price_at_order || 0);
+      totalCost += fabricCost;
+
+      return {
+        'رقم الطلب': o.order_number,
+        'اسم العميل': o.customer_name,
+        'الجوال': o.customer_phone,
+        'نوع الثوب': o.thobe_type_name,
+        'القماش': `${o.fabric_name} (${o.fabric_color})`,
+        'عدد القطع': o.garment_count || 1,
+        'تاريخ الطلب': o.order_date,
+        'تاريخ التسليم': o.delivery_date,
+        'الحالة': o.status,
+        'الإجمالي (ر.س)': o.total_amount,
+        'المدفوع (ر.س)': o.paid_amount,
+        'المتبقي (ر.س)': o.remaining_amount,
+        'تكلفة القماش (ر.س)': fabricCost,
+        'الربح التقديري (ر.س)': (o.total_amount || 0) - fabricCost
+      };
+    });
+
+    const summaryRows = [
+      { 'البيان': 'إجمالي المبيعات', 'القيمة (ر.س)': totalSales },
+      { 'البيان': 'إجمالي المبالغ المحصلة', 'القيمة (ر.س)': totalPaid },
+      { 'البيان': 'إجمالي الذمم والديون المتبقية', 'القيمة (ر.س)': totalRemaining },
+      { 'البيان': 'إجمالي تكلفة الأقمشة المستخدمة', 'القيمة (ر.س)': totalCost },
+      { 'البيان': 'صافي الأرباح التقديرية', 'القيمة (ر.س)': totalSales - totalCost }
+    ];
+
+    // Build workbook
+    const wb = XLSX.utils.book_new();
+
+    const ordersWs = XLSX.utils.json_to_sheet(orderRows);
+    const summaryWs = XLSX.utils.json_to_sheet(summaryRows);
+
+    XLSX.utils.book_append_sheet(wb, summaryWs, 'الملخص المالي');
+    XLSX.utils.book_append_sheet(wb, ordersWs, 'قائمة الطلبات');
+
+    const excelBuffer = XLSX.write(wb, { bookType: 'xlsx', type: 'buffer' });
+    return excelBuffer;
+  }
+
+  /**
+   * Seed Data Generator
+   */
+  private seedInitialDataIfEmpty(): void {
+    const db = this.getRawDb();
+    const count = (db.prepare('SELECT COUNT(*) as cnt FROM customers').get() as any).cnt;
+    if (count > 0) return; // Already has data
+
+    // Initial Seeds
+    const seedCustomers: Customer[] = [
+      {
+        id: 'CUST-101',
+        name: 'عبدالمجيد السلمان',
+        phone: '0501234567',
+        createdAt: '2026-07-10',
+        measurements: { ...DEFAULT_MEASUREMENTS, frontLength: '148', shoulderWidth: '46', neckSize: '42' },
+        styleDetails: { ...DEFAULT_STYLE_DETAILS, neckType: 'قلاب عالي', buttonsType: 'صدف بيج فاخر' },
+        measurementHistory: []
+      },
+      {
+        id: 'CUST-102',
+        name: 'سعود بن عبدالعزيز المقرن',
+        phone: '0559876543',
+        createdAt: '2026-07-15',
+        measurements: { ...DEFAULT_MEASUREMENTS, frontLength: '152', sleeveLength: '64', bottomSweep: '82' },
+        styleDetails: { ...DEFAULT_STYLE_DETAILS, neckType: 'سادة (كويتي)', habroorType: 'حبرور بارز ٤ سم' },
+        measurementHistory: []
+      }
+    ];
+
+    const seedFabrics: FabricItem[] = [
+      {
+        id: 'FAB-01',
+        name: 'ياباني كريب فاخر - تويوبو',
+        color: 'أبيض نص لمعة',
+        colorHex: '#f8fafc',
+        purchasePrice: 45,
+        sellingPrice: 120,
+        quantityMeters: 45,
+        minStockMeters: 20
+      },
+      {
+        id: 'FAB-02',
+        name: 'سلك كوري ممتاز - تيجين',
+        color: 'كريمي فاتح',
+        colorHex: '#fef3c7',
+        purchasePrice: 35,
+        sellingPrice: 95,
+        quantityMeters: 12,
+        minStockMeters: 25
+      }
+    ];
+
+    const seedAccessories: AccessoryItem[] = [
+      { id: 'ACC-01', name: 'أزرار صدف طبيعي (علبة 500)', category: 'أزرار', quantity: 15, minStock: 5, unit: 'علبة' },
+      { id: 'ACC-02', name: 'حشوة يابانية للرقبة (رول)', category: 'حشوات', quantity: 2, minStock: 4, unit: 'رول' }
+    ];
+
+    const seedThobeTypes: ThobeType[] = [
+      { id: 'THB-01', name: 'ثوب سعودي كلاسيك', defaultPrice: 220, description: 'الرقبة القلاب القياسية والكبك التقليدي' },
+      { id: 'THB-02', name: 'ثوب كويتي فتحة صليب', defaultPrice: 240, description: 'بدون قلاب مع قَصّة كويتية ممتازة' }
+    ];
+
+    const seedColors: ColorItem[] = [
+      { id: 'COL-01', name: 'أبيض ناصع', hex: '#ffffff' },
+      { id: 'COL-02', name: 'أبيض نص لمعة', hex: '#f8fafc' },
+      { id: 'COL-03', name: 'كريمي فاتح', hex: '#fef3c7' }
+    ];
+
+    const seedTx = db.transaction(() => {
+      const cStmt = db.prepare('INSERT INTO customers (id, name, phone, created_at, measurements_json, style_details_json) VALUES (?, ?, ?, ?, ?, ?)');
+      seedCustomers.forEach(c => cStmt.run(c.id, c.name, c.phone, c.createdAt, JSON.stringify(c.measurements), JSON.stringify(c.styleDetails)));
+
+      const fStmt = db.prepare('INSERT INTO fabrics (id, name, color, color_hex, purchase_price, selling_price, quantity_meters, min_stock_meters, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)');
+      seedFabrics.forEach(f => fStmt.run(f.id, f.name, f.color, f.colorHex, f.purchasePrice, f.sellingPrice, f.quantityMeters, f.minStockMeters, new Date().toISOString()));
+
+      const aStmt = db.prepare('INSERT INTO accessories (id, name, category, quantity, min_stock, unit, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)');
+      seedAccessories.forEach(a => aStmt.run(a.id, a.name, a.category, a.quantity, a.minStock, a.unit, new Date().toISOString()));
+
+      const tStmt = db.prepare('INSERT INTO dress_types (id, name, default_price, description) VALUES (?, ?, ?, ?)');
+      seedThobeTypes.forEach(t => tStmt.run(t.id, t.name, t.defaultPrice, t.description));
+
+      const colStmt = db.prepare('INSERT INTO colors (id, name, hex) VALUES (?, ?, ?)');
+      seedColors.forEach(cl => colStmt.run(cl.id, cl.name, cl.hex));
+    });
+
+    seedTx();
+  }
+
+  public async close(): Promise<void> {
+    if (this.autoBackupTimer) clearInterval(this.autoBackupTimer);
+    if (this.db) {
+      try {
+        await this.backupDatabase('app_exit');
+      } catch (e) {
+        console.error('Error during app_exit backup:', e);
+      }
+      try {
+        this.db.close();
+      } catch (e) {
+        console.error('Error closing database:', e);
+      }
+    }
+  }
+}

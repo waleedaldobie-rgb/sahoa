@@ -1,0 +1,375 @@
+import React, { useState } from 'react';
+import { FabricItem, AccessoryItem, ThobeType, ColorItem } from '../types';
+import { Card, Button, Input, Select, Modal, EmptyState, Badge } from './ui';
+import { ConfirmModal } from './ConfirmModal';
+import {
+  Package,
+  Layers,
+  Sparkles,
+  Plus,
+  AlertTriangle,
+  Edit2,
+  Trash2,
+  CheckCircle2,
+  Palette,
+  Scissors,
+  ShoppingBag,
+  Database
+} from 'lucide-react';
+
+export interface InventoryViewProps {
+  fabrics: FabricItem[];
+  accessories: AccessoryItem[];
+  thobeTypes: ThobeType[];
+  colors: ColorItem[];
+  onSaveFabric: (fabric: FabricItem) => void;
+  onDeleteFabric: (id: string) => void;
+  onSaveAccessory: (accessory: AccessoryItem) => void;
+  onDeleteAccessory: (id: string) => void;
+  onSaveThobeType: (thobeType: ThobeType) => void;
+  onSaveColor: (color: ColorItem) => void;
+  showToast: (msg: string, type: 'success' | 'danger' | 'warning' | 'info') => void;
+}
+
+export const InventoryView: React.FC<InventoryViewProps> = ({
+  fabrics,
+  accessories,
+  thobeTypes,
+  colors,
+  onSaveFabric,
+  onDeleteFabric,
+  onSaveAccessory,
+  onDeleteAccessory,
+  onSaveThobeType,
+  onSaveColor,
+  showToast
+}) => {
+  const [activeTab, setActiveTab] = useState<'fabrics' | 'accessories' | 'models'>('fabrics');
+  const [deleteTarget, setDeleteTarget] = useState<{ type: 'fabric' | 'accessory'; id: string; name: string } | null>(null);
+
+  // Fabric Modal State
+  const [isFabricModalOpen, setIsFabricModalOpen] = useState(false);
+  const [fabricForm, setFabricForm] = useState<FabricItem>({
+    id: '',
+    name: '',
+    color: 'أبيض نص لمعة',
+    purchasePrice: 40,
+    sellingPrice: 100,
+    quantityMeters: 50,
+    minStockMeters: 20
+  });
+
+  // Accessory Modal State
+  const [isAccessoryModalOpen, setIsAccessoryModalOpen] = useState(false);
+  const [accessoryForm, setAccessoryForm] = useState<AccessoryItem>({
+    id: '',
+    name: '',
+    category: 'أزرار',
+    quantity: 10,
+    minStock: 5,
+    unit: 'حبة'
+  });
+
+  // Thobe Type Modal State
+  const [isThobeTypeModalOpen, setIsThobeTypeModalOpen] = useState(false);
+  const [thobeTypeForm, setThobeTypeForm] = useState<ThobeType>({
+    id: '',
+    name: '',
+    defaultPrice: 220,
+    description: ''
+  });
+
+  // Color Modal State
+  const [isColorModalOpen, setIsColorModalOpen] = useState(false);
+  const [colorForm, setColorForm] = useState<ColorItem>({
+    id: '',
+    name: '',
+    hex: '#ffffff'
+  });
+
+  // HANDLERS
+  const handleOpenAddFabric = () => {
+    setFabricForm({ id: '', name: '', color: 'أبيض نص لمعة', purchasePrice: 40, sellingPrice: 110, quantityMeters: 50, minStockMeters: 20 });
+    setIsFabricModalOpen(true);
+  };
+
+  const handleOpenEditFabric = (f: FabricItem) => {
+    setFabricForm({ ...f });
+    setIsFabricModalOpen(true);
+  };
+
+  const handleSaveFabricSubmit = () => {
+    if (!fabricForm.name.trim()) {
+      showToast('يرجى أدخال اسم القماش', 'danger');
+      return;
+    }
+    onSaveFabric({ ...fabricForm, id: fabricForm.id || 'FAB-' + Date.now() });
+    showToast('تم حفظ القماش بنجاح', 'success');
+    setIsFabricModalOpen(false);
+  };
+
+  const handleOpenAddAccessory = () => {
+    setAccessoryForm({ id: '', name: '', category: 'أزرار', quantity: 50, minStock: 10, unit: 'حبة' });
+    setIsAccessoryModalOpen(true);
+  };
+
+  const handleOpenEditAccessory = (acc: AccessoryItem) => {
+    setAccessoryForm({ ...acc });
+    setIsAccessoryModalOpen(true);
+  };
+
+  const handleSaveAccessorySubmit = () => {
+    if (!accessoryForm.name.trim()) {
+      showToast('يرجى كتابة اسم الصنف', 'danger');
+      return;
+    }
+    onSaveAccessory({ ...accessoryForm, id: accessoryForm.id || 'ACC-' + Date.now() });
+    showToast('تم حفظ صنف الإكسسوار بنجاح', 'success');
+    setIsAccessoryModalOpen(false);
+  };
+
+  const handleSaveThobeTypeSubmit = () => {
+    if (!thobeTypeForm.name.trim()) {
+      showToast('يرجى كتابة اسم الموديل', 'danger');
+      return;
+    }
+    onSaveThobeType({ ...thobeTypeForm, id: thobeTypeForm.id || 'THB-' + Date.now() });
+    showToast('تم حفظ موديل الثوب بنجاح', 'success');
+    setIsThobeTypeModalOpen(false);
+  };
+
+  const handleSaveColorSubmit = () => {
+    if (!colorForm.name.trim()) return;
+    onSaveColor({ ...colorForm, id: colorForm.id || 'COL-' + Date.now() });
+    showToast('تم إضافة اللون بنجاح', 'success');
+    setIsColorModalOpen(false);
+  };
+
+  return (
+    <div className="view-wrapper animate-in fade-in duration-300">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
+        <div className="page-header">
+          <h2 className="page-title flex items-center gap-3">
+            <Database className="w-7 h-7 text-[#111111]" />
+            المخزون والأصناف
+          </h2>
+          <p className="page-subtitle">إدارة الأقمشة، الإكسسوارات، وموديلات الثياب</p>
+        </div>
+        <div className="flex items-center gap-3">
+          {activeTab === 'fabrics' && (
+            <Button variant="primary" onClick={handleOpenAddFabric} icon={<Plus className="w-4 h-4" />} size="lg">
+              إضافة قماش جديد
+            </Button>
+          )}
+          {activeTab === 'accessories' && (
+            <Button variant="primary" onClick={handleOpenAddAccessory} icon={<Plus className="w-4 h-4" />} size="lg">
+              إضافة إكسسوار
+            </Button>
+          )}
+        </div>
+      </div>
+
+      <div className="flex items-center gap-1 p-1 bg-[#F3F4F6] rounded-xl w-fit">
+        {[
+          { id: 'fabrics', label: 'الأقمشة', icon: <Layers className="w-4 h-4" /> },
+          { id: 'accessories', label: 'الإكسسوارات', icon: <Package className="w-4 h-4" /> },
+          { id: 'models', label: 'الموديلات والألوان', icon: <Scissors className="w-4 h-4" /> }
+        ].map((tab) => (
+          <button
+            key={tab.id}
+            onClick={() => setActiveTab(tab.id as any)}
+            className={`px-6 py-2.5 rounded-lg text-xs font-black transition-all duration-200 flex items-center gap-2 ${
+              activeTab === tab.id ? 'bg-white text-[#111111] shadow-sm' : 'text-[#6B7280] hover:text-[#111111]'
+            }`}
+          >
+            {tab.icon}
+            {tab.label}
+          </button>
+        ))}
+      </div>
+
+      {activeTab === 'fabrics' && (
+        <Card className="p-0 overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="premium-table">
+              <thead>
+                <tr>
+                  <th>اسم القماش</th>
+                  <th>اللون</th>
+                  <th className="text-center">سعر البيع</th>
+                  <th className="text-center">المخزون</th>
+                  <th>الحالة</th>
+                  <th className="text-center">إجراءات</th>
+                </tr>
+              </thead>
+              <tbody>
+                {fabrics.map((fab) => {
+                  const isLowStock = fab.quantityMeters <= fab.minStockMeters;
+                  return (
+                    <tr key={fab.id}>
+                      <td className="font-black text-[#111111]">{fab.name}</td>
+                      <td className="font-bold text-[#4B5563]">{fab.color}</td>
+                      <td className="text-center font-black text-emerald-600 font-mono">{fab.sellingPrice} ر.س</td>
+                      <td className="text-center font-black font-mono">
+                        <span className={isLowStock ? 'text-rose-600' : 'text-[#111111]'}>{fab.quantityMeters} متر</span>
+                      </td>
+                      <td>
+                        <Badge variant={isLowStock ? 'amber' : 'emerald'}>
+                          {isLowStock ? 'مخزون منخفض' : 'متوفر'}
+                        </Badge>
+                      </td>
+                      <td className="text-center">
+                        <div className="flex items-center justify-center gap-2">
+                          <Button variant="secondary" size="sm" onClick={() => handleOpenEditFabric(fab)}>تعديل</Button>
+                          <Button variant="ghost" size="sm" onClick={() => setDeleteTarget({ type: 'fabric', id: fab.id, name: fab.name })} className="text-rose-600 hover:bg-rose-50">حذف</Button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </Card>
+      )}
+
+      {activeTab === 'accessories' && (
+        <Card className="p-0 overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="premium-table">
+              <thead>
+                <tr>
+                  <th>اسم الإكسسوار</th>
+                  <th>الفئة</th>
+                  <th className="text-center">الكمية</th>
+                  <th>الحالة</th>
+                  <th className="text-center">إجراءات</th>
+                </tr>
+              </thead>
+              <tbody>
+                {accessories.map((acc) => {
+                  const isLowStock = acc.quantity <= acc.minStock;
+                  return (
+                    <tr key={acc.id}>
+                      <td className="font-black text-[#111111]">{acc.name}</td>
+                      <td className="font-bold text-[#4B5563]">{acc.category}</td>
+                      <td className="text-center font-black font-mono">
+                        <span className={isLowStock ? 'text-rose-600' : 'text-[#111111]'}>{acc.quantity} {acc.unit}</span>
+                      </td>
+                      <td>
+                        <Badge variant={isLowStock ? 'amber' : 'emerald'}>
+                          {isLowStock ? 'كمية منخفضة' : 'متوفر'}
+                        </Badge>
+                      </td>
+                      <td className="text-center">
+                        <div className="flex items-center justify-center gap-2">
+                          <Button variant="secondary" size="sm" onClick={() => handleOpenEditAccessory(acc)}>تعديل</Button>
+                          <Button variant="ghost" size="sm" onClick={() => setDeleteTarget({ type: 'accessory', id: acc.id, name: acc.name })} className="text-rose-600 hover:bg-rose-50">حذف</Button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </Card>
+      )}
+
+      {activeTab === 'models' && (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+          <Card title="موديلات الثياب" headerIcon={<Scissors className="w-5 h-5" />}>
+             <div className="space-y-4">
+                {thobeTypes.map(t => (
+                  <div key={t.id} className="flex items-center justify-between p-4 bg-[#F9FAFB] rounded-xl border border-[#E5E7EB]">
+                    <div>
+                      <div className="font-black text-[#111111]">{t.name}</div>
+                      <div className="text-[10px] text-[#6B7280] font-bold">{t.description || 'لا يوجد وصف'}</div>
+                    </div>
+                    <div className="text-sm font-black font-mono text-emerald-600">{t.defaultPrice} ر.س</div>
+                  </div>
+                ))}
+                <Button variant="outline-dark" className="w-full border-dashed" onClick={() => setIsThobeTypeModalOpen(true)}>+ إضافة موديل جديد</Button>
+             </div>
+          </Card>
+
+          <Card title="الألوان المتاحة" headerIcon={<Palette className="w-5 h-5" />}>
+             <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                {colors.map(c => (
+                  <div key={c.id} className="flex items-center gap-3 p-3 bg-[#F9FAFB] rounded-xl border border-[#E5E7EB]">
+                    <div className="w-6 h-6 rounded-full border border-[#E5E7EB] shadow-sm" style={{ backgroundColor: c.hex }}></div>
+                    <span className="text-xs font-black text-[#111111]">{c.name}</span>
+                  </div>
+                ))}
+                <button 
+                  onClick={() => setIsColorModalOpen(true)}
+                  className="flex items-center justify-center gap-2 p-3 bg-white border-2 border-dashed border-[#E5E7EB] rounded-xl text-xs font-black text-[#6B7280] hover:border-[#111111] hover:text-[#111111] transition-all"
+                >
+                  + إضافة لون
+                </button>
+             </div>
+          </Card>
+        </div>
+      )}
+
+      {/* Modals */}
+      <ConfirmModal
+        isOpen={!!deleteTarget}
+        onClose={() => setDeleteTarget(null)}
+        onConfirm={() => {
+          if (deleteTarget) {
+            if (deleteTarget.type === 'fabric') onDeleteFabric(deleteTarget.id);
+            else onDeleteAccessory(deleteTarget.id);
+            setDeleteTarget(null);
+            showToast('تم الحذف بنجاح', 'success');
+          }
+        }}
+        title="تأكيد الحذف"
+        message={`هل أنت متأكد من حذف "${deleteTarget?.name}"؟`}
+        variant="danger"
+      />
+      
+      <Modal isOpen={isFabricModalOpen} onClose={() => setIsFabricModalOpen(false)} title={fabricForm.id ? 'تعديل قماش' : 'إضافة قماش جديد'}>
+        <div className="space-y-4">
+          <Input label="اسم القماش *" value={fabricForm.name} onChange={e => setFabricForm({...fabricForm, name: e.target.value})} />
+          <div className="grid grid-cols-2 gap-4">
+            <Input label="اللون" value={fabricForm.color} onChange={e => setFabricForm({...fabricForm, color: e.target.value})} />
+            <Input label="المخزون (متر)" type="number" value={fabricForm.quantityMeters} onChange={e => setFabricForm({...fabricForm, quantityMeters: Number(e.target.value)})} />
+          </div>
+          <Button variant="primary" className="w-full mt-4" onClick={handleSaveFabricSubmit}>حفظ البيانات</Button>
+        </div>
+      </Modal>
+
+      <Modal isOpen={isAccessoryModalOpen} onClose={() => setIsAccessoryModalOpen(false)} title={accessoryForm.id ? 'تعديل إكسسوار' : 'إضافة إكسسوار جديد'}>
+        <div className="space-y-4">
+          <Input label="اسم الصنف *" value={accessoryForm.name} onChange={e => setAccessoryForm({...accessoryForm, name: e.target.value})} />
+          <div className="grid grid-cols-2 gap-4">
+            <Select label="الفئة" value={accessoryForm.category} onChange={e => setAccessoryForm({...accessoryForm, category: e.target.value as any})}>
+              <option value="أزرار">أزرار</option>
+              <option value="خيوط">خيوط</option>
+              <option value="إكسسوارات أخرى">إكسسوارات أخرى</option>
+            </Select>
+            <Input label="الكمية" type="number" value={accessoryForm.quantity} onChange={e => setAccessoryForm({...accessoryForm, quantity: Number(e.target.value)})} />
+          </div>
+          <Button variant="primary" className="w-full mt-4" onClick={handleSaveAccessorySubmit}>حفظ الإكسسوار</Button>
+        </div>
+      </Modal>
+
+      <Modal isOpen={isThobeTypeModalOpen} onClose={() => setIsThobeTypeModalOpen(false)} title="إضافة موديل ثوب جديد">
+        <div className="space-y-4">
+          <Input label="اسم الموديل *" value={thobeTypeForm.name} onChange={e => setThobeTypeForm({...thobeTypeForm, name: e.target.value})} />
+          <Input label="السعر الافتراضي (ر.س)" type="number" value={thobeTypeForm.defaultPrice} onChange={e => setThobeTypeForm({...thobeTypeForm, defaultPrice: Number(e.target.value)})} />
+          <Button variant="primary" className="w-full mt-4" onClick={handleSaveThobeTypeSubmit}>إضافة الموديل</Button>
+        </div>
+      </Modal>
+
+      <Modal isOpen={isColorModalOpen} onClose={() => setIsColorModalOpen(false)} title="إضافة لون جديد">
+        <div className="space-y-4">
+          <Input label="اسم اللون *" value={colorForm.name} onChange={e => setColorForm({...colorForm, name: e.target.value})} />
+          <Input label="كود اللون (Hex)" value={colorForm.hex} onChange={e => setColorForm({...colorForm, hex: e.target.value})} />
+          <Button variant="primary" className="w-full mt-4" onClick={handleSaveColorSubmit}>إضافة اللون</Button>
+        </div>
+      </Modal>
+    </div>
+  );
+};
