@@ -24,7 +24,14 @@ jobs:
           node-version: 22
           cache: npm
 
+      - name: Set up Python for native modules
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
       - name: Install dependencies
+        env:
+          npm_config_python: ${{ env.pythonLocation }}\\python.exe
         run: npm ci
 
       - name: Verify TypeScript and automated tests
