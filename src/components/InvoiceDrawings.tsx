@@ -97,19 +97,23 @@ export const NeckDrawing = ({ neckType, neckShape, highlighted }: InvoiceDrawing
 
       {selectedNeck === 'سادة مدور' && (
         <g aria-label="رقبة سادة مدور">
+          {/* البيضاويان العلويان: حافة الرقبة الخارجية والحافة الداخلية */}
           <g stroke="#111111" fill="none">
-            <path d="M12 40 C12 22 29 12 50 12 C71 12 88 22 88 40" strokeWidth="2.2" />
-            <path d="M17 40 C18 28 32 19 50 19 C68 19 82 28 83 40" strokeWidth="1.15" />
-            <path d="M12 40 C17 54 33 64 50 66 C67 64 83 54 88 40" strokeWidth="2.2" />
-          </g>
-          <g stroke="#111111" fill="none">
-            <path d="M12 40 L14 68 C15 80 30 88 50 90 C70 88 85 80 86 68 L88 40" strokeWidth="2.2" />
-            <path d="M16 44 L18 67 C20 76 33 83 50 85 C67 83 80 76 82 67 L84 44" strokeWidth="0.9" stroke="#4B5563" strokeDasharray="3 2" />
-            <path d="M16 42 C22 53 35 60 50 62 C65 60 78 53 84 42" strokeWidth="0.9" stroke="#4B5563" strokeDasharray="3 2" />
-          </g>
-          <g stroke="#111111" fill="white">
-            <path d="M50 63 C58 63 64 68 64 76 C64 84 58 88 50 90 L50 69 Z" strokeWidth="1.9" />
-            <path d="M53 67 C59 69 61 72 61 77 C61 81 58 84 53 86" stroke="#4B5563" strokeWidth="0.85" strokeDasharray="3 2" fill="none" />
+            <path d="M16 23 C16 14 31 8 50 8 C69 8 84 14 84 23" strokeWidth="2" />
+            <path d="M18 23 C18 16 32 11 50 11 C68 11 82 16 82 23" strokeWidth="1.15" />
+
+            {/* القوس الداخلي الأمامي للفتحة */}
+            <path d="M18 23 C26 31 39 36 50 37 C61 36 74 31 82 23" strokeWidth="2" />
+
+            {/* جسم الرقبة الأسطواني */}
+            <path d="M16 23 V43 C16 52 31 58 50 59 C69 58 84 52 84 43 V23" strokeWidth="2" />
+
+            {/* خطوط الكتف الجانبية */}
+            <path d="M16 43 L2 53 M84 43 L98 53" strokeWidth="1.7" />
+
+            {/* فتحة الوسط والجزء الأمامي الطويل */}
+            <path d="M50 37 C47 37 46 40 46 43 V59" strokeWidth="1.9" />
+            <path d="M46 59 V92 M54 59 V92" strokeWidth="1.9" />
           </g>
         </g>
       )}
