@@ -42,7 +42,7 @@ jobs:
           npm test
 
       - name: Build Windows installer
-        run: npm run dist
+        run: npm run dist -- --publish never
 
       - name: Publish installer checksum in workflow summary
         shell: pwsh
