@@ -96,22 +96,19 @@ export const NeckDrawing = ({ neckType, neckShape, highlighted }: InvoiceDrawing
       )}
 
       {selectedNeck === 'سادة مدور' && (
-        <g aria-label="رقبة سادة مدور">
-          {/* البيضاويان العلويان: حافة الرقبة الخارجية والحافة الداخلية */}
-          <g stroke="#111111" fill="none">
+        <g aria-label="رقبة سادة مدور" stroke="#111111" fill="none">
+          <g aria-label="حلقة الرقبة">
             <path d="M16 23 C16 14 31 8 50 8 C69 8 84 14 84 23" strokeWidth="2" />
             <path d="M18 23 C18 16 32 11 50 11 C68 11 82 16 82 23" strokeWidth="1.15" />
-
-            {/* القوس الداخلي الأمامي للفتحة */}
             <path d="M18 23 C26 31 39 36 50 37 C61 36 74 31 82 23" strokeWidth="2" />
+          </g>
 
-            {/* جسم الرقبة الأسطواني */}
+          <g aria-label="جسم الرقبة">
             <path d="M16 23 V43 C16 52 31 58 50 59 C69 58 84 52 84 43 V23" strokeWidth="2" />
-
-            {/* خطوط الكتف الجانبية */}
             <path d="M16 43 L2 53 M84 43 L98 53" strokeWidth="1.7" />
+          </g>
 
-            {/* فتحة الوسط والجزء الأمامي الطويل */}
+          <g aria-label="الفتحة الأمامية">
             <path d="M50 37 C47 37 46 40 46 43 V59" strokeWidth="1.9" />
             <path d="M46 59 V92 M54 59 V92" strokeWidth="1.9" />
           </g>
