@@ -12,7 +12,7 @@ permissions:
 jobs:
   build-windows-installer:
     name: Build Setup.exe on Windows
-    runs-on: windows-latest
+    runs-on: windows-2022
 
     steps:
       - name: Checkout source
@@ -21,7 +21,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
 
       - name: Install dependencies
