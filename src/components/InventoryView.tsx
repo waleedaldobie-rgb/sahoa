@@ -1,20 +1,15 @@
 import React, { useState } from 'react';
-import { FabricItem, AccessoryItem, ThobeType, ColorItem } from '../types';
-import { Card, Button, Input, Select, Modal, EmptyState, Badge } from './ui';
+import { FabricItem, AccessoryItem, ThobeType, ColorItem, StockMovement, InventoryItemType } from '../types';
+import { Card, Button, Input, Select, Modal, Badge } from './ui';
 import { ConfirmModal } from './ConfirmModal';
 import {
   Package,
   Layers,
-  Sparkles,
   Plus,
-  AlertTriangle,
-  Edit2,
-  Trash2,
-  CheckCircle2,
   Palette,
   Scissors,
-  ShoppingBag,
-  Database
+  Database,
+  ClipboardList
 } from 'lucide-react';
 
 export interface InventoryViewProps {
@@ -28,6 +23,8 @@ export interface InventoryViewProps {
   onDeleteAccessory: (id: string) => void;
   onSaveThobeType: (thobeType: ThobeType) => void;
   onSaveColor: (color: ColorItem) => void;
+  stockMovements?: StockMovement[];
+  onAdjustStock?: (itemType: InventoryItemType, itemId: string, quantity: number, reason: string, direction: 'adjustment' | 'return') => Promise<void> | void;
   showToast: (msg: string, type: 'success' | 'danger' | 'warning' | 'info') => void;
 }
 
@@ -42,9 +39,16 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
   onDeleteAccessory,
   onSaveThobeType,
   onSaveColor,
+  stockMovements = [],
+  onAdjustStock,
   showToast
 }) => {
-  const [activeTab, setActiveTab] = useState<'fabrics' | 'accessories' | 'models'>('fabrics');
+  const [activeTab, setActiveTab] = useState<'fabrics' | 'accessories' | 'models' | 'movements'>('fabrics');
+  const [movementType, setMovementType] = useState<InventoryItemType>('fabric');
+  const [movementItemId, setMovementItemId] = useState('');
+  const [movementQuantity, setMovementQuantity] = useState('');
+  const [movementDirection, setMovementDirection] = useState<'adjustment' | 'return'>('adjustment');
+  const [movementReason, setMovementReason] = useState('');
   const [deleteTarget, setDeleteTarget] = useState<{ type: 'fabric' | 'accessory'; id: string; name: string } | null>(null);
 
   // Fabric Modal State
@@ -145,6 +149,21 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
     setIsColorModalOpen(false);
   };
 
+  const handleAdjustStockSubmit = async () => {
+    const quantity = Number(movementQuantity);
+    if (!movementItemId || !movementReason.trim() || !Number.isFinite(quantity) || quantity === 0) {
+      showToast('اختر الصنف وأدخل كمية وسبباً صحيحاً للتسوية', 'danger');
+      return;
+    }
+    if (!onAdjustStock) return;
+    await onAdjustStock(movementType, movementItemId, quantity, movementReason, movementDirection);
+    setMovementQuantity('');
+    setMovementReason('');
+    showToast('تم تسجيل حركة التسوية بنجاح', 'success');
+  };
+
+  const movementItems = movementType === 'fabric' ? fabrics : accessories;
+
   return (
     <div className="view-wrapper animate-in fade-in duration-300">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
@@ -173,7 +192,8 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
         {[
           { id: 'fabrics', label: 'الأقمشة', icon: <Layers className="w-4 h-4" /> },
           { id: 'accessories', label: 'الإكسسوارات', icon: <Package className="w-4 h-4" /> },
-          { id: 'models', label: 'الموديلات والألوان', icon: <Scissors className="w-4 h-4" /> }
+          { id: 'models', label: 'الموديلات والألوان', icon: <Scissors className="w-4 h-4" /> },
+          { id: 'movements', label: 'حركة المخزون', icon: <Database className="w-4 h-4" /> }
         ].map((tab) => (
           <button
             key={tab.id}
@@ -308,6 +328,23 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
                   + إضافة لون
                 </button>
              </div>
+          </Card>
+        </div>
+      )}
+
+      {activeTab === 'movements' && (
+        <div className="space-y-6">
+          <Card title="تسوية مخزون مصرح بها" subtitle="تستخدم للزيادة أو النقص بعد التحقق الفعلي من الكمية" headerIcon={<Database className="w-5 h-5" />}>
+            <div className="grid grid-cols-1 md:grid-cols-5 gap-3 items-end">
+              <Select label="نوع الصنف" value={movementType} onChange={(e) => { setMovementType(e.target.value as InventoryItemType); setMovementItemId(''); }}><option value="fabric">قماش</option><option value="accessory">مستلزم / إكسسوار</option></Select>
+              <Select label="الصنف" value={movementItemId} onChange={(e) => setMovementItemId(e.target.value)}><option value="">اختر الصنف</option>{movementItems.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</Select>
+              <Input label="الكمية" type="number" step="0.01" value={movementQuantity} onChange={(e) => setMovementQuantity(e.target.value)} placeholder="النقص بالسالب" />
+              <Select label="نوع الحركة" value={movementDirection} onChange={(e) => setMovementDirection(e.target.value as 'adjustment' | 'return')}><option value="adjustment">تسوية زيادة / نقص</option><option value="return">إرجاع</option></Select>
+              <div className="flex gap-2"><Input label="السبب" value={movementReason} onChange={(e) => setMovementReason(e.target.value)} placeholder="جرد فعلي" /><Button type="button" className="h-12" onClick={handleAdjustStockSubmit}>حفظ</Button></div>
+            </div>
+          </Card>
+          <Card title="سجل حركة كل صنف" subtitle="شراء، صرف للطلبات، إرجاع وتسويات مع الرصيد قبل وبعد الحركة" headerIcon={<ClipboardList className="w-5 h-5" />}>
+            <div className="overflow-x-auto"><table className="premium-table"><thead><tr><th>التاريخ والوقت</th><th>الصنف</th><th>الحركة</th><th>الكمية</th><th>قبل</th><th>بعد</th><th>السبب</th><th>المرجع</th></tr></thead><tbody>{stockMovements.length === 0 ? <tr><td colSpan={8} className="p-10 text-center text-slate-400 font-bold">لا توجد حركات مخزون بعد</td></tr> : stockMovements.map((movement) => <tr key={movement.id}><td className="text-xs font-bold">{new Date(movement.createdAt).toLocaleString('ar-SA')}</td><td className="font-black">{movement.itemName}</td><td><Badge variant={movement.direction === 'purchase' || movement.direction === 'return' ? 'emerald' : movement.direction === 'sale' ? 'red' : 'slate'}>{movement.direction === 'purchase' ? 'شراء' : movement.direction === 'sale' ? 'صرف طلب' : movement.direction === 'return' ? 'إرجاع' : 'تسوية'}</Badge></td><td className="font-black">{movement.quantity} {movement.unit}</td><td>{movement.quantityBefore}</td><td className="font-black">{movement.quantityAfter}</td><td>{movement.reason}</td><td className="text-xs">{movement.referenceNumber || movement.referenceId || '—'}</td></tr>)}</tbody></table></div>
           </Card>
         </div>
       )}

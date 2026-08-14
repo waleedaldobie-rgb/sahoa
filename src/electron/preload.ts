@@ -1,5 +1,13 @@
 import { contextBridge, ipcRenderer } from 'electron';
-import { Customer, Order, FabricItem, AccessoryItem, Invoice, UserPreferences, ThobeType, ColorItem } from '../types';
+import {
+  Customer,
+  Order,
+  FabricItem,
+  AccessoryItem,
+  ThobeType,
+  ColorItem,
+  InventoryItemType
+} from '../types';
 
 export const electronBridge = {
   // Customers
@@ -38,8 +46,20 @@ export const electronBridge = {
 
   // Invoices & Payments
   getInvoices: () => ipcRenderer.invoke('invoices:list'),
-  addPayment: (invoiceId: string, amount: number, method: string, note: string) =>
-    ipcRenderer.invoke('invoices:addPayment', invoiceId, amount, method, note),
+  addPayment: (invoiceId: string, amount: number, method: string, note: string, paymentId?: string) =>
+    ipcRenderer.invoke('invoices:addPayment', invoiceId, amount, method, note, paymentId),
+
+  // Inventory movements, purchases, expenses & cash ledger
+  getStockMovements: (itemType?: InventoryItemType, itemId?: string) => ipcRenderer.invoke('stockMovements:list', itemType, itemId),
+  adjustStock: (itemType: InventoryItemType, itemId: string, quantity: number, reason: string, direction: 'adjustment' | 'return' = 'adjustment') =>
+    ipcRenderer.invoke('stock:adjust', itemType, itemId, quantity, reason, direction),
+  getPurchases: () => ipcRenderer.invoke('purchases:list'),
+  createPurchase: (purchase: any) => ipcRenderer.invoke('purchases:create', purchase),
+  getExpenses: () => ipcRenderer.invoke('expenses:list'),
+  createExpense: (expense: any) => ipcRenderer.invoke('expenses:create', expense),
+  getCashTransactions: () => ipcRenderer.invoke('cash:list'),
+  createCashAdjustment: (transaction: any) => ipcRenderer.invoke('cash:createAdjustment', transaction),
+  getOrderMaterialUsages: (orderId?: string) => ipcRenderer.invoke('orderMaterials:list', orderId),
 
   // System & Excel Reports
   exportBackup: () => ipcRenderer.invoke('system:backup'),

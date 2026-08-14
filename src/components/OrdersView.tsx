@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Order, Invoice, Customer, FabricItem, ThobeType, OrderStatus, CustomerMeasurements, CustomerStyleDetails, UserPreferences } from '../types';
+import { Order, Invoice, Customer, FabricItem, AccessoryItem, ThobeType, OrderStatus, CustomerMeasurements, CustomerStyleDetails, UserPreferences } from '../types';
 import { EMPTY_MEASUREMENTS, EMPTY_STYLE_DETAILS } from '../services/electronMock';
 import { Card, Button, Input, Select, Modal, EmptyState, Badge } from './ui';
 import { ConfirmModal } from './ConfirmModal';
@@ -10,20 +10,10 @@ import {
   Search,
   Plus,
   Printer,
-  MessageSquare,
-  CheckCircle2,
-  Clock,
-  PackageCheck,
   Calendar,
   Ruler,
-  ChevronDown,
-  Eye,
-  Send,
-  FileText,
   Trash2,
-  ArrowRight,
   Save,
-  UserPlus,
   User,
   Hash,
   ShoppingBag,
@@ -35,6 +25,7 @@ export interface OrdersViewProps {
   orders: Order[];
   customers: Customer[];
   fabrics: FabricItem[];
+  accessories?: AccessoryItem[];
   thobeTypes: ThobeType[];
   userPreferences?: UserPreferences;
   onSaveOrder: (order: Order) => void;
@@ -51,13 +42,13 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
   orders,
   customers,
   fabrics,
+  accessories = [],
   thobeTypes,
   userPreferences,
   onSaveOrder,
   onSaveCustomer,
   onUpdateOrderStatus,
   onDeleteOrder,
-  onSendWhatsAppNotice,
   showToast,
   initialSelectedOrder,
   openNewOrderTrigger
@@ -81,17 +72,20 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
   const [newCustomerPhone, setNewCustomerPhone] = useState('');
   const [inlineCustomer, setInlineCustomer] = useState<Customer | null>(null);
   const [selectedThobeTypeId, setSelectedThobeTypeId] = useState('');
-  const [typedThobeTypeName, setTypedThobeTypeName] = useState('');
   const [selectedFabricId, setSelectedFabricId] = useState('');
-  const [orderDate, setOrderDate] = useState(new Date().toISOString().split('T')[0]);
+  const [orderDate] = useState(new Date().toISOString().split('T')[0]);
   
   const defaultDelivery = new Date(Date.now() + 5 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
   const [deliveryDate, setDeliveryDate] = useState(defaultDelivery);
   
   const [totalAmount, setTotalAmount] = useState<number>(220);
   const [paidAmount, setPaidAmount] = useState<number>(100);
+  const [isTotalAmountManuallyEdited, setIsTotalAmountManuallyEdited] = useState(false);
   const [garmentCount, setGarmentCount] = useState<number>(1);
   const [notes, setNotes] = useState('');
+  const [selectedAccessoryId, setSelectedAccessoryId] = useState('');
+  const [accessoryQuantity, setAccessoryQuantity] = useState('1');
+  const [selectedMaterials, setSelectedMaterials] = useState<Array<{ itemType: 'accessory'; itemId: string; itemName: string; quantity: number; unit: string; unitCostAtUsage: number }>>([]);
 
   const remainingAmount = Math.max(0, totalAmount - paidAmount);
 
@@ -130,7 +124,8 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
     garmentCount,
     notes,
     newOrderMeasurements,
-    newOrderStyleDetails
+    newOrderStyleDetails,
+    selectedMaterials,
   ]);
 
   useEffect(() => {
@@ -146,15 +141,18 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
 
   const handleOpenNewOrder = () => {
     setIsSubmittingOrder(false);
+    setIsTotalAmountManuallyEdited(false);
     setGarmentCount(1);
     setSelectedCustomerId('');
     setInlineCustomer(null);
-    setTypedThobeTypeName('');
     setIsCreatingCustomerInline(false);
     setNewCustomerName('');
     setNewCustomerPhone('');
     setNewOrderMeasurements({ ...EMPTY_MEASUREMENTS });
     setNewOrderStyleDetails({ ...EMPTY_STYLE_DETAILS });
+    setSelectedAccessoryId('');
+    setAccessoryQuantity('1');
+    setSelectedMaterials([]);
     if (thobeTypes.length > 0) {
       setSelectedThobeTypeId(thobeTypes[0].id);
       setTotalAmount(thobeTypes[0].defaultPrice);
@@ -172,52 +170,61 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
     const found = thobeTypes.find((t) => t.id === thobeId);
     if (found) {
       setTotalAmount(found.defaultPrice * garmentCount);
+      setIsTotalAmountManuallyEdited(false);
     }
+  };
+
+  const handleAddAccessoryMaterial = () => {
+    const accessory = accessories.find((item) => item.id === selectedAccessoryId);
+    const quantity = Number(accessoryQuantity);
+    if (!accessory || !Number.isFinite(quantity) || quantity <= 0) {
+      showToast('اختر المستلزم وأدخل كمية صحيحة', 'danger');
+      return;
+    }
+    const alreadyAdded = selectedMaterials.find((material) => material.itemId === accessory.id);
+    const nextQuantity = (alreadyAdded?.quantity || 0) + quantity;
+    if (nextQuantity > accessory.quantity) {
+      showToast(`الكمية المتاحة من ${accessory.name} هي ${accessory.quantity} ${accessory.unit}`, 'danger');
+      return;
+    }
+    setSelectedMaterials((current) => [
+      ...current.filter((material) => material.itemId !== accessory.id),
+      { itemType: 'accessory', itemId: accessory.id, itemName: accessory.name, quantity: nextQuantity, unit: accessory.unit, unitCostAtUsage: accessory.purchasePrice || 0 }
+    ]);
+    setAccessoryQuantity('1');
+  };
+
+  const handleRemoveAccessoryMaterial = (itemId: string) => {
+    setSelectedMaterials((current) => current.filter((material) => material.itemId !== itemId));
   };
 
   const handleCreateOrder = async () => {
     if (isSubmittingOrder) return;
 
     let customer = inlineCustomer || customers.find((c) => c.id === selectedCustomerId);
-    
+
     if (isCreatingCustomerInline) {
       const name = newCustomerName.trim();
       const phone = newCustomerPhone.trim();
-
       if (!name || !phone) {
         showToast('يرجى إدخال اسم العميل ورقم الجوال للعميل الجديد', 'danger');
         return;
       }
 
       const existingCustomer = customers.find((c) => c.phone.trim() === phone);
-      if (existingCustomer) {
-        customer = {
-          ...existingCustomer,
-          measurements: { ...newOrderMeasurements },
-          styleDetails: { ...newOrderStyleDetails }
-        };
-        if (onSaveCustomer) await onSaveCustomer(customer);
-      } else {
-        const newCust: Customer = {
-          id: `CUS-${Date.now()}`,
-          name,
-          phone,
-          createdAt: new Date().toISOString(),
-          measurements: { ...newOrderMeasurements },
-          styleDetails: { ...newOrderStyleDetails },
-          measurementHistory: []
-        };
-        if (onSaveCustomer) await onSaveCustomer(newCust);
-        customer = newCust;
-      }
+      customer = existingCustomer
+        ? { ...existingCustomer, measurements: { ...newOrderMeasurements }, styleDetails: { ...newOrderStyleDetails } }
+        : {
+            id: `CUS-${Date.now()}`,
+            name,
+            phone,
+            createdAt: new Date().toISOString(),
+            measurements: { ...newOrderMeasurements },
+            styleDetails: { ...newOrderStyleDetails },
+            measurementHistory: []
+          };
     } else if (customer) {
-      const updatedCustomer = {
-        ...customer,
-        measurements: { ...newOrderMeasurements },
-        styleDetails: { ...newOrderStyleDetails }
-      };
-      if (onSaveCustomer) await onSaveCustomer(updatedCustomer);
-      customer = updatedCustomer;
+      customer = { ...customer, measurements: { ...newOrderMeasurements }, styleDetails: { ...newOrderStyleDetails } };
     }
 
     if (!customer) {
@@ -240,13 +247,9 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
       return;
     }
 
-    const typedName = (typedThobeTypeName || '').trim();
-    const matchedThobe = thobeTypes.find((t) => t.id === selectedThobeTypeId);
-    const thobe = matchedThobe || (typedName
-      ? { id: selectedThobeTypeId || `CUSTOM-THOBE-${Date.now()}`, name: typedName, defaultPrice: totalAmount / Math.max(1, garmentCount) }
-      : null);
+    const thobe = thobeTypes.find((t) => t.id === selectedThobeTypeId) || null;
     if (!thobe) {
-      showToast('يرجى كتابة نوع الثوب أو اختياره أولاً', 'danger');
+      showToast('يرجى اختيار نوع الثوب أولاً', 'danger');
       return;
     }
 
@@ -256,10 +259,21 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
       return;
     }
 
+    const requiredMeasurements: Array<[keyof CustomerMeasurements, string]> = [
+      ['frontLength', 'طول أمام'],
+      ['backLength', 'طول خلف'],
+      ['shoulderWidth', 'الكتف']
+    ];
+    const missingMeasurements = requiredMeasurements
+      .filter(([key]) => !String(newOrderMeasurements[key] || '').trim())
+      .map(([, label]) => label);
+    if (missingMeasurements.length > 0) {
+      showToast(`يرجى إدخال القياسات الأساسية قبل الحفظ: ${missingMeasurements.join('، ')}`, 'danger');
+      return;
+    }
+
     setIsSubmittingOrder(true);
-
     const newOrderNumber = String(1000 + orders.length + 1);
-
     const newOrder: Order = {
       id: 'ORD-' + Date.now(),
       orderNumber: newOrderNumber,
@@ -282,17 +296,24 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
       measurements: newOrderMeasurements,
       styleDetails: newOrderStyleDetails,
       notes,
+      materialUsages: selectedMaterials,
       createdAt: new Date().toISOString()
     };
 
     try {
-      localStorage.removeItem(draftKeyFor(customer.name, customer.phone, 'new-order'));
-    } catch { }
-
-    onSaveOrder(newOrder);
-    showToast(`تم تسجيل الطلب جديد رقم (#${newOrderNumber}) بنجاح!`, 'success');
-    setHasUnsavedChanges(false);
-    setIsNewOrderModalOpen(false);
+      await onSaveCustomer?.(customer);
+      await onSaveOrder(newOrder);
+      try {
+        localStorage.removeItem(draftKeyFor(customer.name, customer.phone, 'new-order'));
+      } catch { }
+      showToast(`تم تسجيل الطلب الجديد رقم (#${newOrderNumber}) بنجاح!`, 'success');
+      setHasUnsavedChanges(false);
+      setIsNewOrderModalOpen(false);
+    } catch {
+      showToast('تعذر حفظ الطلب. يرجى المحاولة مرة أخرى.', 'danger');
+    } finally {
+      setIsSubmittingOrder(false);
+    }
   };
 
   const handleCloseNewOrder = () => {
@@ -522,7 +543,7 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
              <div className="flex items-center gap-4 text-[#6B7280]">
                 <div className="flex items-center gap-1.5">
                   <span className={`w-2 h-2 rounded-full ${hasUnsavedChanges ? 'bg-amber-500 animate-pulse' : 'bg-emerald-500'}`}></span>
-                  <span className="text-[11px] font-black">{hasUnsavedChanges ? 'تعديلات غير محفوظة' : 'جميع البيانات محفوظة'}</span>
+                  <span className="text-[11px] font-black">{hasUnsavedChanges ? 'تعديلات غير محفوظة' : 'جاهز للحفظ النهائي'}</span>
                 </div>
              </div>
              <div className="flex items-center gap-3">
@@ -611,19 +632,21 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
                   {thobeTypes.map((t) => (
                     <option key={t.id} value={t.id}>{t.name} ({t.defaultPrice} ر.س)</option>
                   ))}
-                  <option value="custom">نوع مخصص...</option>
                 </Select>
 
-                <Select
-                  label="القماش واللون *"
-                  value={selectedFabricId}
-                  onChange={(e) => setSelectedFabricId(e.target.value)}
-                >
-                  <option value="">-- اختر القماش --</option>
-                  {fabrics.map((f) => (
-                    <option key={f.id} value={f.id}>{f.name} - {f.color} ({f.quantityMeters} متر)</option>
-                  ))}
-                </Select>
+                <div>
+                  <Select
+                    label="القماش واللون *"
+                    value={selectedFabricId}
+                    onChange={(e) => setSelectedFabricId(e.target.value)}
+                  >
+                    <option value="">-- اختر القماش --</option>
+                    {fabrics.map((f) => (
+                      <option key={f.id} value={f.id}>{f.name} - {f.color} ({f.quantityMeters} متر)</option>
+                    ))}
+                  </Select>
+                  {fabrics.length === 0 && <p className="mt-1 text-[10px] font-bold text-amber-700">لا توجد أقمشة مسجلة. أضف قماشاً من صفحة المخزون قبل حفظ الطلب.</p>}
+                </div>
 
                 <Input
                   label="تاريخ موعد التسليم *"
@@ -642,25 +665,55 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
                     const val = parseInt(e.target.value) || 1;
                     setGarmentCount(val);
                     const found = thobeTypes.find(t => t.id === selectedThobeTypeId);
-                    if (found) setTotalAmount(found.defaultPrice * val);
+                    if (found && !isTotalAmountManuallyEdited) {
+                      setTotalAmount(found.defaultPrice * val);
+                    }
                   }}
                 />
 
                 <Input
                   label="السعر الكلي (ر.س) *"
                   type="number"
-                  value={totalAmount}
-                  onChange={(e) => setTotalAmount(parseFloat(e.target.value) || 0)}
+                  min="0"
+                  step="0.01"
+                  inputMode="decimal"
+                  value={totalAmount === 0 ? '' : totalAmount}
+                  onFocus={(e) => e.currentTarget.select()}
+                  onChange={(e) => {
+                    const value = e.target.value;
+                    setIsTotalAmountManuallyEdited(true);
+                    setTotalAmount(value === '' ? 0 : Number(value));
+                  }}
                   icon={<CreditCard className="w-4 h-4" />}
                 />
 
                 <Input
                   label="المبلغ المدفوع (عربون) *"
                   type="number"
-                  value={paidAmount}
-                  onChange={(e) => setPaidAmount(parseFloat(e.target.value) || 0)}
+                  min="0"
+                  step="0.01"
+                  inputMode="decimal"
+                  value={paidAmount === 0 ? '' : paidAmount}
+                  onFocus={(e) => e.currentTarget.select()}
+                  onChange={(e) => setPaidAmount(e.target.value === '' ? 0 : Number(e.target.value))}
                   icon={<CreditCard className="w-4 h-4" />}
                 />
+              </div>
+
+              <div className="mt-5 pt-5 border-t border-[#F3F4F6] space-y-3">
+                <div className="flex items-center justify-between gap-3">
+                  <div><h4 className="text-sm font-black text-[#111111]">مواد مرتبطة بالطلب</h4><p className="text-[11px] text-[#6B7280] font-bold mt-1">اختياري — تُخصم من المخزون وتدخل بسعر الشراء التاريخي في التكلفة</p></div>
+                  <Badge variant="slate">{selectedMaterials.length} أصناف</Badge>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-[1fr_140px_auto] gap-3 items-end">
+                  <Select label="المستلزم / الإكسسوار" value={selectedAccessoryId} onChange={(e) => setSelectedAccessoryId(e.target.value)}>
+                    <option value="">-- اختر مستلزماً --</option>
+                    {accessories.map((accessory) => <option key={accessory.id} value={accessory.id}>{accessory.name} ({accessory.quantity} {accessory.unit})</option>)}
+                  </Select>
+                  <Input label="الكمية" type="number" min="0.01" step="0.01" value={accessoryQuantity} onChange={(e) => setAccessoryQuantity(e.target.value)} />
+                  <Button type="button" variant="secondary" onClick={handleAddAccessoryMaterial}>إضافة</Button>
+                </div>
+                {selectedMaterials.length > 0 && <div className="flex flex-wrap gap-2">{selectedMaterials.map((material) => <div key={material.itemId} className="inline-flex items-center gap-2 rounded-lg border border-[#D9D9D9] bg-[#F9FAFB] px-3 py-2 text-xs font-black"><span>{material.itemName} × {material.quantity} {material.unit}</span><span className="text-[#6B7280]">{material.quantity * material.unitCostAtUsage} ر.س</span><button type="button" className="text-rose-600 hover:underline" onClick={() => handleRemoveAccessoryMaterial(material.itemId)}>حذف</button></div>)}</div>}
               </div>
               
               <div className="mt-5 pt-5 border-t border-[#F3F4F6] flex items-center justify-between">
@@ -699,12 +752,25 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
               onChange={setNewOrderMeasurements}
               styleDetails={newOrderStyleDetails}
               onStyleChange={setNewOrderStyleDetails}
-              thobeTypeName={typedThobeTypeName}
-              onThobeTypeNameChange={setTypedThobeTypeName}
               customerName={isCreatingCustomerInline ? newCustomerName : inlineCustomer?.name}
               customerPhone={isCreatingCustomerInline ? newCustomerPhone : inlineCustomer?.phone}
               draftScope="new-order"
             />
+
+            <div className="mt-6 rounded-2xl border border-[#D9D9D9] bg-white p-5 shadow-sm">
+              <div className="flex items-center gap-2 mb-3">
+                <Notebook className="w-4 h-4 text-[#111111]" />
+                <label className="text-sm font-black text-[#111111]">ملاحظات الخياط</label>
+              </div>
+              <textarea
+                value={newOrderStyleDetails.tailorNotes || ''}
+                onChange={(e) => setNewOrderStyleDetails((prev) => ({ ...prev, tailorNotes: e.target.value }))}
+                placeholder="اكتب التعليمات الفنية الخاصة بالخياط أو المقص دار..."
+                rows={4}
+                className="w-full rounded-xl border-2 border-[#E5E7EB] bg-[#FAFAF8] px-4 py-3 text-sm font-bold text-[#111111] outline-none transition focus:border-[#111111] resize-y"
+              />
+              <p className="mt-2 text-[11px] font-bold text-[#6B7280]">تظهر هذه الملاحظات في أسفل الفاتورة المطبوعة.</p>
+            </div>
           </div>
         </div>
       </Modal>
@@ -825,8 +891,6 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
                 onChange={(m) => onSaveOrder({ ...selectedOrder, measurements: m })}
                 styleDetails={selectedOrder.styleDetails}
                 onStyleChange={(s) => onSaveOrder({ ...selectedOrder, styleDetails: s })}
-                thobeTypeName={selectedOrder.thobeTypeName}
-                onThobeTypeNameChange={(name) => onSaveOrder({ ...selectedOrder, thobeTypeName: name })}
                 customerName={selectedOrder.customerName}
                 customerPhone={selectedOrder.customerPhone}
                 draftScope={selectedOrder.id}

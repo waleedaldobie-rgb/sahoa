@@ -1,6 +1,6 @@
 import React, { Suspense, useEffect, useState } from 'react';
 import { Loader2 } from 'lucide-react';
-import { AppData, UserPreferences, Customer, Order, Invoice, FabricItem, AccessoryItem, ThobeType, ColorItem, PaymentRecord, OrderStatus, NotificationItem } from './types';
+import { AppData, UserPreferences, Customer, Order, Invoice, FabricItem, AccessoryItem, ThobeType, ColorItem, PaymentRecord, OrderStatus, InventoryItemType } from './types';
 import { initElectronMock } from './services/electronMock';
 import { formatIpcErrorMessage } from './utils/ipcError';
 import { checkAndSyncStockAlerts } from './utils/stockAlerts';
@@ -22,6 +22,7 @@ const OrdersView = React.lazy(() => import('./components/OrdersView').then((m) =
 const InvoicesView = React.lazy(() => import('./components/InvoicesView').then((m) => ({ default: m.InvoicesView })));
 const InventoryView = React.lazy(() => import('./components/InventoryView').then((m) => ({ default: m.InventoryView })));
 const ReportsView = React.lazy(() => import('./components/ReportsView').then((m) => ({ default: m.ReportsView })));
+const AccountingView = React.lazy(() => import('./components/AccountingView').then((m) => ({ default: m.AccountingView })));
 const SettingsView = React.lazy(() => import('./components/SettingsView').then((m) => ({ default: m.SettingsView })));
 
 // ==========================================
@@ -514,7 +515,7 @@ export default function App() {
 
     await executeCrud('جاري تسجيل الدفعة المالية...', async () => {
       if (window.electronAPI.addPayment) {
-        await window.electronAPI.addPayment(invoiceId, payment.amount, payment.method, payment.note || '');
+        await window.electronAPI.addPayment(invoiceId, payment.amount, payment.method, payment.note || '', payment.id);
         await loadAppData();
         showToast('تم إضافة الدفعة بنجاح', 'success');
       } else {
@@ -552,7 +553,35 @@ export default function App() {
     });
   };
 
-  // 4. Inventory Updaters
+  // 4. Purchases, Expenses & Cash Ledger
+  const handleCreatePurchase = async (payload: any) => {
+    await executeCrud('جاري اعتماد المشتريات وتحديث المخزون والصندوق...', async () => {
+      if (!window.electronAPI.createPurchase) throw new Error('وظيفة المشتريات غير متاحة في هذه النسخة');
+      await window.electronAPI.createPurchase(payload);
+      await loadAppData();
+      showToast('تم اعتماد المشتريات وتحديث المخزون والصندوق بنجاح', 'success');
+    });
+  };
+
+  const handleCreateExpense = async (payload: any) => {
+    await executeCrud('جاري تسجيل المصروف...', async () => {
+      if (!window.electronAPI.createExpense) throw new Error('وظيفة المصروفات غير متاحة في هذه النسخة');
+      await window.electronAPI.createExpense(payload);
+      await loadAppData();
+      showToast('تم تسجيل المصروف في الصندوق بنجاح', 'success');
+    });
+  };
+
+  const handleCreateCashAdjustment = async (payload: any) => {
+    await executeCrud('جاري تسجيل الحركة المالية...', async () => {
+      if (!window.electronAPI.createCashAdjustment) throw new Error('وظيفة الصندوق غير متاحة في هذه النسخة');
+      await window.electronAPI.createCashAdjustment(payload);
+      await loadAppData();
+      showToast('تم تسجيل الحركة المالية بنجاح', 'success');
+    });
+  };
+
+  // 5. Inventory Updaters
   const handleSaveFabric = async (fabric: FabricItem) => {
     const err = validateEntity('fabric', fabric);
     if (err) {
@@ -652,6 +681,14 @@ await executeCrud('جاري حذف الإكسسوار...', async () => {
         await persistData({ ...data, accessories: data.accessories.filter((a) => a.id !== id) });
         offerDeleteUndo(beforeDelete || data, 'تم حذف الإكسسوار');
       }
+    });
+    };
+
+  const handleAdjustStock = async (itemType: InventoryItemType, itemId: string, quantity: number, reason: string, direction: 'adjustment' | 'return') => {
+    await executeCrud('جاري تسجيل تسوية المخزون...', async () => {
+      if (!window.electronAPI.adjustStock) throw new Error('وظيفة حركة المخزون غير متاحة في هذه النسخة');
+      await window.electronAPI.adjustStock(itemType, itemId, quantity, reason, direction);
+      await loadAppData();
     });
   };
 
@@ -763,6 +800,11 @@ await executeCrud('جاري حذف الإكسسوار...', async () => {
           title: 'إدارة المخزون والأصناف',
           description: 'أصول الأقمشة، الإكسسوارات، موديلات الثياب، والألوان'
         };
+      case 'accounting':
+        return {
+          title: 'المحاسبة والمشتريات والصندوق',
+          description: 'ربط المشتريات والمصروفات والدفعات بالرصيد والتقارير'
+        };
       case 'reports':
         return {
           title: 'التقارير والإحصائيات المالية',
@@ -837,6 +879,7 @@ await executeCrud('جاري حذف الإكسسوار...', async () => {
               orders={data.orders}
               customers={data.customers}
               fabrics={data.fabrics}
+              accessories={data.accessories}
               thobeTypes={data.thobeTypes}
               userPreferences={prefs}
               onSaveOrder={handleSaveOrder}
@@ -874,12 +917,28 @@ await executeCrud('جاري حذف الإكسسوار...', async () => {
               onDeleteAccessory={handleDeleteAccessory}
               onSaveThobeType={handleSaveThobeType}
               onSaveColor={handleSaveColor}
+              stockMovements={data.stockMovements || []}
+              onAdjustStock={handleAdjustStock}
               showToast={showToast}
             />
           )}
 
           {prefs.activeTab === 'reports' && (
             <ReportsView data={data} showToast={showToast} />
+          )}
+
+          {prefs.activeTab === 'accounting' && (
+            <AccountingView
+              fabrics={data.fabrics}
+              accessories={data.accessories}
+              purchases={data.purchases || []}
+              expenses={data.expenses || []}
+              cashTransactions={data.cashTransactions || []}
+              onCreatePurchase={handleCreatePurchase}
+              onCreateExpense={handleCreateExpense}
+              onCreateCashAdjustment={handleCreateCashAdjustment}
+              showToast={showToast}
+            />
           )}
 
           {prefs.activeTab === 'settings' && (

@@ -1183,6 +1183,50 @@ input:focus, select:focus, textarea:focus {
   font-weight: 700;
 }
 
+.header-titles {
+  min-width: 0;
+}
+
+.header-contact-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 5px 10px;
+  margin-top: 8px;
+  color: #374151;
+  direction: rtl;
+}
+
+.header-contact-item {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  min-width: 0;
+  padding-inline-start: 9px;
+  border-inline-start: 1px solid #d1d5db;
+  line-height: 1.2;
+}
+
+.header-contact-item:first-child {
+  padding-inline-start: 0;
+  border-inline-start: 0;
+}
+
+.header-contact-label {
+  color: #6b7280;
+  font-size: 9px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.header-contact-value {
+  max-width: 190px;
+  overflow-wrap: anywhere;
+  color: #111111;
+  font-size: 10px;
+  font-weight: 900;
+}
+
 .header-meta-box {
   text-align: left;
   display: flex;
@@ -1223,12 +1267,17 @@ input:focus, select:focus, textarea:focus {
   overflow: hidden;
 }
 
+/* شبكة المعلومات: إطار أوضح مع فواصل ثابتة للطباعة الحرارية. */
+.invoice-grid-card {
+  border: 1.5px solid #111111;
+}
+
 .info-row-new {
   display: flex;
   justify-content: space-between;
   align-items: center;
   padding: 8px 12px;
-  border-bottom: 1px solid #f3f4f6;
+  border-bottom: 1px solid #9ca3af;
   font-size: 12px;
 }
 
@@ -1279,25 +1328,48 @@ input:focus, select:focus, textarea:focus {
   font-size: 13px;
   font-weight: 900;
   text-transform: uppercase;
-  border-bottom: 2px solid #000000;
+  border-bottom: 3px solid #000000;
   padding-bottom: 6px;
   margin-bottom: 10px;
   color: #000000;
   letter-spacing: 0.5px;
 }
 
+/* إطار القسم يربط العنوان والحقول بصرياً ويمنع التباس الصفوف. */
+.invoice-section-block {
+  border: 1.5px solid #111111;
+  border-radius: 6px;
+  padding: 8px;
+  background: #ffffff;
+}
+
+.invoice-section-block > .column-title {
+  margin: 0 0 8px;
+  padding: 0 2px 6px;
+}
+
 .measurements-group {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 9px;
+}
+
+/* شبكة القياسات: فاصل متصل بين كل صف بدلاً من الاعتماد على الفراغ فقط. */
+.measurements-grid-card {
+  gap: 0;
+  border: 1px solid #9ca3af;
+  border-radius: 4px;
+  overflow: hidden;
+  background: #ffffff;
 }
 
 .invoice-measure-cell-new {
   display: flex;
   align-items: center;
-  padding: 4px 0;
+  padding: 7px 6px;
+  min-height: 34px;
   background: #ffffff;
-  border-bottom: 1px solid #f3f4f6;
+  border-bottom: 1px solid #9ca3af;
 }
 
 .invoice-measure-cell-new:last-child {
@@ -1332,9 +1404,13 @@ input:focus, select:focus, textarea:focus {
 .invoice-measure-cell-new::after {
   content: "";
   flex: 1;
-  border-bottom: 1px dotted #d1d5db;
+  border-bottom: 1px solid #d1d5db;
   height: 1px;
   margin-top: 4px;
+}
+
+.measurements-grid-card > .invoice-measure-cell-new::after {
+  border-bottom: 0;
 }
 
 .invoice-label-new { order: 1; }
@@ -1350,11 +1426,19 @@ input:focus, select:focus, textarea:focus {
   margin-top: 4px;
 }
 
+.measurements-grid-card > .combined-measure-box {
+  margin-top: 0;
+  border-width: 0;
+  border-radius: 0;
+  border-bottom: 1px solid #9ca3af;
+}
+
 .measure-row-inline {
   display: flex;
   align-items: center;
-  padding: 4px 0;
-  border-bottom: 1px solid #f3f4f6;
+  padding: 6px 6px;
+  min-height: 32px;
+  border-bottom: 1px solid #9ca3af;
 }
 
 .measure-row-inline:last-child {
@@ -1378,10 +1462,41 @@ input:focus, select:focus, textarea:focus {
   order: 3;
 }
 
+/* صف اليد: القياس ونوع اليد يبقيان متجاورين لتُقرأ المعلومة كوحدة واحدة. */
+.hand-measure-row {
+  gap: 6px;
+  justify-content: space-between;
+}
+
+.hand-measure-row::after {
+  display: none;
+}
+
+.hand-measure-pair {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  flex: 1 1 0;
+}
+
+.hand-measure-pair .invoice-label-new {
+  min-width: 0;
+  font-size: 10px;
+}
+
+.hand-measure-pair .invoice-value-new {
+  flex: 1 1 auto;
+  min-width: 30px;
+  margin: 0;
+  padding: 2px 4px;
+  font-size: 12px;
+}
+
 .hand-cuffs-grid {
   display: grid;
   grid-template-columns: repeat(5, 1fr);
-  border-top: 1px solid #e5e7eb;
+  border-top: 1px solid #9ca3af;
 }
 
 .cuff-box {
@@ -1389,7 +1504,7 @@ input:focus, select:focus, textarea:focus {
   flex-direction: column;
   align-items: center;
   padding: 4px 2px;
-  border-left: 1px solid #f3f4f6;
+  border-left: 1px solid #9ca3af;
 }
 
 .cuff-box:last-child {
@@ -1415,14 +1530,14 @@ input:focus, select:focus, textarea:focus {
 }
 
 .drawing-group-card {
-  border: 1px solid #e5e7eb;
-  border-radius: 8px;
+  border: 1.5px solid #111111;
+  border-radius: 6px;
   overflow: hidden;
 }
 
 .invoice-drawing-card {
   background: #ffffff;
-  border: 1px solid #e5e7eb;
+  border: 1.5px solid #111111;
   border-radius: 8px;
   padding: 10px;
   display: flex;
@@ -1430,11 +1545,57 @@ input:focus, select:focus, textarea:focus {
   gap: 8px;
 }
 
+.jabzour-composite-card {
+  background: #ffffff;
+  border: 1.5px solid #111111;
+  border-radius: 8px;
+  padding: 10px;
+}
+
+.jabzour-drawing-pair {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.invoice-mini-drawing-card {
+  min-width: 0;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  background: #fdfdfd;
+  padding: 5px;
+}
+
+.invoice-mini-drawing-label {
+  padding-bottom: 4px;
+  border-bottom: 1px solid #e5e7eb;
+  color: #4b5563;
+  font-size: 9px;
+  font-weight: 900;
+  line-height: 1.2;
+  text-align: center;
+}
+
+.invoice-mini-drawing-body {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 72px;
+  padding-top: 5px;
+}
+
+.invoice-mini-drawing-body svg {
+  width: 100%;
+  max-width: 48px;
+  height: 70px;
+}
+
 .invoice-drawing-header {
   display: flex;
   justify-content: space-between;
-  border-bottom: 1px solid #f3f4f6;
-  padding-bottom: 5px;
+  border-bottom: 1.5px solid #111111;
+  padding-bottom: 7px;
 }
 
 .invoice-drawing-body {
@@ -1445,12 +1606,76 @@ input:focus, select:focus, textarea:focus {
   min-height: 80px;
 }
 
+/* Neck specifications belong with the neck drawing, not the basic-measurement column. */
+.neck-drawing-specs {
+  width: 100%;
+  display: grid;
+  gap: 4px;
+  margin-top: 6px;
+  direction: rtl;
+}
+
+.neck-drawing-spec-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  min-height: 28px;
+  padding-top: 4px;
+  border-top: 1px solid #d9d9d9;
+}
+
+.neck-drawing-spec-row .invoice-label-new {
+  min-width: 0;
+  font-size: 10px;
+}
+
+.neck-drawing-spec-row .invoice-value-new {
+  min-width: 36px;
+  margin: 0;
+  padding: 2px 6px;
+  font-size: 11px;
+}
+
+.neck-drawing-spec-row-combined {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(24px, auto) minmax(0, 1.35fr);
+  justify-content: initial;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  min-width: 0;
+}
+
+.neck-drawing-spec-row-combined .invoice-label-new,
+.neck-drawing-spec-row-combined .invoice-value-new {
+  min-width: 0;
+  max-width: 100%;
+  margin: 0;
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+
+.neck-drawing-spec-row-combined .invoice-value-new {
+  padding: 2px 4px;
+  font-size: 10px;
+}
+
+.neck-drawing-spec-row-combined .invoice-value-new:last-child {
+  min-width: 0;
+}
+
 .invoice-main-drawing {
   width: 100%;
   max-width: 55px; /* Further reduced for elegance */
   height: auto;
   padding: 0;
   margin: 0 auto;
+}
+
+/* The pocket drawing carries two dimension guides, so it needs a wider canvas. */
+.invoice-drawing-body .invoice-main-drawing.pocket-dimension-drawing {
+  max-width: 88px;
 }
 
 /* Specific size for worksheet (larger) vs invoice (smaller) */
@@ -1475,16 +1700,58 @@ input:focus, select:focus, textarea:focus {
   border-top: 1px solid #e5e7eb;
 }
 
+.pocket-dimensions-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 6px 8px;
+  border-bottom: 1px solid #e5e7eb;
+  background: #f9fafb;
+  direction: rtl;
+}
+
+.pocket-dimensions-row > .invoice-label-new {
+  flex: 0 0 auto;
+  min-width: 0;
+  font-size: 10px;
+}
+
+.pocket-dimensions-values {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-start;
+  gap: 4px;
+  min-width: 0;
+}
+
+.pocket-dimension-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 42px;
+  padding: 3px 5px;
+  border: 1px solid #111111;
+  border-radius: 4px;
+  background: #ffffff;
+  color: #111111;
+  font-size: 10px;
+  font-weight: 900;
+  line-height: 1.1;
+  white-space: nowrap;
+}
+
 /* Step Measure Card */
 .step-measure-card {
   margin-top: 10px;
   padding: 15px;
-  border: 2px dashed #d1d5db;
-  border-radius: 8px;
+  border: 2px solid #111111;
+  border-radius: 4px;
   text-align: center;
   display: flex;
   flex-direction: column;
   gap: 5px;
+  background: #ffffff;
 }
 
 .step-value-large {
@@ -1496,6 +1763,8 @@ input:focus, select:focus, textarea:focus {
 /* Notes */
 .invoice-luxury-notes {
   margin-top: 10px;
+  padding-top: 10px;
+  border-top: 2px solid #111111;
 }
 
 .notes-content-box {
@@ -1505,6 +1774,13 @@ input:focus, select:focus, textarea:focus {
   font-size: 12px;
   min-height: 60px;
   background: #fdfdfd;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.tailor-notes-box {
+  border-top: 2px solid #111111;
+  padding-top: 10px;
 }
 
 /* Footer */
@@ -1551,18 +1827,64 @@ input:focus, select:focus, textarea:focus {
     gap: 6px;
   }
   
+  /* مساحة المحتوى الفعلية في صفحة A5 بعد هوامش @page البالغة 4 مم.
+     استعمال 15 سم كاملة هنا كان قد يدفع الحاوية خارج المساحة القابلة للطباعة في بعض التعريفات. */
   .invoice-luxury-container {
-    width: 15cm !important;
-    min-height: 20cm !important;
+    width: calc(15cm - 8mm) !important;
+    min-height: calc(21cm - 8mm) !important;
+    box-sizing: border-box !important;
     padding: 5mm !important;
-    font-size: 11px !important; /* Bumped for thermal readability */
-    border: 1px solid #000 !important; /* Border for clean thermal cut */
+    font-size: 11px !important;
+    border: 1px solid #000 !important;
+  }
+
+  /* تبقى بطاقة القياسات أو الرسم كوحدة واحدة بدلاً من أن تنقسم بين صفحتين عند طول الملاحظات. */
+  .invoice-section-block,
+  .invoice-drawing-card,
+  .jabzour-composite-card,
+  .drawing-group-card,
+  .invoice-luxury-notes,
+  .invoice-luxury-footer {
+    break-inside: avoid !important;
+    page-break-inside: avoid !important;
   }
 
   .invoice-label-new {
     font-size: 10px !important;
     min-width: 60px !important;
     font-weight: 900 !important;
+  }
+
+  .invoice-section-block {
+    border-width: 1px !important;
+    padding: 4px !important;
+  }
+
+  .invoice-section-block > .column-title {
+    border-bottom-width: 2px !important;
+    margin-bottom: 5px !important;
+    padding-bottom: 3px !important;
+  }
+
+  .measurements-grid-card {
+    border-width: 1px !important;
+  }
+
+  .invoice-measure-cell-new {
+    min-height: 26px !important;
+    padding: 4px !important;
+    border-bottom-width: 1px !important;
+  }
+
+  .measure-row-inline {
+    min-height: 25px !important;
+    padding: 3px 4px !important;
+  }
+
+  .step-measure-card {
+    margin-top: 5px !important;
+    padding: 7px !important;
+    border-width: 1.5px !important;
   }
 
   .invoice-value-new {
@@ -1575,6 +1897,10 @@ input:focus, select:focus, textarea:focus {
 
   .invoice-main-drawing {
     max-width: 40px !important;
+  }
+
+  .invoice-main-drawing.pocket-dimension-drawing {
+    max-width: 72px !important;
   }
 
   .invoice-drawing-body {
@@ -1601,6 +1927,90 @@ input:focus, select:focus, textarea:focus {
     font-size: 16px !important;
   }
 
+  .header-contact-row {
+    gap: 3px 7px !important;
+    margin-top: 4px !important;
+  }
+
+  .header-contact-item {
+    padding-inline-start: 6px !important;
+  }
+
+  .header-contact-label {
+    font-size: 7px !important;
+  }
+
+  .header-contact-value {
+    max-width: 105px !important;
+    font-size: 8px !important;
+  }
+
+  .jabzour-composite-card {
+    padding: 6px !important;
+  }
+
+  .jabzour-drawing-pair {
+    gap: 5px !important;
+    margin-top: 5px !important;
+  }
+
+  .invoice-mini-drawing-card {
+    padding: 3px !important;
+  }
+
+  .invoice-mini-drawing-label {
+    font-size: 7px !important;
+  }
+
+  .invoice-mini-drawing-body {
+    min-height: 54px !important;
+    padding-top: 3px !important;
+  }
+
+  .invoice-mini-drawing-body svg {
+    max-width: 32px !important;
+    height: 52px !important;
+  }
+
+  .neck-drawing-spec-row-combined {
+    grid-template-columns: minmax(0, 1fr) minmax(22px, auto) minmax(0, 1.25fr) !important;
+    gap: 3px !important;
+  }
+
+  .neck-drawing-spec-row-combined .invoice-label-new,
+  .neck-drawing-spec-row-combined .invoice-value-new {
+    min-width: 0 !important;
+    max-width: 100% !important;
+    margin: 0 !important;
+    padding: 2px 3px !important;
+    font-size: 8px !important;
+    overflow-wrap: anywhere !important;
+    white-space: normal !important;
+  }
+
+  .neck-drawing-spec-row-combined .invoice-value-new:last-child {
+    min-width: 0 !important;
+  }
+
+  .pocket-dimensions-row {
+    gap: 3px !important;
+    padding: 4px 5px !important;
+  }
+
+  .pocket-dimensions-row > .invoice-label-new {
+    font-size: 8px !important;
+  }
+
+  .pocket-dimensions-values {
+    gap: 3px !important;
+  }
+
+  .pocket-dimension-chip {
+    min-width: 31px !important;
+    padding: 2px 3px !important;
+    font-size: 8px !important;
+  }
+
   .info-card {
     padding: 6px !important;
   }
@@ -1617,6 +2027,140 @@ input:focus, select:focus, textarea:focus {
   
   .highlight-black span, .highlight-black strong {
     color: #ffffff !important;
+  }
+}
+
+/* ============================================================================
+   Measurements UX — screen-only focus mode
+   This layer is intentionally scoped to the measurement form and never affects
+   invoice or thermal print layouts.
+   ============================================================================ */
+@media screen {
+  .measurements-ux-form {
+    --ux-ink: #111111;
+    --ux-muted: #6b7280;
+    --ux-soft: #f7f7f7;
+    isolation: isolate;
+  }
+
+  .measurements-ux-grid {
+    align-items: start;
+  }
+
+  .measurements-ux-form .measurement-section {
+    scroll-margin-top: 18px;
+    position: relative;
+    overflow: visible;
+  }
+
+  .measurements-ux-form .measurement-section-header {
+    position: static;
+    top: auto;
+    z-index: 12;
+    min-height: 54px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.18);
+    letter-spacing: -0.01em;
+  }
+
+  .measurements-ux-form .measurement-section-body {
+    background: #ffffff;
+  }
+
+  .measurements-ux-form .measurement-row,
+  .measurements-ux-form .measurement-row.group {
+    border-radius: 10px;
+    transition: background-color 160ms ease, box-shadow 160ms ease, padding 160ms ease;
+  }
+
+  .measurements-ux-form .measurement-row:focus-within {
+    background: var(--ux-soft);
+    box-shadow: inset 0 0 0 1px rgba(17, 17, 17, 0.12);
+    padding-inline: 10px;
+    margin-inline: -10px;
+  }
+
+  .measurements-ux-form .ux-measure-input {
+    min-width: 72px;
+    min-height: 40px;
+    border-radius: 10px !important;
+    caret-color: var(--ux-ink);
+    letter-spacing: 0.03em;
+  }
+
+  .measurements-ux-form .ux-measure-input:focus {
+    position: relative;
+    z-index: 2;
+    box-shadow: 0 0 0 4px rgba(17, 17, 17, 0.09), 0 5px 12px rgba(17, 17, 17, 0.12) !important;
+  }
+
+  .measurements-ux-form .ux-measure-input::selection {
+    background: #ffffff;
+    color: var(--ux-ink);
+  }
+
+  .measurements-ux-form .drawing-box {
+    transition: transform 180ms ease, background-color 180ms ease, box-shadow 180ms ease, border-color 180ms ease;
+  }
+
+  .measurements-ux-form .drawing-box-active {
+    background: #ffffff;
+    border-color: var(--ux-ink);
+    box-shadow: 0 0 0 4px rgba(17, 17, 17, 0.08), 0 10px 22px rgba(17, 17, 17, 0.12);
+    transform: translateY(-2px);
+  }
+
+  .measurements-ux-form .svg-drawing-highlighted {
+    filter: drop-shadow(0 0 3px rgba(17, 17, 17, 0.38));
+    animation: measurement-drawing-pulse 1.5s ease-in-out infinite;
+  }
+
+  .measurements-ux-form .measurements-action-bar {
+    position: static;
+    bottom: auto;
+    z-index: 20;
+    margin-inline: -4px;
+    padding: 12px 16px;
+    background: rgba(255, 255, 255, 0.94);
+    border: 1px solid rgba(17, 17, 17, 0.14);
+    border-top: 3px solid var(--ux-ink);
+    border-radius: 16px;
+    box-shadow: 0 12px 30px rgba(17, 17, 17, 0.14);
+    backdrop-filter: blur(10px);
+  }
+
+  .measurements-ux-form .draft-status {
+    display: inline-flex;
+    min-height: 30px;
+    align-items: center;
+    padding-inline: 10px;
+    border-right: 3px solid var(--ux-ink);
+    color: var(--ux-muted);
+  }
+
+  @keyframes measurement-drawing-pulse {
+    0%, 100% { opacity: 0.82; }
+    50% { opacity: 1; }
+  }
+
+  @media (max-width: 1023px) {
+    .measurements-ux-form .measurement-section-header {
+      top: auto;
+    }
+
+    .measurements-ux-form .measurement-section-body {
+      padding: 18px !important;
+    }
+
+    .measurements-ux-form .measurements-action-bar {
+      bottom: auto;
+      margin-inline: 0;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .measurements-ux-form .svg-drawing-highlighted {
+      animation: none;
+    }
   }
 }
 

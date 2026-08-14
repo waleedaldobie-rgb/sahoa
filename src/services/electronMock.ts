@@ -1,4 +1,4 @@
-import { AppData, UserPreferences, Customer, Order, Invoice, FabricItem, AccessoryItem, ThobeType, ColorItem, NotificationItem, PaymentRecord } from '../types';
+import { AppData, UserPreferences, Customer, CustomerMeasurements, CustomerStyleDetails, Order, Invoice, FabricItem, AccessoryItem, ThobeType, ColorItem, NotificationItem, PaymentRecord, StockMovement, PurchaseRecord, PurchaseLine, ExpenseRecord, CashTransaction, OrderMaterialUsage, InventoryItemType } from '../types';
 import { checkAndSyncStockAlerts } from '../utils/stockAlerts';
 
 const STORAGE_KEY = 'sahwa_tailoring_app_data_v1';
@@ -44,6 +44,7 @@ export const DEFAULT_STYLE_DETAILS = {
   habroorPadding: 'واحد حشوة',
   habroorLining: 'حشوة خفيفة',
   habroorStyle: 'عرض ٣.٥ سم',
+  habroorLength: '3.5',
   habroorBottom: 'مربع عادي',
 
   sleeveCuffLength: '62',
@@ -79,6 +80,7 @@ export const DEFAULT_STYLE_DETAILS = {
   richieMark: 'علامة صهوة الأصيلة',
   generalNotes: 'يفضل غسيل بالماء البارد دون استخدام مبيضات',
   additionalNotes: 'التأكد من شد الخياطة عند الكتف',
+  tailorNotes: '',
   modelPhoto: '',
   modelTextDescription: ''
 };
@@ -124,6 +126,7 @@ export const EMPTY_STYLE_DETAILS: typeof DEFAULT_STYLE_DETAILS = {
   habroorPadding: '',
   habroorLining: '',
   habroorStyle: '',
+  habroorLength: '',
   habroorBottom: '',
 
   sleeveCuffLength: '',
@@ -159,6 +162,7 @@ export const EMPTY_STYLE_DETAILS: typeof DEFAULT_STYLE_DETAILS = {
   richieMark: '',
   generalNotes: '',
   additionalNotes: '',
+  tailorNotes: '',
   modelPhoto: '',
   modelTextDescription: ''
 };
@@ -200,7 +204,12 @@ const INITIAL_APP_DATA: AppData = {
   accessories: INITIAL_ACCESSORIES,
   thobeTypes: INITIAL_THOBE_TYPES,
   colors: INITIAL_COLORS,
-  notifications: INITIAL_NOTIFICATIONS
+  notifications: INITIAL_NOTIFICATIONS,
+  stockMovements: [],
+  purchases: [],
+  expenses: [],
+  cashTransactions: [],
+  orderMaterialUsages: []
 };
 
 const INITIAL_PREFS: UserPreferences = {
@@ -221,16 +230,50 @@ function deduplicateById<T extends { id: string }>(items: T[]): T[] {
   return result;
 }
 
+export const normalizeMeasurements = (value?: Partial<CustomerMeasurements>): CustomerMeasurements => ({
+  ...EMPTY_MEASUREMENTS,
+  ...(value || {}),
+});
+
+export const normalizeStyleDetails = (value?: Partial<CustomerStyleDetails>): CustomerStyleDetails => ({
+  ...EMPTY_STYLE_DETAILS,
+  ...(value || {}),
+});
+
+const normalizeCustomer = (customer: Customer): Customer => ({
+  ...customer,
+  measurements: normalizeMeasurements(customer.measurements),
+  styleDetails: normalizeStyleDetails(customer.styleDetails),
+  measurementHistory: Array.isArray(customer.measurementHistory)
+    ? customer.measurementHistory.map((history) => ({
+        ...history,
+        measurements: normalizeMeasurements(history.measurements),
+        styleDetails: normalizeStyleDetails(history.styleDetails),
+      }))
+    : [],
+});
+
+const normalizeOrder = (order: Order): Order => ({
+  ...order,
+  measurements: normalizeMeasurements(order.measurements),
+  styleDetails: normalizeStyleDetails(order.styleDetails),
+});
+
 function sanitizeAppData(raw: Partial<AppData>): AppData {
   return {
-    customers: deduplicateById(raw.customers || INITIAL_CUSTOMERS),
-    orders: deduplicateById(raw.orders || INITIAL_ORDERS),
+    customers: deduplicateById(raw.customers || INITIAL_CUSTOMERS).map(normalizeCustomer),
+    orders: deduplicateById(raw.orders || INITIAL_ORDERS).map(normalizeOrder),
     invoices: deduplicateById(raw.invoices || INITIAL_INVOICES),
     fabrics: deduplicateById(raw.fabrics || INITIAL_FABRICS),
     accessories: deduplicateById(raw.accessories || INITIAL_ACCESSORIES),
     thobeTypes: deduplicateById(raw.thobeTypes || INITIAL_THOBE_TYPES),
     colors: deduplicateById(raw.colors || INITIAL_COLORS),
-    notifications: deduplicateById(raw.notifications || INITIAL_NOTIFICATIONS)
+    notifications: deduplicateById(raw.notifications || INITIAL_NOTIFICATIONS),
+    stockMovements: deduplicateById(raw.stockMovements || []),
+    purchases: deduplicateById(raw.purchases || []),
+    expenses: deduplicateById(raw.expenses || []),
+    cashTransactions: deduplicateById(raw.cashTransactions || []),
+    orderMaterialUsages: deduplicateById(raw.orderMaterialUsages || [])
   };
 }
 
@@ -266,6 +309,68 @@ export const db = {
   }
 };
 
+const mockRound2 = (value: number) => Math.round((Number(value) + Number.EPSILON) * 100) / 100;
+
+const mockInventoryMeta = (draft: AppData, itemType: InventoryItemType, itemId: string) => {
+  if (itemType === 'fabric') {
+    const item = draft.fabrics.find((fabric) => fabric.id === itemId);
+    if (!item) throw new Error('صنف القماش غير موجود');
+    return { item, name: item.name, quantity: item.quantityMeters, unit: 'متر', purchasePrice: item.purchasePrice || 0 };
+  }
+  const item = draft.accessories.find((accessory) => accessory.id === itemId);
+  if (!item) throw new Error('صنف الإكسسوار غير موجود');
+  return { item, name: item.name, quantity: item.quantity, unit: item.unit, purchasePrice: item.purchasePrice || 0 };
+};
+
+const mockWriteQuantity = (itemType: InventoryItemType, meta: any, value: number) => {
+  if (itemType === 'fabric') meta.item.quantityMeters = mockRound2(value);
+  else meta.item.quantity = mockRound2(value);
+};
+
+const mockInsertMovement = (
+  draft: AppData,
+  itemType: InventoryItemType,
+  itemId: string,
+  delta: number,
+  direction: StockMovement['direction'],
+  reason: string,
+  reference?: { type?: string; id?: string; number?: string }
+): StockMovement => {
+  const meta = mockInventoryMeta(draft, itemType, itemId);
+  const before = mockRound2(meta.quantity);
+  const after = mockRound2(before + delta);
+  if (after < 0) throw new Error(`لا يمكن تنفيذ الحركة؛ الكمية المتاحة من ${meta.name} غير كافية.`);
+  mockWriteQuantity(itemType, meta, after);
+  const movement: StockMovement = {
+    id: `MOV-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+    itemType,
+    itemId,
+    itemName: meta.name,
+    direction,
+    quantity: Math.abs(delta),
+    quantityBefore: before,
+    quantityAfter: after,
+    unit: meta.unit,
+    reason,
+    referenceType: reference?.type,
+    referenceId: reference?.id,
+    referenceNumber: reference?.number,
+    createdAt: new Date().toISOString()
+  };
+  draft.stockMovements = [movement, ...(draft.stockMovements || [])];
+  return movement;
+};
+
+const mockInsertCash = (draft: AppData, transaction: CashTransaction) => {
+  const cashTransactions = draft.cashTransactions || [];
+  if (cashTransactions.some((entry) => entry.id === transaction.id || (transaction.sourceId && entry.sourceId === transaction.sourceId))) return;
+  draft.cashTransactions = [transaction, ...cashTransactions];
+};
+
+const mockWriteMaterial = (draft: AppData, usage: OrderMaterialUsage) => {
+  draft.orderMaterialUsages = [...(draft.orderMaterialUsages || []), usage];
+};
+
 // Setup window.electronAPI mock
 export function initElectronMock() {
   if (typeof window === 'undefined') return;
@@ -281,23 +386,35 @@ export function initElectronMock() {
     async getData(): Promise<AppData> {
       if (isRealElectron && existing?.getCustomers && existing?.getOrders && existing?.getInvoices && existing?.getFabrics && existing?.getAccessories) {
         try {
-          const [customers, orders, invoices, fabrics, accessories] = await Promise.all([
+          const [customers, orders, invoices, fabrics, accessories, thobeTypes, colors, stockMovements, purchases, expenses, cashTransactions, orderMaterialUsages] = await Promise.all([
             existing.getCustomers(),
             existing.getOrders(),
             existing.getInvoices(),
             existing.getFabrics(),
-            existing.getAccessories()
+            existing.getAccessories(),
+            existing.getThobeTypes?.() || Promise.resolve(INITIAL_THOBE_TYPES),
+            existing.getColors?.() || Promise.resolve(INITIAL_COLORS),
+            existing.getStockMovements?.() || Promise.resolve([]),
+            existing.getPurchases?.() || Promise.resolve([]),
+            existing.getExpenses?.() || Promise.resolve([]),
+            existing.getCashTransactions?.() || Promise.resolve([]),
+            existing.getOrderMaterialUsages?.() || Promise.resolve([])
           ]);
-          return {
+          return sanitizeAppData({
             customers: customers || [],
             orders: orders || [],
             invoices: invoices || [],
             fabrics: fabrics || [],
             accessories: accessories || [],
-            thobeTypes: INITIAL_THOBE_TYPES,
-            colors: INITIAL_COLORS,
-            notifications: []
-          };
+            thobeTypes: thobeTypes || INITIAL_THOBE_TYPES,
+            colors: colors || INITIAL_COLORS,
+            notifications: [],
+            stockMovements: stockMovements || [],
+            purchases: purchases || [],
+            expenses: expenses || [],
+            cashTransactions: cashTransactions || [],
+            orderMaterialUsages: orderMaterialUsages || []
+          });
         } catch (err) {
           console.error('Error loading real Electron SQLite data, falling back to localStorage:', err);
         }
@@ -380,7 +497,8 @@ export function initElectronMock() {
         if (!parsed.customers || !parsed.orders || !parsed.fabrics) {
           return { success: false, error: 'تنسيق الملف غير صحيح! يجب أن يحتوي على بيانات العملاء والطلبات والمخزون.' };
         }
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(parsed));
+        const sanitized = sanitizeAppData(parsed);
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(sanitized));
         return { success: true };
       } catch (e) {
         return { success: false, error: 'عذراً، تعذر قراءة ملف JSON. يرجى التاكد من سلامة الملف.' };
@@ -494,9 +612,13 @@ export function initElectronMock() {
         name: customer.name || 'عميل جديد',
         phone: customer.phone || '',
         createdAt: customer.createdAt || new Date().toISOString().slice(0, 10),
-        measurements: { ...DEFAULT_MEASUREMENTS, ...customer.measurements },
-        styleDetails: { ...DEFAULT_STYLE_DETAILS, ...customer.styleDetails },
-        measurementHistory: customer.measurementHistory || []
+        measurements: normalizeMeasurements(customer.measurements),
+        styleDetails: normalizeStyleDetails(customer.styleDetails),
+        measurementHistory: (customer.measurementHistory || []).map((history) => ({
+          ...history,
+          measurements: normalizeMeasurements(history.measurements),
+          styleDetails: normalizeStyleDetails(history.styleDetails),
+        }))
       };
       data.customers = [newCustomer, ...data.customers];
       await window.electronAPI.saveData(data);
@@ -591,6 +713,118 @@ export function initElectronMock() {
       return true;
     },
 
+    async getStockMovements(itemType?: InventoryItemType, itemId?: string): Promise<StockMovement[]> {
+      if (isRealElectron && existing?.getStockMovements) return existing.getStockMovements(itemType, itemId);
+      const data = await window.electronAPI.getData();
+      return (data.stockMovements || []).filter((movement) => (!itemType || movement.itemType === itemType) && (!itemId || movement.itemId === itemId));
+    },
+
+    async adjustStock(itemType: InventoryItemType, itemId: string, quantity: number, reason: string, direction: 'adjustment' | 'return' = 'adjustment'): Promise<StockMovement> {
+      if (isRealElectron && existing?.adjustStock) return existing.adjustStock(itemType, itemId, quantity, reason, direction);
+      let movement!: StockMovement;
+      await db.transaction((draft) => {
+        if (!reason?.trim()) throw new Error('سبب التسوية مطلوب');
+        const numericQuantity = Number(quantity);
+        if (!Number.isFinite(numericQuantity) || numericQuantity === 0) throw new Error('كمية التسوية يجب أن تكون رقماً غير صفري');
+        movement = mockInsertMovement(draft, itemType, itemId, direction === 'return' ? Math.abs(numericQuantity) : numericQuantity, direction, reason.trim(), { type: 'stock_adjustment', id: itemId });
+      });
+      return movement;
+    },
+
+    async getPurchases(): Promise<PurchaseRecord[]> {
+      if (isRealElectron && existing?.getPurchases) return existing.getPurchases();
+      const data = await window.electronAPI.getData();
+      return data.purchases || [];
+    },
+
+    async createPurchase(payload: any): Promise<PurchaseRecord> {
+      if (isRealElectron && existing?.createPurchase) return existing.createPurchase(payload);
+      let purchase!: PurchaseRecord;
+      await db.transaction((draft) => {
+        const purchaseId = payload.id || `PUR-${Date.now()}`;
+        const duplicate = (draft.purchases || []).find((entry) => entry.id === purchaseId);
+        if (duplicate) { purchase = duplicate; return; }
+        if (!payload.supplier?.trim()) throw new Error('اسم المورد مطلوب');
+        if (!Array.isArray(payload.lines) || payload.lines.length === 0) throw new Error('أضف صنفاً واحداً على الأقل إلى المشتريات');
+        const now = new Date().toISOString();
+        const purchaseDate = payload.purchaseDate || now.slice(0, 10);
+        const preparedLines: PurchaseLine[] = [];
+        let totalAmount = 0;
+        for (const input of payload.lines) {
+          const quantity = Number(input.quantity);
+          const unitPrice = Number(input.unitPrice);
+          if (!input.itemType || !input.itemId || !Number.isFinite(quantity) || quantity <= 0) throw new Error('بيانات كمية المشتريات غير صحيحة');
+          if (!Number.isFinite(unitPrice) || unitPrice < 0) throw new Error('سعر الشراء لا يمكن أن يكون سالباً');
+          const meta = mockInventoryMeta(draft, input.itemType, input.itemId);
+          const movement = mockInsertMovement(draft, input.itemType, input.itemId, quantity, 'purchase', `شراء من المورد ${payload.supplier.trim()}`, { type: 'purchase', id: purchaseId, number: payload.invoiceNumber || purchaseId });
+          if (input.itemType === 'fabric') meta.item.purchasePrice = unitPrice;
+          else meta.item.purchasePrice = unitPrice;
+          const lineTotal = mockRound2(quantity * unitPrice);
+          totalAmount += lineTotal;
+          preparedLines.push({ id: `PURL-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, purchaseId, itemType: input.itemType, itemId: input.itemId, itemName: input.itemName || meta.name, quantity, unit: input.unit || meta.unit, unitPrice, totalAmount: lineTotal, createdAt: now });
+          void movement;
+        }
+        purchase = { id: purchaseId, supplier: payload.supplier.trim(), invoiceNumber: payload.invoiceNumber || undefined, purchaseDate, totalAmount: mockRound2(totalAmount), paymentMethod: payload.paymentMethod || 'cash', notes: payload.notes || undefined, status: 'approved', lines: preparedLines, createdAt: now };
+        draft.purchases = [purchase, ...(draft.purchases || [])];
+        if (totalAmount > 0) {
+          mockInsertCash(draft, { id: `CASH-PUR-${purchaseId}`, direction: 'out', sourceType: 'purchase', sourceId: purchaseId, referenceNumber: payload.invoiceNumber || purchaseId, amount: mockRound2(totalAmount), paymentMethod: payload.paymentMethod || 'cash', transactionDate: purchaseDate, description: `شراء مخزون من ${payload.supplier.trim()}`, notes: payload.notes || undefined, createdAt: now });
+        }
+      });
+      return purchase;
+    },
+
+    async getExpenses(): Promise<ExpenseRecord[]> {
+      if (isRealElectron && existing?.getExpenses) return existing.getExpenses();
+      const data = await window.electronAPI.getData();
+      return data.expenses || [];
+    },
+
+    async createExpense(payload: any): Promise<ExpenseRecord> {
+      if (isRealElectron && existing?.createExpense) return existing.createExpense(payload);
+      let expense!: ExpenseRecord;
+      await db.transaction((draft) => {
+        const id = payload.id || `EXP-${Date.now()}`;
+        const duplicate = (draft.expenses || []).find((entry) => entry.id === id);
+        if (duplicate) { expense = duplicate; return; }
+        const amount = Number(payload.amount);
+        if (!payload.category?.trim() || !payload.description?.trim()) throw new Error('تصنيف ووصف المصروف مطلوبان');
+        if (!Number.isFinite(amount) || amount <= 0) throw new Error('مبلغ المصروف يجب أن يكون أكبر من صفر');
+        const now = new Date().toISOString();
+        expense = { id, category: payload.category.trim(), amount: mockRound2(amount), expenseDate: payload.expenseDate || now.slice(0, 10), paymentMethod: payload.paymentMethod || 'cash', description: payload.description.trim(), notes: payload.notes || undefined, createdAt: now };
+        draft.expenses = [expense, ...(draft.expenses || [])];
+        mockInsertCash(draft, { id: `CASH-EXP-${id}`, direction: 'out', sourceType: 'expense', sourceId: id, referenceNumber: id, amount: expense.amount, paymentMethod: expense.paymentMethod, transactionDate: expense.expenseDate, description: expense.description, notes: expense.notes, createdAt: now });
+      });
+      return expense;
+    },
+
+    async getCashTransactions(): Promise<CashTransaction[]> {
+      if (isRealElectron && existing?.getCashTransactions) return existing.getCashTransactions();
+      const data = await window.electronAPI.getData();
+      return data.cashTransactions || [];
+    },
+
+    async createCashAdjustment(payload: any): Promise<CashTransaction> {
+      if (isRealElectron && existing?.createCashAdjustment) return existing.createCashAdjustment(payload);
+      let transaction!: CashTransaction;
+      await db.transaction((draft) => {
+        const amount = Number(payload.amount);
+        if (!Number.isFinite(amount) || amount <= 0) throw new Error('مبلغ الحركة يجب أن يكون أكبر من صفر');
+        if (!payload.description?.trim()) throw new Error('وصف الحركة المالية مطلوب');
+        const id = payload.id || `CASH-${Date.now()}`;
+        const duplicate = (draft.cashTransactions || []).find((entry) => entry.id === id);
+        if (duplicate) { transaction = duplicate; return; }
+        transaction = { id, direction: payload.direction === 'out' ? 'out' : 'in', sourceType: payload.sourceType || 'adjustment', sourceId: payload.sourceId, referenceNumber: payload.referenceNumber, amount: mockRound2(amount), paymentMethod: payload.paymentMethod || 'cash', transactionDate: payload.transactionDate || new Date().toISOString().slice(0, 10), description: payload.description.trim(), notes: payload.notes, createdAt: new Date().toISOString() };
+        mockInsertCash(draft, transaction);
+      });
+      return transaction;
+    },
+
+    async getOrderMaterialUsages(orderId?: string): Promise<OrderMaterialUsage[]> {
+      if (isRealElectron && existing?.getOrderMaterialUsages) return existing.getOrderMaterialUsages(orderId);
+      const data = await window.electronAPI.getData();
+      return (data.orderMaterialUsages || []).filter((usage) => !orderId || usage.orderId === orderId);
+    },
+
     async getOrders(): Promise<Order[]> {
       if (isRealElectron && existing?.getOrders) return existing.getOrders();
       const data = await window.electronAPI.getData();
@@ -599,29 +833,59 @@ export function initElectronMock() {
 
     async createOrder(orderData: Partial<Order>): Promise<Order> {
       if (isRealElectron && existing?.createOrder) return existing.createOrder(orderData);
+      const existingOrder = orderData.id ? (await window.electronAPI.getData()).orders.find((order) => order.id === orderData.id) : undefined;
+      if (existingOrder) return existingOrder;
       let createdOrder: Order | null = null;
       await db.transaction(async (draft) => {
         const settings = await window.electronAPI.getSettings();
         const rate = settings.fabricConsumptionRatePerGarment || 3.5;
         const garmentCount = orderData.garmentCount || 1;
         const requiredMeters = garmentCount * rate;
-
-        // Check stock and deduct
-        if (orderData.fabricId) {
-          const fab = draft.fabrics.find(f => f.id === orderData.fabricId);
-          if (!fab) throw new Error('القماش المختار غير موجود في المخزون');
-          if (fab.quantityMeters < requiredMeters) {
-            throw new Error(`كمية القماش المتوفرة (${fab.quantityMeters} متر) غير كافية لخصم الطلب الحالي (${requiredMeters} متر).`);
-          }
-          fab.quantityMeters = Number((fab.quantityMeters - requiredMeters).toFixed(2));
-        }
-
         const count = draft.orders.length;
         const orderNumber = orderData.orderNumber || `${1001 + count}`;
         const totalAmount = orderData.totalAmount || 0;
         const paidAmount = orderData.paidAmount || 0;
         const remainingAmount = totalAmount - paidAmount;
         const orderId = orderData.id || `ORD-${Date.now()}`;
+        let fabricMovement: StockMovement | undefined;
+        let fabricBuyPrice = orderData.fabricBuyPriceAtOrder || 0;
+
+        // Check stock and record a sale movement atomically.
+        if (orderData.fabricId) {
+          const fab = draft.fabrics.find(f => f.id === orderData.fabricId);
+          if (!fab) throw new Error('القماش المختار غير موجود في المخزون');
+          fabricBuyPrice = fab.purchasePrice || fabricBuyPrice;
+          fabricMovement = mockInsertMovement(draft, 'fabric', orderData.fabricId, -requiredMeters, 'sale', 'استهلاك قماش للطلب', { type: 'order', id: orderId, number: orderNumber });
+        }
+
+        const materialUsages: OrderMaterialUsage[] = [];
+        if (orderData.fabricId && fabricMovement) {
+          const fabricUsage: OrderMaterialUsage = {
+            id: `OMU-${Date.now()}-fabric`, orderId, itemType: 'fabric', itemId: orderData.fabricId,
+            itemName: orderData.fabricName || 'قماش', quantity: requiredMeters, unit: 'متر',
+            unitCostAtUsage: fabricBuyPrice, totalCost: mockRound2(requiredMeters * fabricBuyPrice),
+            sourceMovementId: fabricMovement.id, createdAt: new Date().toISOString()
+          };
+          mockWriteMaterial(draft, fabricUsage);
+          materialUsages.push(fabricUsage);
+        }
+        for (const material of (orderData.materialUsages || [])) {
+          if (!material.itemId || (material.itemType === 'fabric' && material.itemId === orderData.fabricId)) continue;
+          const quantity = Number(material.quantity);
+          if (!Number.isFinite(quantity) || quantity <= 0) throw new Error('كمية المادة المرتبطة بالطلب غير صحيحة');
+          const meta = mockInventoryMeta(draft, material.itemType, material.itemId);
+          const movement = mockInsertMovement(draft, material.itemType, material.itemId, -quantity, 'sale', 'استهلاك مادة للطلب', { type: 'order', id: orderId, number: orderNumber });
+          const unitCost = Number(material.unitCostAtUsage ?? meta.purchasePrice ?? 0);
+          const usage: OrderMaterialUsage = {
+            id: `OMU-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, orderId,
+            itemType: material.itemType, itemId: material.itemId, itemName: material.itemName || meta.name,
+            quantity, unit: material.unit || meta.unit, unitCostAtUsage: unitCost,
+            totalCost: mockRound2(quantity * unitCost), sourceMovementId: movement.id, createdAt: new Date().toISOString()
+          };
+          mockWriteMaterial(draft, usage);
+          materialUsages.push(usage);
+        }
+        const materialCost = mockRound2(materialUsages.reduce((sum, usage) => sum + usage.totalCost, 0));
 
         const newOrder: Order = {
           id: orderId,
@@ -635,8 +899,12 @@ export function initElectronMock() {
           fabricName: orderData.fabricName || '',
           fabricColor: orderData.fabricColor || '',
           fabricConsumptionMeters: requiredMeters,
-          fabricBuyPriceAtOrder: orderData.fabricBuyPriceAtOrder || 0,
+          fabricBuyPriceAtOrder: fabricBuyPrice,
           garmentCount,
+          initialPaymentMethod: orderData.initialPaymentMethod || 'cash',
+          materialUsages,
+          materialCost,
+          profit: mockRound2(totalAmount - materialCost),
           orderDate: orderData.orderDate || new Date().toISOString().slice(0, 10),
           deliveryDate: orderData.deliveryDate || new Date().toISOString().slice(0, 10),
           status: orderData.status || 'new',
@@ -644,8 +912,8 @@ export function initElectronMock() {
           paidAmount,
           remainingAmount,
           isCustomMeasurement: Boolean(orderData.isCustomMeasurement),
-          measurements: orderData.measurements || { ...DEFAULT_MEASUREMENTS },
-          styleDetails: orderData.styleDetails || { ...DEFAULT_STYLE_DETAILS },
+          measurements: normalizeMeasurements(orderData.measurements),
+          styleDetails: normalizeStyleDetails(orderData.styleDetails),
           notes: orderData.notes || '',
           createdAt: new Date().toISOString()
         };
@@ -655,13 +923,14 @@ export function initElectronMock() {
         // Create invoice
         const invId = `INV-${orderNumber}`;
         const pStatus = remainingAmount <= 0 ? 'paid' : paidAmount > 0 ? 'partial' : 'unpaid';
+        const initialPaymentId = paidAmount > 0 ? `PAY-${Date.now()}-${Math.random().toString(36).slice(2, 6)}` : undefined;
         const initialPayments: PaymentRecord[] = paidAmount > 0 ? [{
-          id: `PAY-${Date.now()}`,
+          id: initialPaymentId!,
           invoiceId: invId,
           orderId: orderId,
           amount: paidAmount,
           paymentDate: orderData.orderDate || new Date().toISOString().slice(0, 10),
-          method: 'cash' as const,
+          method: orderData.initialPaymentMethod || 'cash',
           note: 'دفعة أولى عند إنشاء الطلب'
         }] : [];
 
@@ -680,6 +949,9 @@ export function initElectronMock() {
         };
 
         draft.invoices = [newInvoice, ...draft.invoices];
+        if (paidAmount > 0 && initialPaymentId) {
+          mockInsertCash(draft, { id: `CASH-PAY-${initialPaymentId}`, direction: 'in', sourceType: 'customer_payment', sourceId: initialPaymentId, referenceNumber: orderNumber, amount: paidAmount, paymentMethod: orderData.initialPaymentMethod || 'cash', transactionDate: orderData.orderDate || new Date().toISOString().slice(0, 10), description: `دفعة أولى للطلب #${orderNumber}`, createdAt: new Date().toISOString() });
+        }
         createdOrder = newOrder;
       });
       return createdOrder!;
@@ -782,33 +1054,38 @@ export function initElectronMock() {
       return data.invoices;
     },
 
-    async addPayment(invoiceId: string, amount: number, method: string, note: string): Promise<boolean> {
-      if (isRealElectron && existing?.addPayment) return existing.addPayment(invoiceId, amount, method, note);
+    async addPayment(invoiceId: string, amount: number, method: string, note: string, paymentId?: string): Promise<boolean> {
+      if (isRealElectron && existing?.addPayment) return existing.addPayment(invoiceId, amount, method, note, paymentId);
       await db.transaction((draft) => {
         const inv = draft.invoices.find(i => i.id === invoiceId);
         if (!inv) throw new Error('الفاتورة غير موجودة');
+        const numericAmount = Number(amount);
+        if (!Number.isFinite(numericAmount) || numericAmount <= 0) throw new Error('مبلغ الدفعة يجب أن يكون أكبر من صفر');
+        const id = paymentId || `PAY-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+        if ((inv.payments || []).some((payment) => payment.id === id) || (draft.cashTransactions || []).some((transaction) => transaction.sourceId === id)) return;
+        if (numericAmount > inv.remainingAmount) throw new Error('مبلغ الدفعة يتجاوز المتبقي على الفاتورة');
 
         const payment: PaymentRecord = {
-          id: `PAY-${Date.now()}`,
+          id,
           invoiceId,
           orderId: inv.orderId,
-          amount,
+          amount: numericAmount,
           paymentDate: new Date().toISOString().slice(0, 10),
           method: method as any,
           note
         };
 
         inv.payments = [...(inv.payments || []), payment];
-        inv.paidAmount += amount;
+        inv.paidAmount += numericAmount;
         inv.remainingAmount = Math.max(0, inv.totalAmount - inv.paidAmount);
         inv.paymentStatus = inv.remainingAmount <= 0 ? 'paid' : 'partial';
 
-        // Update order
         const order = draft.orders.find(o => o.id === inv.orderId);
         if (order) {
           order.paidAmount = inv.paidAmount;
           order.remainingAmount = inv.remainingAmount;
         }
+        mockInsertCash(draft, { id: `CASH-PAY-${id}`, direction: 'in', sourceType: 'customer_payment', sourceId: id, referenceNumber: inv.invoiceNumber, amount: numericAmount, paymentMethod: method as any, transactionDate: payment.paymentDate, description: `دفعة عميل للفاتورة ${inv.invoiceNumber}`, notes: note || undefined, createdAt: new Date().toISOString() });
       });
       return true;
     },

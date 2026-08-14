@@ -1,20 +1,16 @@
 import React, { useState } from 'react';
 import { Customer, CustomerMeasurements, CustomerStyleDetails, MeasurementHistoryRecord } from '../types';
 import { EMPTY_MEASUREMENTS, EMPTY_STYLE_DETAILS } from '../services/electronMock';
-import { Card, Button, Input, Select, Modal, EmptyState, Badge } from './ui';
+import { Card, Button, Input, EmptyState } from './ui';
 import { ConfirmModal } from './ConfirmModal';
 import { MeasurementsTableForm } from './MeasurementsTableForm';
 import {
   Users,
   Search,
-  Plus,
   Ruler,
   History,
   Save,
   Phone,
-  Scissors,
-  Check,
-  ChevronRight,
   User,
   Trash2,
   ArrowLeft,
@@ -205,10 +201,11 @@ export const CustomersView: React.FC<CustomersViewProps> = ({
               <MeasurementsTableForm
                 measurements={formData.measurements}
                 styleDetails={formData.styleDetails}
-                customerName={formData.name}
-                customerPhone={formData.phone}
                 onChange={(updated) => setFormData({ ...formData, measurements: updated })}
                 onStyleChange={(updated) => setFormData({ ...formData, styleDetails: updated })}
+                customerName={formData.name}
+                customerPhone={formData.phone}
+                draftScope={selectedCustomer?.id || 'customer'}
               />
             ) : (
               <div className="space-y-4">

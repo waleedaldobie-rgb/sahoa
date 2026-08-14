@@ -1,18 +1,14 @@
 import React, { useState } from 'react';
-import { AppData, Order } from '../types';
-import { Card, Button, Input, Select, Badge, EmptyState } from './ui';
+import { AppData } from '../types';
+import { Button, Badge, EmptyState } from './ui';
 import {
   BarChart3,
   FileSpreadsheet,
   Printer,
-  Calendar,
   DollarSign,
   TrendingUp,
   Scissors,
-  CheckCircle2,
-  PieChart,
   Wallet,
-  ArrowUpRight,
   FileText
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
@@ -31,74 +27,51 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ data, showToast }) => 
   });
   const [endDate, setEndDate] = useState(() => new Date().toISOString().split('T')[0]);
 
-  const { orders, fabrics } = data;
+  const { orders, fabrics, accessories, purchases, expenses, cashTransactions, stockMovements } = data;
 
-  // Calculate filtered orders based on period
-  const filteredOrders = orders.filter((ord) => {
-    const ordDate = new Date(ord.orderDate);
+  const isDateInSelectedPeriod = (value: string) => {
+    const date = new Date(value);
     const now = new Date();
-
-    if (periodFilter === 'today') {
-      const todayStr = now.toISOString().split('T')[0];
-      return ord.orderDate === todayStr;
-    }
-
-    if (periodFilter === 'week') {
-      const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-      return ordDate >= sevenDaysAgo;
-    }
-
-    if (periodFilter === 'month') {
-      return (
-        ordDate.getMonth() === now.getMonth() && ordDate.getFullYear() === now.getFullYear()
-      );
-    }
-
-    if (periodFilter === 'year') {
-      return ordDate.getFullYear() === now.getFullYear();
-    }
-
-    if (periodFilter === 'custom') {
-      return ord.orderDate >= startDate && ord.orderDate <= endDate;
-    }
-
+    if (periodFilter === 'today') return value.slice(0, 10) === now.toISOString().slice(0, 10);
+    if (periodFilter === 'week') return date >= new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+    if (periodFilter === 'month') return date.getMonth() === now.getMonth() && date.getFullYear() === now.getFullYear();
+    if (periodFilter === 'year') return date.getFullYear() === now.getFullYear();
+    if (periodFilter === 'custom') return value.slice(0, 10) >= startDate && value.slice(0, 10) <= endDate;
     return true;
-  });
+  };
 
-  // Calculate Financial Metrics
+  const filteredOrders = orders.filter((order) => isDateInSelectedPeriod(order.orderDate));
+  const filteredPurchases = (purchases || []).filter((purchase) => isDateInSelectedPeriod(purchase.purchaseDate));
+  const filteredExpenses = (expenses || []).filter((expense) => isDateInSelectedPeriod(expense.expenseDate));
+  const filteredCash = (cashTransactions || []).filter((transaction) => isDateInSelectedPeriod(transaction.transactionDate));
+  const filteredMovements = (stockMovements || []).filter((movement) => isDateInSelectedPeriod(movement.createdAt));
+
   const totalOrdersCount = filteredOrders.length;
+  const totalSales = filteredOrders.filter((order) => order.status !== 'cancelled').reduce((sum, order) => sum + (order.totalAmount || 0), 0);
+  const deliveredOrders = filteredOrders.filter((order) => order.status === 'delivered');
+  const actualRevenue = deliveredOrders.reduce((sum, order) => sum + (order.totalAmount || 0), 0);
+  const collectedAmount = filteredCash.filter((transaction) => transaction.direction === 'in' && transaction.sourceType === 'customer_payment').reduce((sum, transaction) => sum + transaction.amount, 0)
+    || filteredOrders.reduce((sum, order) => sum + (order.paidAmount || 0), 0);
+  const remainingAmount = filteredOrders.reduce((sum, order) => sum + (order.remainingAmount || 0), 0);
+  const totalPurchases = filteredPurchases.reduce((sum, purchase) => sum + (purchase.totalAmount || 0), 0);
+  const totalExpenses = filteredExpenses.reduce((sum, expense) => sum + (expense.amount || 0), 0);
 
-  // Delivered Orders Revenue
-  const deliveredOrders = filteredOrders.filter((o) => o.status === 'delivered');
-  const actualRevenue = deliveredOrders.reduce((sum, o) => sum + o.totalAmount, 0);
-
-  // Total Expected Sales
-  const totalExpectedSales = filteredOrders.reduce((sum, o) => sum + o.totalAmount, 0);
-
-  // Estimated Fabric Cost
-  const estimatedFabricCost = filteredOrders.reduce((sum, ord) => {
-    const buyPrice = ord.fabricBuyPriceAtOrder !== undefined && ord.fabricBuyPriceAtOrder > 0
-      ? ord.fabricBuyPriceAtOrder
-      : (fabrics.find((f) => f.id === ord.fabricId)?.purchasePrice || 40);
-    const consumption = ord.fabricConsumptionMeters !== undefined && ord.fabricConsumptionMeters > 0
-      ? ord.fabricConsumptionMeters
-      : (ord.garmentCount || 1) * 3.5;
+  const materialCost = filteredOrders.filter((order) => order.status !== 'cancelled').reduce((sum, order) => {
+    if (typeof order.materialCost === 'number') return sum + order.materialCost;
+    const buyPrice = order.fabricBuyPriceAtOrder !== undefined && order.fabricBuyPriceAtOrder > 0 ? order.fabricBuyPriceAtOrder : (fabrics.find((fabric) => fabric.id === order.fabricId)?.purchasePrice || 0);
+    const consumption = order.fabricConsumptionMeters !== undefined && order.fabricConsumptionMeters > 0 ? order.fabricConsumptionMeters : (order.garmentCount || 1) * 3.5;
     return sum + (buyPrice * consumption);
   }, 0);
-
-  // Delivered Fabric Cost for Net Profit
-  const deliveredFabricCost = deliveredOrders.reduce((sum, ord) => {
-    const buyPrice = ord.fabricBuyPriceAtOrder !== undefined && ord.fabricBuyPriceAtOrder > 0
-      ? ord.fabricBuyPriceAtOrder
-      : (fabrics.find((f) => f.id === ord.fabricId)?.purchasePrice || 40);
-    const consumption = ord.fabricConsumptionMeters !== undefined && ord.fabricConsumptionMeters > 0
-      ? ord.fabricConsumptionMeters
-      : (ord.garmentCount || 1) * 3.5;
-    return sum + (buyPrice * consumption);
-  }, 0);
-
-  const netProfit = actualRevenue - deliveredFabricCost;
-  const avgOrderValue = totalOrdersCount > 0 ? Math.round(totalExpectedSales / totalOrdersCount) : 0;
+  const grossProfit = totalSales - materialCost;
+  const netProfit = grossProfit - totalExpenses;
+  const avgOrderValue = totalOrdersCount > 0 ? Math.round(totalSales / totalOrdersCount) : 0;
+  const inventoryValue = fabrics.reduce((sum, fabric) => sum + (fabric.quantityMeters * (fabric.purchasePrice || 0)), 0) + accessories.reduce((sum, accessory) => sum + (accessory.quantity * (accessory.purchasePrice || 0)), 0);
+  const lowStockItems = [...fabrics.filter((fabric) => fabric.quantityMeters <= fabric.minStockMeters).map((fabric) => fabric.name), ...accessories.filter((accessory) => accessory.quantity <= accessory.minStock).map((accessory) => accessory.name)];
+  const consumptionByItem = filteredMovements.filter((movement) => movement.direction === 'sale').reduce((result: Record<string, number>, movement) => {
+    result[movement.itemName] = (result[movement.itemName] || 0) + movement.quantity;
+    return result;
+  }, {} as Record<string, number>);
+  const topConsumption = Object.entries(consumptionByItem).sort(([, first], [, second]) => Number(second) - Number(first)).slice(0, 5);
 
   // Export to Excel XLSX Handler
   const handleExportExcel = () => {
@@ -121,8 +94,25 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ data, showToast }) => 
       const worksheet = XLSX.utils.json_to_sheet(excelRows);
       const workbook = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(workbook, worksheet, 'تقرير المبيعات');
+      const summarySheet = XLSX.utils.json_to_sheet([
+        { البيان: 'إجمالي المبيعات', القيمة: totalSales },
+        { البيان: 'إجمالي التحصيل', القيمة: collectedAmount },
+        { البيان: 'المبالغ المتبقية', القيمة: remainingAmount },
+        { البيان: 'إجمالي المشتريات', القيمة: totalPurchases },
+        { البيان: 'إجمالي المصروفات', القيمة: totalExpenses },
+        { البيان: 'تكلفة المواد', القيمة: materialCost },
+        { البيان: 'صافي الربح', القيمة: netProfit },
+        { البيان: 'قيمة المخزون', القيمة: inventoryValue },
+        { البيان: 'أصناف منخفضة المخزون', القيمة: lowStockItems.length }
+      ]);
+      XLSX.utils.book_append_sheet(workbook, summarySheet, 'ملخص المحاسبة');
+      const inventorySheet = XLSX.utils.json_to_sheet([
+        ...fabrics.map((fabric) => ({ النوع: 'قماش', الصنف: fabric.name, الكمية: fabric.quantityMeters, الوحدة: 'متر', 'سعر الشراء': fabric.purchasePrice || 0, 'قيمة المخزون': fabric.quantityMeters * (fabric.purchasePrice || 0) })),
+        ...accessories.map((accessory) => ({ النوع: 'مستلزم', الصنف: accessory.name, الكمية: accessory.quantity, الوحدة: accessory.unit, 'سعر الشراء': accessory.purchasePrice || 0, 'قيمة المخزون': accessory.quantity * (accessory.purchasePrice || 0) }))
+      ]);
+      XLSX.utils.book_append_sheet(workbook, inventorySheet, 'قيمة المخزون');
 
-      XLSX.writeFile(workbook, `sahwa_sales_report_${new Date().toISOString().split('T')[0]}.xlsx`);
+      XLSX.writeFile(workbook, `sahwa_financial_report_${new Date().toISOString().split('T')[0]}.xlsx`);
       showToast('تم تصدير ملف التقرير Excel بنجاح!', 'success');
     } catch (e) {
       showToast('تعذر إنشاء ملف Excel. يرجى المحاولة لاحقاً.', 'danger');
@@ -132,7 +122,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ data, showToast }) => 
   // Export to CSV using standard browser Blob APIs
   const handleExportCSV = () => {
     try {
-      const headers = ['م', 'رقم الطلب', 'اسم العميل', 'رقم الجوال', 'نوع الثوب', 'القماش', 'تاريخ الطلب', 'الحالة', 'الإجمالي (ر.س)', 'المدفوع (ر.س)'];
+      const headers = ['م', 'رقم الطلب', 'اسم العميل', 'رقم الجوال', 'نوع الثوب', 'القماش', 'تاريخ الطلب', 'الحالة', 'الإجمالي (ر.س)', 'المدفوع (ر.س)', 'المتبقي (ر.س)', 'تكلفة المواد (ر.س)', 'الربح (ر.س)'];
       const rows = filteredOrders.map((ord, idx) => [
         idx + 1,
         ord.orderNumber,
@@ -143,7 +133,10 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ data, showToast }) => 
         ord.orderDate,
         ord.status === 'delivered' ? 'مُسلم' : ord.status === 'ready' ? 'جاهز' : 'قيد التنفيذ',
         ord.totalAmount,
-        ord.paidAmount
+        ord.paidAmount,
+        ord.remainingAmount,
+        ord.materialCost || 0,
+        (ord.totalAmount || 0) - (ord.materialCost || 0)
       ]);
 
       const csvContent = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
@@ -182,7 +175,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ data, showToast }) => 
           <div className="grid grid-cols-4 gap-2 text-xs border border-black p-3 bg-gray-50">
             <div>إجمالي الطلبات: <strong>{totalOrdersCount}</strong></div>
             <div>الإيرادات المُسلّمة: <strong>{actualRevenue} ر.س</strong></div>
-            <div>تكلفة القماش: <strong>{Math.round(deliveredFabricCost)} ر.س</strong></div>
+            <div>تكلفة القماش: <strong>{Math.round(materialCost)} ر.س</strong></div>
             <div>صافي الربح: <strong>{Math.round(netProfit)} ر.س</strong></div>
           </div>
 
@@ -332,7 +325,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ data, showToast }) => 
               <Scissors className="w-4 h-4" />
             </div>
           </div>
-          <div className="text-2xl font-black text-slate-900 font-mono">{Math.round(deliveredFabricCost)} ر.س</div>
+          <div className="text-2xl font-black text-slate-900 font-mono">{Math.round(materialCost)} ر.س</div>
           <span className="text-[11px] text-slate-400 font-medium block mt-1">تقدير الأمتار المستهلكة</span>
         </div>
 
@@ -345,7 +338,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ data, showToast }) => 
             </div>
           </div>
           <div className="text-2xl font-black text-emerald-700 font-mono">{Math.round(netProfit)} ر.س</div>
-          <span className="text-[11px] text-slate-400 font-medium block mt-1">الإيرادات - تكلفة القماش</span>
+          <span className="text-[11px] text-slate-400 font-medium block mt-1">المبيعات - تكلفة المواد - المصروفات</span>
         </div>
 
         {/* 5. Average Order Value */}
@@ -358,6 +351,39 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ data, showToast }) => 
           </div>
           <div className="text-2xl font-black text-slate-900 font-mono">{avgOrderValue} ر.س</div>
           <span className="text-[11px] text-slate-400 font-medium block mt-1">لكل ثوب</span>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        {[
+          ['إجمالي المبيعات', totalSales, 'كل الطلبات غير الملغاة', 'text-slate-900'],
+          ['إجمالي التحصيل', collectedAmount, 'الدفعات المسجلة', 'text-emerald-700'],
+          ['المبالغ المتبقية', remainingAmount, 'على الطلبات في الفترة', 'text-amber-700'],
+          ['إجمالي المشتريات', totalPurchases, 'مخزون تم اعتماده', 'text-rose-700'],
+          ['إجمالي المصروفات', totalExpenses, 'خارج الصندوق', 'text-rose-700'],
+          ['قيمة المخزون', inventoryValue, 'بسعر الشراء الحالي', 'text-slate-900']
+        ].map(([label, value, note, tone]) => (
+          <div key={label as string} className="bg-white border border-[#DEDEDA] rounded-2xl p-5 shadow-sm">
+            <p className="text-xs font-bold text-slate-500">{label}</p>
+            <p className={`text-2xl font-black font-mono mt-3 ${tone}`}>{Number(value).toLocaleString('ar-SA', { maximumFractionDigits: 2 })} ر.س</p>
+            <p className="text-[11px] text-slate-400 font-medium mt-1">{note}</p>
+          </div>
+        ))}
+        <div className="bg-white border border-[#DEDEDA] rounded-2xl p-5 shadow-sm">
+          <p className="text-xs font-bold text-slate-500">أصناف منخفضة المخزون</p>
+          <p className="text-2xl font-black font-mono mt-3 text-rose-700">{lowStockItems.length}</p>
+          <div className="flex flex-wrap gap-1.5 mt-2">{lowStockItems.slice(0, 4).map((item) => <Badge key={item} variant="red">{item}</Badge>)}{lowStockItems.length > 4 && <Badge variant="slate">+{lowStockItems.length - 4}</Badge>}</div>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div className="bg-white rounded-2xl shadow-sm border border-[#DEDEDA] overflow-hidden">
+          <div className="p-5 border-b border-[#DEDEDA] bg-[#F0F0EE]/40"><h3 className="text-base font-black text-slate-900">الأكثر استهلاكاً</h3><p className="text-xs text-slate-500 mt-1">حسب حركات صرف المواد في الفترة</p></div>
+          <div className="p-5 space-y-3">{topConsumption.length === 0 ? <p className="text-sm text-slate-400 font-bold">لا توجد حركات صرف في الفترة.</p> : topConsumption.map(([name, quantity], index) => <div key={name} className="flex items-center justify-between gap-4 border-b border-slate-100 pb-3 last:border-0"><span className="text-sm font-black">{index + 1}. {name}</span><Badge variant="slate">{quantity} وحدة صرف</Badge></div>)}</div>
+        </div>
+        <div className="bg-white rounded-2xl shadow-sm border border-[#DEDEDA] overflow-hidden">
+          <div className="p-5 border-b border-[#DEDEDA] bg-[#F0F0EE]/40"><h3 className="text-base font-black text-slate-900">ملخص الفترة</h3><p className="text-xs text-slate-500 mt-1">المبيعات ناقص المواد والمصروفات</p></div>
+          <div className="p-5 grid grid-cols-2 gap-4 text-sm"><div><span className="text-slate-500 font-bold">الربح الإجمالي</span><p className="font-black text-lg mt-1">{Math.round(grossProfit)} ر.س</p></div><div><span className="text-slate-500 font-bold">صافي الربح</span><p className={`font-black text-lg mt-1 ${netProfit >= 0 ? 'text-emerald-700' : 'text-rose-700'}`}>{Math.round(netProfit)} ر.س</p></div><div><span className="text-slate-500 font-bold">حركات الصندوق</span><p className="font-black text-lg mt-1">{filteredCash.length}</p></div><div><span className="text-slate-500 font-bold">حركات المخزون</span><p className="font-black text-lg mt-1">{filteredMovements.length}</p></div></div>
         </div>
       </div>
 

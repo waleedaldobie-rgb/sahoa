@@ -1,5 +1,5 @@
 import React from 'react';
-import { X, AlertCircle, CheckCircle2, Info, Loader2, Eye } from 'lucide-react';
+import { X, AlertCircle, CheckCircle2, Info, Loader2 } from 'lucide-react';
 
 // =================== BUTTON COMPONENT ===================
 export interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {

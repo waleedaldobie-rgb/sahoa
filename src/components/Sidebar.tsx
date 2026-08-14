@@ -6,6 +6,7 @@ import {
   Receipt,
   Package,
   BarChart3,
+  WalletCards,
   Settings,
   DatabaseBackup,
   Sparkles,
@@ -27,6 +28,7 @@ export const navItems = [
   { id: 'customers', label: 'العملاء والمقاسات', icon: Users },
   { id: 'invoices', label: 'الفواتير والحسابات', icon: Receipt },
   { id: 'inventory', label: 'المخزون والأصناف', icon: Package },
+  { id: 'accounting', label: 'المحاسبة والمشتريات', icon: WalletCards },
   { id: 'reports', label: 'التقارير والإحصائيات', icon: BarChart3 },
   { id: 'settings', label: 'الإعدادات', icon: Settings }
 ];

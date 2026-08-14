@@ -4,7 +4,17 @@ import path from 'path';
 import * as XLSX from 'xlsx';
 import { CREATE_TABLES_SQL, CURRENT_SCHEMA_VERSION, DatabaseSettings } from './schema';
 import { Customer, Order, FabricItem, AccessoryItem, ThobeType, ColorItem, NotificationItem, Invoice } from '../types';
-import { DEFAULT_MEASUREMENTS, DEFAULT_STYLE_DETAILS } from '../services/electronMock';
+import { DEFAULT_MEASUREMENTS, DEFAULT_STYLE_DETAILS, normalizeMeasurements, normalizeStyleDetails } from '../services/electronMock';
+
+const parseMeasurementsJson = (value?: string) => {
+  try { return normalizeMeasurements(JSON.parse(value || '{}')); }
+  catch { return normalizeMeasurements(); }
+};
+
+const parseStyleDetailsJson = (value?: string) => {
+  try { return normalizeStyleDetails(JSON.parse(value || '{}')); }
+  catch { return normalizeStyleDetails(); }
+};
 
 export class SahwaDatabaseManager {
   private db: Database.Database | null = null;
@@ -72,6 +82,7 @@ export class SahwaDatabaseManager {
 
       // Create Tables & Indexes
       this.db.exec(CREATE_TABLES_SQL);
+      this.ensureCompatibilityMigrations();
 
       // Initialize default system settings
       this.initSystemSettings();
@@ -97,6 +108,18 @@ export class SahwaDatabaseManager {
       throw new Error('قاعدة البيانات غير مفعلة');
     }
     return this.db;
+  }
+
+  private ensureCompatibilityMigrations(): void {
+    const db = this.getRawDb();
+    const accessoryColumns = db.pragma('table_info(accessories)') as Array<{ name: string }>;
+    if (!accessoryColumns.some((column) => column.name === 'purchase_price')) {
+      db.exec("ALTER TABLE accessories ADD COLUMN purchase_price REAL NOT NULL DEFAULT 0");
+    }
+    const settingsColumns = db.pragma('table_info(system_settings)') as Array<{ name: string }>;
+    if (settingsColumns.length === 0) {
+      throw new Error('تعذر التحقق من جدول إعدادات النظام');
+    }
   }
 
   /**
@@ -234,7 +257,13 @@ export class SahwaDatabaseManager {
       // 3. Perform Transactional Wipe & Insert
       const db = this.getRawDb();
       const restoreTx = db.transaction(() => {
-        // Clear existing tables
+        // Clear existing tables. New ledgers are cleared first so restore remains atomic and FK-safe.
+        db.prepare('DELETE FROM order_material_usages').run();
+        db.prepare('DELETE FROM purchase_lines').run();
+        db.prepare('DELETE FROM cash_transactions').run();
+        db.prepare('DELETE FROM expenses').run();
+        db.prepare('DELETE FROM purchases').run();
+        db.prepare('DELETE FROM inventory_movements').run();
         db.prepare('DELETE FROM invoices').run();
         db.prepare('DELETE FROM orders').run();
         db.prepare('DELETE FROM customer_measurement_history').run();
@@ -253,7 +282,7 @@ export class SahwaDatabaseManager {
         for (const c of (parsed.customers as Customer[])) {
           custStmt.run(
             c.id, c.name, c.phone, c.createdAt || new Date().toISOString(),
-            null, JSON.stringify(c.measurements || {}), JSON.stringify(c.styleDetails || {})
+            null, JSON.stringify(normalizeMeasurements(c.measurements)), JSON.stringify(normalizeStyleDetails(c.styleDetails))
           );
 
           // History
@@ -263,7 +292,7 @@ export class SahwaDatabaseManager {
               VALUES (?, ?, ?, ?, ?, ?)
             `);
             for (const h of c.measurementHistory) {
-              histStmt.run(h.id, c.id, h.savedAt, h.note || '', JSON.stringify(h.measurements), JSON.stringify(h.styleDetails));
+              histStmt.run(h.id, c.id, h.savedAt, h.note || '', JSON.stringify(normalizeMeasurements(h.measurements)), JSON.stringify(normalizeStyleDetails(h.styleDetails)));
             }
           }
         }
@@ -283,11 +312,11 @@ export class SahwaDatabaseManager {
 
         // Restore Accessories
         const accStmt = db.prepare(`
-          INSERT INTO accessories (id, name, category, quantity, min_stock, unit, created_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?)
+          INSERT INTO accessories (id, name, category, quantity, min_stock, unit, purchase_price, created_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         `);
         for (const a of (parsed.accessories as AccessoryItem[])) {
-          accStmt.run(a.id, a.name, a.category, a.quantity || 0, a.minStock || 5, a.unit || 'حبة', new Date().toISOString());
+          accStmt.run(a.id, a.name, a.category, a.quantity || 0, a.minStock || 5, a.unit || 'حبة', a.purchasePrice || 0, new Date().toISOString());
         }
 
         // Restore Dress Types
@@ -331,7 +360,7 @@ export class SahwaDatabaseManager {
             o.fabricConsumptionMeters || 3.5, o.fabricBuyPriceAtOrder || 0,
             o.garmentCount || 1, o.orderDate, o.deliveryDate, o.status || 'new',
             total, paid, remaining, o.isCustomMeasurement ? 1 : 0,
-            JSON.stringify(o.measurements || {}), JSON.stringify(o.styleDetails || {}),
+            JSON.stringify(normalizeMeasurements(o.measurements)), JSON.stringify(normalizeStyleDetails(o.styleDetails)),
             o.notes || '', o.createdAt || new Date().toISOString()
           );
         }
@@ -351,6 +380,68 @@ export class SahwaDatabaseManager {
               inv.orderDate, inv.totalAmount || 0, inv.paidAmount || 0, rem,
               inv.paymentStatus || 'unpaid', JSON.stringify(inv.payments || [])
             );
+          }
+        }
+
+        // Restore Inventory Movements
+        if (Array.isArray(parsed.stockMovements)) {
+          const movementStmt = db.prepare(`
+            INSERT INTO inventory_movements (id, item_type, item_id, item_name, direction, quantity, quantity_before, quantity_after, unit, reason, reference_type, reference_id, reference_number, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `);
+          for (const m of parsed.stockMovements) {
+            movementStmt.run(m.id, m.itemType, m.itemId, m.itemName, m.direction, m.quantity, m.quantityBefore, m.quantityAfter, m.unit, m.reason, m.referenceType || null, m.referenceId || null, m.referenceNumber || null, m.createdAt || new Date().toISOString());
+          }
+        }
+
+        // Restore Purchases and line items
+        if (Array.isArray(parsed.purchases)) {
+          const purchaseStmt = db.prepare(`
+            INSERT INTO purchases (id, supplier, invoice_number, purchase_date, total_amount, payment_method, notes, status, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `);
+          const lineStmt = db.prepare(`
+            INSERT INTO purchase_lines (id, purchase_id, item_type, item_id, item_name, quantity, unit, unit_price, total_amount, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `);
+          for (const p of parsed.purchases) {
+            purchaseStmt.run(p.id, p.supplier, p.invoiceNumber || null, p.purchaseDate, p.totalAmount || 0, p.paymentMethod || 'cash', p.notes || null, p.status || 'approved', p.createdAt || new Date().toISOString());
+            for (const line of (p.lines || [])) {
+              lineStmt.run(line.id, p.id, line.itemType, line.itemId, line.itemName, line.quantity, line.unit, line.unitPrice || 0, line.totalAmount || 0, line.createdAt || new Date().toISOString());
+            }
+          }
+        }
+
+        // Restore Expenses
+        if (Array.isArray(parsed.expenses)) {
+          const expenseStmt = db.prepare(`
+            INSERT INTO expenses (id, category, amount, expense_date, payment_method, description, notes, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+          `);
+          for (const e of parsed.expenses) {
+            expenseStmt.run(e.id, e.category, e.amount || 0, e.expenseDate, e.paymentMethod || 'cash', e.description, e.notes || null, e.createdAt || new Date().toISOString());
+          }
+        }
+
+        // Restore Cash Ledger
+        if (Array.isArray(parsed.cashTransactions)) {
+          const cashStmt = db.prepare(`
+            INSERT INTO cash_transactions (id, direction, source_type, source_id, reference_number, amount, payment_method, transaction_date, description, notes, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `);
+          for (const c of parsed.cashTransactions) {
+            cashStmt.run(c.id, c.direction, c.sourceType, c.sourceId || null, c.referenceNumber || null, c.amount || 0, c.paymentMethod || 'cash', c.transactionDate, c.description, c.notes || null, c.createdAt || new Date().toISOString());
+          }
+        }
+
+        // Restore immutable Order Material Cost snapshots
+        if (Array.isArray(parsed.orderMaterialUsages)) {
+          const materialStmt = db.prepare(`
+            INSERT INTO order_material_usages (id, order_id, item_type, item_id, item_name, quantity, unit, unit_cost_at_usage, total_cost, source_movement_id, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `);
+          for (const m of parsed.orderMaterialUsages) {
+            materialStmt.run(m.id, m.orderId, m.itemType, m.itemId || null, m.itemName, m.quantity, m.unit, m.unitCostAtUsage || 0, m.totalCost || 0, m.sourceMovementId || null, m.createdAt || new Date().toISOString());
           }
         }
 
@@ -389,6 +480,12 @@ export class SahwaDatabaseManager {
     const rawOrders = db.prepare('SELECT * FROM orders').all() as any[];
     const rawInvoices = db.prepare('SELECT * FROM invoices').all() as any[];
     const rawNotifications = db.prepare('SELECT * FROM notifications').all() as any[];
+    const rawStockMovements = db.prepare('SELECT * FROM inventory_movements').all() as any[];
+    const rawPurchases = db.prepare('SELECT * FROM purchases').all() as any[];
+    const rawPurchaseLines = db.prepare('SELECT * FROM purchase_lines').all() as any[];
+    const rawExpenses = db.prepare('SELECT * FROM expenses').all() as any[];
+    const rawCashTransactions = db.prepare('SELECT * FROM cash_transactions').all() as any[];
+    const rawOrderMaterialUsages = db.prepare('SELECT * FROM order_material_usages').all() as any[];
 
     // Map history to customers
     const historyMap = new Map<string, any[]>();
@@ -398,8 +495,8 @@ export class SahwaDatabaseManager {
         id: h.id,
         savedAt: h.saved_at,
         note: h.note,
-        measurements: JSON.parse(h.measurements_json || '{}'),
-        styleDetails: JSON.parse(h.style_details_json || '{}')
+        measurements: parseMeasurementsJson(h.measurements_json),
+        styleDetails: parseStyleDetailsJson(h.style_details_json)
       });
       historyMap.set(h.customer_id, list);
     }
@@ -409,8 +506,8 @@ export class SahwaDatabaseManager {
       name: c.name,
       phone: c.phone,
       createdAt: c.created_at,
-      measurements: JSON.parse(c.measurements_json || '{}'),
-      styleDetails: JSON.parse(c.style_details_json || '{}'),
+      measurements: parseMeasurementsJson(c.measurements_json),
+      styleDetails: parseStyleDetailsJson(c.style_details_json),
       measurementHistory: historyMap.get(c.id) || []
     }));
 
@@ -468,8 +565,8 @@ export class SahwaDatabaseManager {
       paidAmount: o.paid_amount,
       remainingAmount: o.remaining_amount,
       isCustomMeasurement: Boolean(o.is_custom_measurement),
-      measurements: JSON.parse(o.measurements_json || '{}'),
-      styleDetails: JSON.parse(o.style_details_json || '{}'),
+      measurements: parseMeasurementsJson(o.measurements_json),
+      styleDetails: parseStyleDetailsJson(o.style_details_json),
       notes: o.notes,
       createdAt: o.created_at
     }));
@@ -498,7 +595,37 @@ export class SahwaDatabaseManager {
       customerPhone: n.customer_phone
     }));
 
-    return { customers, fabrics, accessories, thobeTypes, colors, orders, invoices, notifications };
+    const stockMovements = rawStockMovements.map(m => ({
+      id: m.id, itemType: m.item_type, itemId: m.item_id, itemName: m.item_name, direction: m.direction,
+      quantity: m.quantity, quantityBefore: m.quantity_before, quantityAfter: m.quantity_after, unit: m.unit,
+      reason: m.reason, referenceType: m.reference_type, referenceId: m.reference_id, referenceNumber: m.reference_number,
+      createdAt: m.created_at
+    }));
+    const purchases = rawPurchases.map(p => ({
+      id: p.id, supplier: p.supplier, invoiceNumber: p.invoice_number, purchaseDate: p.purchase_date,
+      totalAmount: p.total_amount, paymentMethod: p.payment_method, notes: p.notes, status: p.status,
+      lines: rawPurchaseLines.filter(l => l.purchase_id === p.id).map(l => ({
+        id: l.id, purchaseId: l.purchase_id, itemType: l.item_type, itemId: l.item_id, itemName: l.item_name,
+        quantity: l.quantity, unit: l.unit, unitPrice: l.unit_price, totalAmount: l.total_amount, createdAt: l.created_at
+      })),
+      createdAt: p.created_at
+    }));
+    const expenses = rawExpenses.map(e => ({
+      id: e.id, category: e.category, amount: e.amount, expenseDate: e.expense_date,
+      paymentMethod: e.payment_method, description: e.description, notes: e.notes, createdAt: e.created_at
+    }));
+    const cashTransactions = rawCashTransactions.map(c => ({
+      id: c.id, direction: c.direction, sourceType: c.source_type, sourceId: c.source_id,
+      referenceNumber: c.reference_number, amount: c.amount, paymentMethod: c.payment_method,
+      transactionDate: c.transaction_date, description: c.description, notes: c.notes, createdAt: c.created_at
+    }));
+    const orderMaterialUsages = rawOrderMaterialUsages.map(m => ({
+      id: m.id, orderId: m.order_id, itemType: m.item_type, itemId: m.item_id, itemName: m.item_name,
+      quantity: m.quantity, unit: m.unit, unitCostAtUsage: m.unit_cost_at_usage, totalCost: m.total_cost,
+      sourceMovementId: m.source_movement_id, createdAt: m.created_at
+    }));
+
+    return { customers, fabrics, accessories, thobeTypes, colors, orders, invoices, notifications, stockMovements, purchases, expenses, cashTransactions, orderMaterialUsages };
   }
 
   /**

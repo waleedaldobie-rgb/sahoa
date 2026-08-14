@@ -1,6 +1,6 @@
 import fs from 'fs';
 import path from 'path';
-import { fork, ChildProcess } from 'child_process';
+import { fork } from 'child_process';
 
 // 1. Generate the test version of ipcHandlers.ts
 const originalIpcPath = path.join(process.cwd(), 'src/electron/ipcHandlers.ts');
@@ -106,7 +106,7 @@ async function runTests() {
     let s1Error: any = null;
 
     try {
-      const orderRes = await invokeIPC('orders:create', orderDataS1);
+      await invokeIPC('orders:create', orderDataS1);
       actualQtyS1 = getFabricQty('FAB-S1');
       console.log(`Quantity AFTER order: ${actualQtyS1}`);
       s1Passed = Math.abs(actualQtyS1 - expectedQtyS1) < 0.001;
@@ -353,12 +353,9 @@ async function runTests() {
 
     let actualQtyS6 = 0;
     let s6Passed = false;
-    let s6Error: any = null;
-
     try {
       await invokeIPC('orders:create', orderDataS6);
     } catch (err: any) {
-      s6Error = err;
       actualQtyS6 = getFabricQty('FAB-S6');
       console.log(`Transaction failed with error: "${err.message}"`);
       console.log(`Fabric Rollback quantity AFTER rollback: ${actualQtyS6}`);
@@ -468,7 +465,7 @@ tx();
         }
       });
 
-      child.on('exit', (code, signal) => {
+      child.on('exit', (_code, signal) => {
         console.log(`Child exited with signal: ${signal}`);
         resolve();
       });
@@ -486,7 +483,7 @@ tx();
     // Re-open database with a new Database Manager, verify integrity check and value
     console.log('Re-opening database to check integrity and rollback status...');
     const dbManagerRecovered = new SahwaDatabaseManager(tempDbDir);
-    const recoverRes = dbManagerRecovered.initDatabase();
+    dbManagerRecovered.initDatabase();
     const dbRecovered = dbManagerRecovered.getRawDb();
 
     const integrityResult = dbRecovered.pragma('integrity_check') as any[];

@@ -1,18 +1,14 @@
 import React, { useState } from 'react';
 import { Invoice, Order, PaymentRecord, UserPreferences } from '../types';
 import { Card, Button, Input, Select, Modal, EmptyState, Badge } from './ui';
-import { SahwaLogo } from './SahwaLogo';
 import { PrintableInvoice } from './PrintableInvoice';
 export { PrintableInvoice };
 import {
   Receipt,
   Search,
-  PlusCircle,
   Printer,
   DollarSign,
   CheckCircle2,
-  FileText,
-  CreditCard,
   Eye,
   Wallet
 } from 'lucide-react';
@@ -30,9 +26,7 @@ export interface InvoicesViewProps {
 export const InvoicesView: React.FC<InvoicesViewProps> = ({
   invoices,
   orders,
-  invoicePrintMode,
   userPreferences,
-  onUpdateInvoiceMode,
   onAddPayment,
   showToast
 }) => {

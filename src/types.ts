@@ -43,7 +43,8 @@ export interface CustomerStyleDetails {
   habroorType: string; // الحبرور
   habroorPadding?: string; // حشوة الجبرور (واحد حشوة / مخفي حشوة حبروز / مخفي قماش)
   habroorLining: string; // بطانة الحبرور
-  habroorStyle: string; // موديل الجبرور
+  habroorStyle: string; // موديل الجبرور القديم
+  habroorLength?: string; // طول الجبزور كقياس مستقل
   habroorBottom: string; // شكل أسفل
 
   // 4. الكم وحشوة الكم
@@ -83,6 +84,7 @@ export interface CustomerStyleDetails {
   richieMark: string; // علامة ريتشي
   generalNotes: string; // ملاحظات عامة
   additionalNotes: string; // ملاحظات إضافية
+  tailorNotes?: string; // ملاحظات مخصصة للخياط تظهر في الفاتورة
   modelPhoto?: string; // صورة الموديل (كـ Base64 أو رابط)
   modelTextDescription?: string; // تفاصيل الموديل يدوياً (كتابة)
 }
@@ -107,6 +109,99 @@ export interface Customer {
 
 export type OrderStatus = 'new' | 'processing' | 'ready' | 'delivered';
 
+export type InventoryItemType = 'fabric' | 'accessory';
+export type InventoryMovementDirection = 'purchase' | 'sale' | 'adjustment' | 'return';
+export type PaymentMethod = 'cash' | 'card' | 'transfer';
+
+export interface StockMovement {
+  id: string;
+  itemType: InventoryItemType;
+  itemId: string;
+  itemName: string;
+  direction: InventoryMovementDirection;
+  quantity: number;
+  quantityBefore: number;
+  quantityAfter: number;
+  unit: string;
+  reason: string;
+  referenceType?: string;
+  referenceId?: string;
+  referenceNumber?: string;
+  createdAt: string;
+}
+
+export interface PurchaseLine {
+  id: string;
+  purchaseId: string;
+  itemType: InventoryItemType;
+  itemId: string;
+  itemName: string;
+  quantity: number;
+  unit: string;
+  unitPrice: number;
+  totalAmount: number;
+  createdAt: string;
+}
+
+export interface PurchaseRecord {
+  id: string;
+  supplier: string;
+  invoiceNumber?: string;
+  purchaseDate: string;
+  totalAmount: number;
+  paymentMethod: PaymentMethod;
+  notes?: string;
+  status: 'approved' | 'cancelled';
+  lines: PurchaseLine[];
+  createdAt: string;
+}
+
+export interface ExpenseRecord {
+  id: string;
+  category: 'إيجار' | 'كهرباء' | 'ماء' | 'رواتب' | 'صيانة' | 'نقل' | 'تشغيل' | 'أخرى' | string;
+  amount: number;
+  expenseDate: string;
+  paymentMethod: PaymentMethod;
+  description: string;
+  notes?: string;
+  createdAt: string;
+}
+
+export type CashSourceType = 'opening_balance' | 'customer_payment' | 'sale' | 'purchase' | 'expense' | 'withdrawal' | 'adjustment';
+
+export interface CashTransaction {
+  id: string;
+  direction: 'in' | 'out';
+  sourceType: CashSourceType;
+  sourceId?: string;
+  referenceNumber?: string;
+  amount: number;
+  paymentMethod: PaymentMethod;
+  transactionDate: string;
+  description: string;
+  notes?: string;
+  createdAt: string;
+}
+
+export interface OrderMaterialUsage {
+  id: string;
+  orderId: string;
+  itemType: InventoryItemType;
+  itemId?: string;
+  itemName: string;
+  quantity: number;
+  unit: string;
+  unitCostAtUsage: number;
+  totalCost: number;
+  sourceMovementId?: string;
+  createdAt: string;
+}
+
+export type OrderMaterialUsageInput = Omit<OrderMaterialUsage, 'id' | 'orderId' | 'totalCost' | 'createdAt' | 'sourceMovementId'> & {
+  itemId: string;
+  unitCostAtUsage?: number;
+};
+
 export interface Order {
   id: string;
   orderNumber: string; // e.g. ORD-1001
@@ -121,6 +216,10 @@ export interface Order {
   fabricConsumptionMeters?: number;
   fabricBuyPriceAtOrder?: number;
   garmentCount?: number;
+  initialPaymentMethod?: PaymentMethod;
+  materialUsages?: OrderMaterialUsageInput[] | OrderMaterialUsage[];
+  materialCost?: number;
+  profit?: number;
   orderDate: string; // YYYY-MM-DD
   deliveryDate: string; // YYYY-MM-DD
   status: OrderStatus;
@@ -176,6 +275,8 @@ export interface AccessoryItem {
   quantity: number;
   minStock: number;
   unit: string;
+  purchasePrice?: number;
+  sellingPrice?: number;
 }
 
 export interface ThobeType {
@@ -211,6 +312,11 @@ export interface AppData {
   thobeTypes: ThobeType[];
   colors: ColorItem[];
   notifications: NotificationItem[];
+  stockMovements?: StockMovement[];
+  purchases?: PurchaseRecord[];
+  expenses?: ExpenseRecord[];
+  cashTransactions?: CashTransaction[];
+  orderMaterialUsages?: OrderMaterialUsage[];
 }
 
 export interface UserPreferences {
@@ -271,8 +377,17 @@ declare global {
       updateOrderStatus?: (id: string, status: string) => Promise<boolean>;
 
       getInvoices?: () => Promise<Invoice[]>;
-      addPayment?: (invoiceId: string, amount: number, method: string, note: string) => Promise<boolean>;
-
+            addPayment?: (invoiceId: string, amount: number, method: string, note: string, paymentId?: string) => Promise<boolean>;
+      getStockMovements?: (itemType?: InventoryItemType, itemId?: string) => Promise<StockMovement[]>;
+      adjustStock?: (itemType: InventoryItemType, itemId: string, quantity: number, reason: string, direction: 'adjustment' | 'return') => Promise<StockMovement>;
+      getPurchases?: () => Promise<PurchaseRecord[]>;
+      createPurchase?: (purchase: { id?: string; supplier: string; invoiceNumber?: string; purchaseDate: string; paymentMethod: PaymentMethod; notes?: string; lines: Array<Omit<PurchaseLine, 'id' | 'purchaseId' | 'createdAt' | 'totalAmount'>> }) => Promise<PurchaseRecord>;
+      getExpenses?: () => Promise<ExpenseRecord[]>;
+      createExpense?: (expense: { id?: string; category: string; amount: number; expenseDate: string; paymentMethod: PaymentMethod; description: string; notes?: string }) => Promise<ExpenseRecord>;
+      getCashTransactions?: () => Promise<CashTransaction[]>;
+      createCashAdjustment?: (transaction: Omit<CashTransaction, 'id' | 'createdAt'>) => Promise<CashTransaction>;
+      getOrderMaterialUsages?: (orderId?: string) => Promise<OrderMaterialUsage[]>;
+      
       exportExcelReport?: (startDate?: string, endDate?: string) => Promise<string>;
       getSettings?: () => Promise<any>;
       updateSetting?: (key: string, value: any) => Promise<boolean>;

@@ -1,14 +1,13 @@
-import { Order, Customer, FabricItem, AccessoryItem, ThobeType, ColorItem, NotificationItem } from '../types';
 
 export interface DatabaseSettings {
   fabricConsumptionRatePerGarment: number; // default 3.5 meters
   autoBackupIntervalHours: number; // default 1 hour
   maxBackupFiles: number; // default 14
   lastBackupTimestamp?: string;
-  schemaVersion: number; // current: 1
+  schemaVersion: number; // current: 2
 }
 
-export const CURRENT_SCHEMA_VERSION = 1;
+export const CURRENT_SCHEMA_VERSION = 2;
 
 export const CREATE_TABLES_SQL = `
 -- Enable PRAGMA FKs and WAL
@@ -64,6 +63,7 @@ CREATE TABLE IF NOT EXISTS accessories (
   quantity REAL NOT NULL DEFAULT 0,
   min_stock REAL NOT NULL DEFAULT 5,
   unit TEXT NOT NULL DEFAULT 'حبة',
+  purchase_price REAL NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL
 );
 
@@ -141,9 +141,105 @@ CREATE TABLE IF NOT EXISTS notifications (
   customer_phone TEXT
 );
 
+-- Inventory movement ledger. Item references are polymorphic because fabrics and accessories live in separate tables.
+CREATE TABLE IF NOT EXISTS inventory_movements (
+  id TEXT PRIMARY KEY,
+  item_type TEXT NOT NULL CHECK (item_type IN ('fabric', 'accessory')),
+  item_id TEXT NOT NULL,
+  item_name TEXT NOT NULL,
+  direction TEXT NOT NULL CHECK (direction IN ('purchase', 'sale', 'adjustment', 'return')),
+  quantity REAL NOT NULL,
+  quantity_before REAL NOT NULL,
+  quantity_after REAL NOT NULL,
+  unit TEXT NOT NULL,
+  reason TEXT NOT NULL,
+  reference_type TEXT,
+  reference_id TEXT,
+  reference_number TEXT,
+  created_at TEXT NOT NULL
+);
+
+-- Purchase headers and immutable line-level historical prices.
+CREATE TABLE IF NOT EXISTS purchases (
+  id TEXT PRIMARY KEY,
+  supplier TEXT NOT NULL,
+  invoice_number TEXT,
+  purchase_date TEXT NOT NULL,
+  total_amount REAL NOT NULL DEFAULT 0,
+  payment_method TEXT NOT NULL DEFAULT 'cash',
+  notes TEXT,
+  status TEXT NOT NULL DEFAULT 'approved',
+  created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS purchase_lines (
+  id TEXT PRIMARY KEY,
+  purchase_id TEXT NOT NULL,
+  item_type TEXT NOT NULL CHECK (item_type IN ('fabric', 'accessory')),
+  item_id TEXT NOT NULL,
+  item_name TEXT NOT NULL,
+  quantity REAL NOT NULL,
+  unit TEXT NOT NULL,
+  unit_price REAL NOT NULL DEFAULT 0,
+  total_amount REAL NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL,
+  FOREIGN KEY (purchase_id) REFERENCES purchases(id) ON DELETE CASCADE
+);
+
+-- Operating expenses. Cash movements reference these records by source_id.
+CREATE TABLE IF NOT EXISTS expenses (
+  id TEXT PRIMARY KEY,
+  category TEXT NOT NULL,
+  amount REAL NOT NULL CHECK (amount >= 0),
+  expense_date TEXT NOT NULL,
+  payment_method TEXT NOT NULL DEFAULT 'cash',
+  description TEXT NOT NULL,
+  notes TEXT,
+  created_at TEXT NOT NULL
+);
+
+-- Unified cash ledger. Opening balance is represented as a normal auditable entry.
+CREATE TABLE IF NOT EXISTS cash_transactions (
+  id TEXT PRIMARY KEY,
+  direction TEXT NOT NULL CHECK (direction IN ('in', 'out')),
+  source_type TEXT NOT NULL CHECK (source_type IN ('opening_balance', 'customer_payment', 'sale', 'purchase', 'expense', 'withdrawal', 'adjustment')),
+  source_id TEXT,
+  reference_number TEXT,
+  amount REAL NOT NULL CHECK (amount >= 0),
+  payment_method TEXT NOT NULL DEFAULT 'cash',
+  transaction_date TEXT NOT NULL,
+  description TEXT NOT NULL,
+  notes TEXT,
+  created_at TEXT NOT NULL
+);
+
+-- Material snapshots used to calculate an order's historical cost.
+CREATE TABLE IF NOT EXISTS order_material_usages (
+  id TEXT PRIMARY KEY,
+  order_id TEXT NOT NULL,
+  item_type TEXT NOT NULL CHECK (item_type IN ('fabric', 'accessory')),
+  item_id TEXT,
+  item_name TEXT NOT NULL,
+  quantity REAL NOT NULL,
+  unit TEXT NOT NULL,
+  unit_cost_at_usage REAL NOT NULL DEFAULT 0,
+  total_cost REAL NOT NULL DEFAULT 0,
+  source_movement_id TEXT,
+  created_at TEXT NOT NULL,
+  FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE CASCADE
+);
+
 -- Indexes for fast query performance
 CREATE INDEX IF NOT EXISTS idx_orders_customer ON orders(customer_id);
 CREATE INDEX IF NOT EXISTS idx_orders_status ON orders(status);
 CREATE INDEX IF NOT EXISTS idx_orders_date ON orders(order_date);
 CREATE INDEX IF NOT EXISTS idx_history_customer ON customer_measurement_history(customer_id);
+CREATE INDEX IF NOT EXISTS idx_inventory_movements_item ON inventory_movements(item_type, item_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_inventory_movements_reference ON inventory_movements(reference_type, reference_id);
+CREATE INDEX IF NOT EXISTS idx_purchases_date ON purchases(purchase_date);
+CREATE INDEX IF NOT EXISTS idx_purchase_lines_purchase ON purchase_lines(purchase_id);
+CREATE INDEX IF NOT EXISTS idx_expenses_date ON expenses(expense_date);
+CREATE INDEX IF NOT EXISTS idx_cash_transactions_date ON cash_transactions(transaction_date, created_at);
+CREATE INDEX IF NOT EXISTS idx_cash_transactions_source ON cash_transactions(source_type, source_id);
+CREATE INDEX IF NOT EXISTS idx_order_material_usages_order ON order_material_usages(order_id);
 `;

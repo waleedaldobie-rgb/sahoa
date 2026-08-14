@@ -215,4 +215,102 @@ describe('db.transaction - Atomic Operations & Rollback Tests', () => {
     expect(data.notifications[0].message).toContain('قماش ياباني أبيض فاخر');
     expect(alertMessages.length).toBeGreaterThan(0);
   });
+
+  it('7. Persists pocket, jabzour, neck and new measurement fields for customers and orders', async () => {
+    const selectedStyleDetails = {
+      ...DEFAULT_STYLE_DETAILS,
+      neckType: 'قلاب',
+      neckShape: 'فرنسي',
+      neckPadding: 'بلاستيك حديد',
+      chestPocketStyle: 'جيب مربع',
+      chestPocketWidth: '13',
+      chestPocketDrop: '7',
+      bottomHemShape: 'جبزور مثلث',
+      habroorLength: '12'
+    };
+    const selectedMeasurements = {
+      ...DEFAULT_MEASUREMENTS,
+      neckHeight: '4.5'
+    };
+
+    await window.electronAPI.createCustomer({
+      id: 'CUST-NEW-FIELDS',
+      name: 'عميل الاختبار',
+      phone: '0555555555',
+      measurements: selectedMeasurements,
+      styleDetails: selectedStyleDetails
+    });
+
+    let data = await window.electronAPI.getData();
+    const customer = data.customers.find((item) => item.id === 'CUST-NEW-FIELDS');
+    expect(customer?.measurements.neckHeight).toBe('4.5');
+    expect(customer?.styleDetails.neckType).toBe('قلاب');
+    expect(customer?.styleDetails.neckShape).toBe('فرنسي');
+    expect(customer?.styleDetails.chestPocketStyle).toBe('جيب مربع');
+    expect(customer?.styleDetails.chestPocketWidth).toBe('13');
+    expect(customer?.styleDetails.chestPocketDrop).toBe('7');
+    expect(customer?.styleDetails.bottomHemShape).toBe('جبزور مثلث');
+    expect(customer?.styleDetails.habroorLength).toBe('12');
+
+    await window.electronAPI.createOrder({
+      id: 'ORD-NEW-FIELDS',
+      customerId: 'CUST-NEW-FIELDS',
+      customerName: 'عميل الاختبار',
+      customerPhone: '0555555555',
+      garmentCount: 1,
+      totalAmount: 250,
+      paidAmount: 0,
+      measurements: selectedMeasurements,
+      styleDetails: selectedStyleDetails
+    });
+
+    data = await window.electronAPI.getData();
+    const order = data.orders.find((item) => item.id === 'ORD-NEW-FIELDS');
+    expect(order?.measurements.neckHeight).toBe('4.5');
+    expect(order?.styleDetails.neckType).toBe('قلاب');
+    expect(order?.styleDetails.neckShape).toBe('فرنسي');
+    expect(order?.styleDetails.chestPocketStyle).toBe('جيب مربع');
+    expect(order?.styleDetails.chestPocketWidth).toBe('13');
+    expect(order?.styleDetails.chestPocketDrop).toBe('7');
+    expect(order?.styleDetails.bottomHemShape).toBe('جبزور مثلث');
+    expect(order?.styleDetails.habroorLength).toBe('12');
+  });
+
+  it('8. Backfills missing measurement fields without changing legacy values', async () => {
+    localStorage.setItem('sahwa_tailoring_app_data_v1', JSON.stringify({
+      customers: [{
+        id: 'LEGACY-CUSTOMER',
+        name: 'عميل قديم',
+        phone: '0500000000',
+        measurements: { frontLength: '150' },
+        styleDetails: { buttonsType: 'سادة' },
+        measurementHistory: [{
+          id: 'LEGACY-HISTORY',
+          savedAt: '2025-01-01',
+          measurements: { frontLength: '151' },
+          styleDetails: {}
+        }]
+      }],
+      orders: [{
+        id: 'LEGACY-ORDER',
+        measurements: { shoulderWidth: '44' },
+        styleDetails: {}
+      }],
+      invoices: [],
+      fabrics: [],
+      accessories: [],
+      thobeTypes: [],
+      colors: [],
+      notifications: []
+    }));
+
+    const data = await window.electronAPI.getData();
+    expect(data.customers[0].measurements.frontLength).toBe('150');
+    expect(data.customers[0].measurements.shoulderWidth).toBe('');
+    expect(data.customers[0].styleDetails.buttonsType).toBe('سادة');
+    expect(data.customers[0].styleDetails.chestPocketDrop).toBe('');
+    expect(data.customers[0].measurementHistory[0].measurements.frontLength).toBe('151');
+    expect(data.orders[0].measurements.shoulderWidth).toBe('44');
+    expect(data.orders[0].styleDetails.chestPocketDrop).toBe('');
+  });
 });

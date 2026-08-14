@@ -1,14 +1,12 @@
 import React from 'react';
 import { AppData, Order } from '../types';
 import { Card, Badge, Button, EmptyState } from './ui';
-import { SahwaLogo } from './SahwaLogo';
 import {
   Scissors,
   Clock,
   CheckCircle2,
   PackageCheck,
   AlertTriangle,
-  ArrowLeft,
   Calendar,
   Package,
   Plus,
