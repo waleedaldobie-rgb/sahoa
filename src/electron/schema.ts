@@ -258,5 +258,6 @@ CREATE INDEX IF NOT EXISTS idx_cash_transactions_date ON cash_transactions(trans
 CREATE INDEX IF NOT EXISTS idx_cash_transactions_source ON cash_transactions(source_type, source_id);
 CREATE INDEX IF NOT EXISTS idx_order_material_usages_order ON order_material_usages(order_id);
 CREATE INDEX IF NOT EXISTS idx_order_events_order_date ON order_events(order_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_order_events_created_at ON order_events(created_at);
 CREATE INDEX IF NOT EXISTS idx_order_events_type ON order_events(event_type);
 `;
