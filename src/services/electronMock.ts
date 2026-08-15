@@ -862,7 +862,8 @@ export function initElectronMock() {
 
     async createOrder(orderData: Partial<Order>): Promise<Order> {
       if (isRealElectron && existing?.createOrder) return existing.createOrder(orderData);
-      const existingOrder = orderData.id ? (await window.electronAPI.getData()).orders.find((order) => order.id === orderData.id) : undefined;
+      const existingData = await window.electronAPI.getData();
+      const existingOrder = existingData.orders.find((order) => order.id === orderData.id || (orderData.orderNumber && order.orderNumber === orderData.orderNumber));
       if (existingOrder) return existingOrder;
       let createdOrder: Order | null = null;
       await db.transaction(async (draft) => {
@@ -979,7 +980,7 @@ export function initElectronMock() {
 
         draft.invoices = [newInvoice, ...draft.invoices];
         if (paidAmount > 0 && initialPaymentId) {
-          mockInsertCash(draft, { id: `CASH-PAY-${initialPaymentId}`, direction: 'in', sourceType: 'customer_payment', sourceId: initialPaymentId, referenceNumber: orderNumber, amount: paidAmount, paymentMethod: orderData.initialPaymentMethod || 'cash', transactionDate: orderData.orderDate || new Date().toISOString().slice(0, 10), description: `دفعة أولى للطلب #${orderNumber}`, createdAt: new Date().toISOString() });
+          mockInsertCash(draft, { id: `CASH-PAY-${initialPaymentId}`, direction: 'in', sourceType: 'customer_payment', sourceId: initialPaymentId, orderId, referenceNumber: orderNumber, amount: paidAmount, paymentMethod: orderData.initialPaymentMethod || 'cash', transactionDate: orderData.orderDate || new Date().toISOString().slice(0, 10), description: `دفعة أولى للطلب #${orderNumber}`, createdAt: new Date().toISOString() });
         }
         mockInsertEvent(draft, {
           id: `EVT-CREATED-${orderId}`,
@@ -1138,7 +1139,7 @@ export function initElectronMock() {
           order.paidAmount = inv.paidAmount;
           order.remainingAmount = inv.remainingAmount;
         }
-        mockInsertCash(draft, { id: `CASH-PAY-${id}`, direction: 'in', sourceType: 'customer_payment', sourceId: id, referenceNumber: inv.invoiceNumber, amount: numericAmount, paymentMethod: method as any, transactionDate: payment.paymentDate, description: `دفعة عميل للفاتورة ${inv.invoiceNumber}`, notes: note || undefined, createdAt: new Date().toISOString() });
+        mockInsertCash(draft, { id: `CASH-PAY-${id}`, direction: 'in', sourceType: 'customer_payment', sourceId: id, orderId: inv.orderId, referenceNumber: inv.invoiceNumber, amount: numericAmount, paymentMethod: method as any, transactionDate: payment.paymentDate, description: `دفعة عميل للفاتورة ${inv.invoiceNumber}`, notes: note || undefined, createdAt: new Date().toISOString() });
         mockInsertEvent(draft, {
           id: `EVT-PAYMENT-${id}`,
           orderId: inv.orderId,
@@ -1185,6 +1186,7 @@ export function initElectronMock() {
 
       // Log notification in IPC state
       const data = await window.electronAPI.getData();
+      const order = data.orders.find((item) => item.orderNumber === orderNumber);
       const newNotif: NotificationItem = {
         id: 'NOTIF-' + Date.now(),
         type: 'whatsapp',
@@ -1192,10 +1194,10 @@ export function initElectronMock() {
         message: `تم إرسال رسالة واتساب للعميل ${customerName} (${phone}) - الحالة: ${statusText}`,
         date: new Date().toLocaleString('ar-SA'),
         read: true,
-        customerPhone: phone
+        customerPhone: phone,
+        orderId: order?.id
       };
       data.notifications = [newNotif, ...data.notifications];
-      const order = data.orders.find((item) => item.orderNumber === orderNumber);
       if (order) {
         mockInsertEvent(data, {
           id: `EVT-WHATSAPP-${newNotif.id}`,

@@ -119,14 +119,15 @@ const mapOrderEvent = (row: any): OrderEvent => ({
 const insertCashTransaction = (db: any, transaction: CashTransaction) => {
   db.prepare(`
     INSERT INTO cash_transactions (
-      id, direction, source_type, source_id, reference_number, amount,
+      id, direction, source_type, source_id, order_id, reference_number, amount,
       payment_method, transaction_date, description, notes, created_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     transaction.id,
     transaction.direction,
     transaction.sourceType,
     transaction.sourceId || null,
+    transaction.orderId || null,
     transaction.referenceNumber || null,
     round2(transaction.amount),
     transaction.paymentMethod,
@@ -159,6 +160,7 @@ const mapCashTransaction = (row: any): CashTransaction => ({
   direction: row.direction,
   sourceType: row.source_type,
   sourceId: row.source_id || undefined,
+  orderId: row.order_id || undefined,
   referenceNumber: row.reference_number || undefined,
   amount: row.amount,
   paymentMethod: row.payment_method,
@@ -715,10 +717,12 @@ export function registerIpcHandlers(dbManager: SahwaDatabaseManager) {
    * TRANSACTION REQUIREMENT: Create Order + Deduct Fabric Stock synchronously inside db.transaction()
    */
   safeIpcHandle(ipcMain, 'orders:create', async (_, orderData: Partial<Order>) => {
-    if (orderData.id) {
-      const alreadyCreated = db.prepare('SELECT order_number, remaining_amount FROM orders WHERE id = ?').get(orderData.id) as any;
+    if (orderData.id || orderData.orderNumber) {
+      const alreadyCreated = orderData.id
+        ? db.prepare('SELECT id, order_number, remaining_amount FROM orders WHERE id = ?').get(orderData.id) as any
+        : db.prepare('SELECT id, order_number, remaining_amount FROM orders WHERE order_number = ?').get(orderData.orderNumber) as any;
       if (alreadyCreated) {
-        return { ...orderData, id: orderData.id, orderNumber: alreadyCreated.order_number, remainingAmount: alreadyCreated.remaining_amount };
+        return { ...orderData, id: alreadyCreated.id, orderNumber: alreadyCreated.order_number, remainingAmount: alreadyCreated.remaining_amount };
       }
     }
     const settings = dbManager.getSettings();
@@ -875,6 +879,7 @@ export function registerIpcHandlers(dbManager: SahwaDatabaseManager) {
           direction: 'in',
           sourceType: 'customer_payment',
           sourceId: initialPaymentId,
+          orderId,
           referenceNumber: orderNumber,
           amount: paidAmount,
           paymentMethod: orderData.initialPaymentMethod || 'cash',
@@ -1184,6 +1189,7 @@ export function registerIpcHandlers(dbManager: SahwaDatabaseManager) {
         direction: 'in',
         sourceType: 'customer_payment',
         sourceId: id,
+        orderId: inv.order_id,
         referenceNumber: inv.invoice_number,
         amount: numericAmount,
         paymentMethod: method as any,
@@ -1250,8 +1256,8 @@ export function registerIpcHandlers(dbManager: SahwaDatabaseManager) {
       const notifId = `NOTIF-${Date.now()}`;
       const dateStr = new Date().toLocaleString('ar-SA');
       db.prepare(`
-        INSERT INTO notifications (id, type, title, message, date, read, customer_phone)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO notifications (id, type, title, message, date, read, customer_phone, order_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
         notifId,
         'whatsapp',
@@ -1259,7 +1265,8 @@ export function registerIpcHandlers(dbManager: SahwaDatabaseManager) {
         `تم إرسال رسالة واتساب للعميل ${customerName} (${phone}) - الحالة: ${statusText}`,
         dateStr,
         1,
-        phone
+        phone,
+        (db.prepare('SELECT id FROM orders WHERE order_number = ?').get(orderNumber) as any)?.id || null
       );
       const order = db.prepare('SELECT id FROM orders WHERE order_number = ?').get(orderNumber) as any;
       if (order) {

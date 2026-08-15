@@ -116,6 +116,16 @@ export class SahwaDatabaseManager {
     if (!accessoryColumns.some((column) => column.name === 'purchase_price')) {
       db.exec("ALTER TABLE accessories ADD COLUMN purchase_price REAL NOT NULL DEFAULT 0");
     }
+    const notificationColumns = db.pragma('table_info(notifications)') as Array<{ name: string }>;
+    if (!notificationColumns.some((column) => column.name === 'order_id')) {
+      db.exec("ALTER TABLE notifications ADD COLUMN order_id TEXT");
+    }
+    const cashColumns = db.pragma('table_info(cash_transactions)') as Array<{ name: string }>;
+    if (!cashColumns.some((column) => column.name === 'order_id')) {
+      db.exec("ALTER TABLE cash_transactions ADD COLUMN order_id TEXT");
+    }
+    db.exec('CREATE INDEX IF NOT EXISTS idx_cash_transactions_order ON cash_transactions(order_id, transaction_date, created_at)');
+    db.exec('CREATE INDEX IF NOT EXISTS idx_notifications_order ON notifications(order_id, date)');
     const settingsColumns = db.pragma('table_info(system_settings)') as Array<{ name: string }>;
     if (settingsColumns.length === 0) {
       throw new Error('تعذر التحقق من جدول إعدادات النظام');
@@ -431,11 +441,11 @@ export class SahwaDatabaseManager {
         // Restore Cash Ledger
         if (Array.isArray(parsed.cashTransactions)) {
           const cashStmt = db.prepare(`
-            INSERT INTO cash_transactions (id, direction, source_type, source_id, reference_number, amount, payment_method, transaction_date, description, notes, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO cash_transactions (id, direction, source_type, source_id, order_id, reference_number, amount, payment_method, transaction_date, description, notes, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
           `);
           for (const c of parsed.cashTransactions) {
-            cashStmt.run(c.id, c.direction, c.sourceType, c.sourceId || null, c.referenceNumber || null, c.amount || 0, c.paymentMethod || 'cash', c.transactionDate, c.description, c.notes || null, c.createdAt || new Date().toISOString());
+            cashStmt.run(c.id, c.direction, c.sourceType, c.sourceId || null, c.orderId || null, c.referenceNumber || null, c.amount || 0, c.paymentMethod || 'cash', c.transactionDate, c.description, c.notes || null, c.createdAt || new Date().toISOString());
           }
         }
 
@@ -464,11 +474,11 @@ export class SahwaDatabaseManager {
         // Restore Notifications
         if (Array.isArray(parsed.notifications)) {
           const notifStmt = db.prepare(`
-            INSERT INTO notifications (id, type, title, message, date, read, customer_phone)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO notifications (id, type, title, message, date, read, customer_phone, order_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
           `);
           for (const n of (parsed.notifications as NotificationItem[])) {
-            notifStmt.run(n.id, n.type, n.title, n.message, n.date, n.read ? 1 : 0, n.customerPhone || null);
+            notifStmt.run(n.id, n.type, n.title, n.message, n.date, n.read ? 1 : 0, n.customerPhone || null, n.orderId || null);
           }
         }
       });
@@ -609,7 +619,8 @@ export class SahwaDatabaseManager {
       message: n.message,
       date: n.date,
       read: Boolean(n.read),
-      customerPhone: n.customer_phone
+      customerPhone: n.customer_phone,
+      orderId: n.order_id || undefined
     }));
 
     const stockMovements = rawStockMovements.map(m => ({
@@ -633,7 +644,7 @@ export class SahwaDatabaseManager {
     }));
     const cashTransactions = rawCashTransactions.map(c => ({
       id: c.id, direction: c.direction, sourceType: c.source_type, sourceId: c.source_id,
-      referenceNumber: c.reference_number, amount: c.amount, paymentMethod: c.payment_method,
+      referenceNumber: c.reference_number, orderId: c.order_id || undefined, amount: c.amount, paymentMethod: c.payment_method,
       transactionDate: c.transaction_date, description: c.description, notes: c.notes, createdAt: c.created_at
     }));
     const orderMaterialUsages = rawOrderMaterialUsages.map(m => ({

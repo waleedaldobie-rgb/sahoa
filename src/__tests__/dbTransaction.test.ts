@@ -276,6 +276,36 @@ describe('db.transaction - Atomic Operations & Rollback Tests', () => {
     expect(order?.styleDetails.habroorLength).toBe('12');
   });
 
+  it('keeps the order measurement snapshot independent from later customer edits', async () => {
+    const customerMeasurements = { ...DEFAULT_MEASUREMENTS, neckHeight: '4' };
+    const orderMeasurements = { ...DEFAULT_MEASUREMENTS, neckHeight: '5.5' };
+    const customerStyle = { ...DEFAULT_STYLE_DETAILS, neckShape: 'مدور' };
+    const orderStyle = { ...DEFAULT_STYLE_DETAILS, neckShape: 'فرنسي' };
+
+    await window.electronAPI.createCustomer({
+      id: 'CUST-SNAPSHOT', name: 'عميل النسخة', phone: '0555555555',
+      measurements: customerMeasurements, styleDetails: customerStyle
+    });
+    await window.electronAPI.createOrder({
+      id: 'ORD-SNAPSHOT', customerId: 'CUST-SNAPSHOT', customerName: 'عميل النسخة', customerPhone: '0555555555',
+      garmentCount: 1, totalAmount: 250, paidAmount: 0, measurements: orderMeasurements, styleDetails: orderStyle
+    });
+
+    await window.electronAPI.updateCustomer({
+      id: 'CUST-SNAPSHOT', name: 'عميل النسخة', phone: '0555555555', createdAt: '2026-08-13',
+      measurements: { ...DEFAULT_MEASUREMENTS, neckHeight: '7' },
+      styleDetails: { ...DEFAULT_STYLE_DETAILS, neckShape: 'مربع' }, measurementHistory: []
+    });
+
+    const data = await window.electronAPI.getData();
+    const order = data.orders.find((item) => item.id === 'ORD-SNAPSHOT');
+    const customer = data.customers.find((item) => item.id === 'CUST-SNAPSHOT');
+    expect(order?.measurements.neckHeight).toBe('5.5');
+    expect(order?.styleDetails.neckShape).toBe('فرنسي');
+    expect(customer?.measurements.neckHeight).toBe('7');
+    expect(customer?.styleDetails.neckShape).toBe('مربع');
+  });
+
   it('8. Backfills missing measurement fields without changing legacy values', async () => {
     localStorage.setItem('sahwa_tailoring_app_data_v1', JSON.stringify({
       customers: [{

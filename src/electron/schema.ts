@@ -4,10 +4,10 @@ export interface DatabaseSettings {
   autoBackupIntervalHours: number; // default 1 hour
   maxBackupFiles: number; // default 14
   lastBackupTimestamp?: string;
-  schemaVersion: number; // current: 2
+  schemaVersion: number; // current: 4
 }
 
-export const CURRENT_SCHEMA_VERSION = 3;
+export const CURRENT_SCHEMA_VERSION = 4;
 
 export const CREATE_TABLES_SQL = `
 -- Enable PRAGMA FKs and WAL
@@ -138,7 +138,9 @@ CREATE TABLE IF NOT EXISTS notifications (
   message TEXT NOT NULL,
   date TEXT NOT NULL,
   read INTEGER NOT NULL DEFAULT 0,
-  customer_phone TEXT
+  customer_phone TEXT,
+  order_id TEXT,
+  FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE SET NULL
 );
 
 -- Inventory movement ledger. Item references are polymorphic because fabrics and accessories live in separate tables.
@@ -204,6 +206,7 @@ CREATE TABLE IF NOT EXISTS cash_transactions (
   direction TEXT NOT NULL CHECK (direction IN ('in', 'out')),
   source_type TEXT NOT NULL CHECK (source_type IN ('opening_balance', 'customer_payment', 'sale', 'purchase', 'expense', 'withdrawal', 'adjustment')),
   source_id TEXT,
+  order_id TEXT,
   reference_number TEXT,
   amount REAL NOT NULL CHECK (amount >= 0),
   payment_method TEXT NOT NULL DEFAULT 'cash',

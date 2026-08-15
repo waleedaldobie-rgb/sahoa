@@ -71,6 +71,24 @@ describe('inventory and accounting atomic flows', () => {
     expect(afterPayment.cashTransactions.filter((transaction) => transaction.sourceId === 'PAY-IDEMPOTENT')).toHaveLength(1);
   });
 
+  it('treats repeated order creation with the same business identity as idempotent', async () => {
+    const payload = {
+      id: 'ORD-IDEMPOTENT', orderNumber: 'ORD-NUM-IDEMPOTENT', customerName: 'عميل تكرار', fabricId: 'FAB-A', fabricName: 'قماش اختبار', garmentCount: 1,
+      totalAmount: 300, paidAmount: 100, orderDate: '2026-08-13', measurements: { ...DEFAULT_MEASUREMENTS }, styleDetails: { ...DEFAULT_STYLE_DETAILS }
+    };
+    await window.electronAPI.createOrder(payload);
+    await window.electronAPI.createOrder(payload);
+
+    const data = await window.electronAPI.getData();
+    expect(data.orders.filter((order) => order.id === 'ORD-IDEMPOTENT')).toHaveLength(1);
+    expect(data.invoices.filter((invoice) => invoice.orderId === 'ORD-IDEMPOTENT')).toHaveLength(1);
+    expect(data.fabrics[0].quantityMeters).toBe(6.5);
+    expect(data.stockMovements.filter((movement) => movement.referenceId === 'ORD-IDEMPOTENT')).toHaveLength(1);
+    expect(data.orderEvents?.filter((event) => event.orderId === 'ORD-IDEMPOTENT' && event.type === 'created')).toHaveLength(1);
+    expect(data.cashTransactions.filter((transaction) => transaction.orderId === 'ORD-IDEMPOTENT')).toHaveLength(1);
+    expect(data.cashTransactions.find((transaction) => transaction.orderId === 'ORD-IDEMPOTENT')?.referenceNumber).toBe('ORD-NUM-IDEMPOTENT');
+  });
+
   it('prevents negative stock and records manual adjustments with before/after balances', async () => {
     await expect(window.electronAPI.adjustStock('fabric', 'FAB-A', -11, 'جرد ناقص', 'adjustment')).rejects.toThrow();
     await window.electronAPI.adjustStock('fabric', 'FAB-A', -1, 'جرد فعلي', 'adjustment');

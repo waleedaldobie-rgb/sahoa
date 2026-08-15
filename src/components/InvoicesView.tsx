@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { Invoice, Order, PaymentRecord, UserPreferences } from '../types';
 import { Card, Button, Input, Select, Modal, EmptyState, Badge } from './ui';
 import { PrintableInvoice } from './PrintableInvoice';
@@ -19,7 +19,7 @@ export interface InvoicesViewProps {
   invoicePrintMode: 'detailed' | 'summary';
   userPreferences?: UserPreferences;
   onUpdateInvoiceMode: (mode: 'detailed' | 'summary') => void;
-  onAddPayment: (invoiceId: string, payment: PaymentRecord) => void;
+  onAddPayment: (invoiceId: string, payment: PaymentRecord) => Promise<void> | void;
   showToast: (msg: string, type: 'success' | 'danger' | 'warning' | 'info') => void;
 }
 
@@ -39,6 +39,8 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
   const [paymentAmount, setPaymentAmount] = useState<number>(100);
   const [paymentMethod, setPaymentMethod] = useState<'cash' | 'card' | 'transfer'>('cash');
   const [paymentNote, setPaymentNote] = useState('');
+  const [isSubmittingPayment, setIsSubmittingPayment] = useState(false);
+  const paymentSubmitLock = useRef(false);
 
   const filteredInvoices = invoices.filter(
     (inv) =>
@@ -59,8 +61,8 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
     setIsPreviewModalOpen(true);
   };
 
-  const handleRegisterPayment = () => {
-    if (!selectedInvoice) return;
+  const handleRegisterPayment = async () => {
+    if (!selectedInvoice || paymentSubmitLock.current) return;
     if (paymentAmount <= 0) {
       showToast('يرجى أدخال مبلغ دفعة صحيح أكبر من صفر', 'danger');
       return;
@@ -71,6 +73,8 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
       return;
     }
 
+    paymentSubmitLock.current = true;
+    setIsSubmittingPayment(true);
     const newPayment: PaymentRecord = {
       id: 'PAY-' + Date.now(),
       invoiceId: selectedInvoice.id,
@@ -81,9 +85,14 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
       note: paymentNote
     };
 
-    onAddPayment(selectedInvoice.id, newPayment);
-    showToast(`تم تسجيل دفعة جديدة بمبلغ ${paymentAmount} ر.س بنجاح!`, 'success');
-    setIsPaymentModalOpen(false);
+    try {
+      await onAddPayment(selectedInvoice.id, newPayment);
+      showToast(`تم تسجيل دفعة جديدة بمبلغ ${paymentAmount} ر.س بنجاح!`, 'success');
+      setIsPaymentModalOpen(false);
+    } finally {
+      paymentSubmitLock.current = false;
+      setIsSubmittingPayment(false);
+    }
   };
 
   const handlePrintInvoice = () => {
@@ -223,7 +232,7 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
           footer={
             <div className="flex items-center justify-end gap-3">
               <Button variant="ghost" onClick={() => setIsPaymentModalOpen(false)}>إلغاء</Button>
-              <Button variant="primary" onClick={handleRegisterPayment} icon={<CheckCircle2 className="w-4 h-4" />}>
+              <Button variant="primary" onClick={handleRegisterPayment} isLoading={isSubmittingPayment} icon={<CheckCircle2 className="w-4 h-4" />}>
                 تأكيد العملية
               </Button>
             </div>

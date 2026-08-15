@@ -249,6 +249,7 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
     if (isSubmittingOrder) return;
 
     let customer = inlineCustomer || customers.find((c) => c.id === selectedCustomerId);
+    let shouldPersistCustomer = false;
 
     if (isCreatingCustomerInline) {
       const name = newCustomerName.trim();
@@ -259,19 +260,16 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
       }
 
       const existingCustomer = customers.find((c) => c.phone.trim() === phone);
-      customer = existingCustomer
-        ? { ...existingCustomer, measurements: { ...newOrderMeasurements }, styleDetails: { ...newOrderStyleDetails } }
-        : {
-            id: `CUS-${Date.now()}`,
-            name,
-            phone,
-            createdAt: new Date().toISOString(),
-            measurements: { ...newOrderMeasurements },
-            styleDetails: { ...newOrderStyleDetails },
-            measurementHistory: []
-          };
-    } else if (customer) {
-      customer = { ...customer, measurements: { ...newOrderMeasurements }, styleDetails: { ...newOrderStyleDetails } };
+      customer = existingCustomer || {
+        id: `CUS-${Date.now()}`,
+        name,
+        phone,
+        createdAt: new Date().toISOString(),
+        measurements: { ...newOrderMeasurements },
+        styleDetails: { ...newOrderStyleDetails },
+        measurementHistory: []
+      };
+      shouldPersistCustomer = !existingCustomer;
     }
 
     if (!customer) {
@@ -348,7 +346,7 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
     };
 
     try {
-      await onSaveCustomer?.(customer);
+      if (shouldPersistCustomer) await onSaveCustomer?.(customer);
       await onSaveOrder(newOrder);
       try {
         localStorage.removeItem(draftKeyFor(customer.name, customer.phone, 'new-order'));

@@ -189,6 +189,7 @@ export interface CashTransaction {
   direction: 'in' | 'out';
   sourceType: CashSourceType;
   sourceId?: string;
+  orderId?: string;
   referenceNumber?: string;
   amount: number;
   paymentMethod: PaymentMethod;
@@ -316,6 +317,7 @@ export interface NotificationItem {
   date: string;
   read: boolean;
   customerPhone?: string;
+  orderId?: string;
 }
 
 export interface AppData {
