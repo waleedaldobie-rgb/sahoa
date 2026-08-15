@@ -1,7 +1,7 @@
 import React from 'react';
 import { Invoice, Order, UserPreferences } from '../types';
 import { SahwaLogo } from './SahwaLogo';
-import { NeckDrawing, PocketDrawing, JabzourTypeDrawing, JabzourShapeDrawing, AdditionDrawing, InvoiceDrawingProps } from './InvoiceDrawings';
+import { NeckDrawing, PocketDrawing, JabzourTypeDrawing, JabzourShapeDrawing, InvoiceDrawingProps } from './InvoiceDrawings';
 
 export interface PrintableInvoiceProps {
   invoice: Invoice;
@@ -81,8 +81,6 @@ export const PrintableInvoice: React.FC<PrintableInvoiceProps> = ({ invoice, ord
   const deliveryDate = order?.deliveryDate || '--';
   const thobeType = order?.thobeTypeName || '--';
   const fabricName = order?.fabricName?.trim() || '--';
-  const additionType = valueOf(sd, 'buttonsType', '--');
-
   const handType = valueOf(sd, 'sleeveType', '--');
   const handMeasure = valueOf(m, 'sleeveLength', '--');
   const handOptions = ['cuff1', 'cuff2', 'cuff3', 'cuff4', 'cuff5'].map((key, index) => ({
@@ -273,9 +271,6 @@ export const PrintableInvoice: React.FC<PrintableInvoiceProps> = ({ invoice, ord
                 Drawing={PocketDrawing}
               />
             </div>
-            {additionType !== '--' && (
-              <DrawingBox label="الإضافات" value={additionType} Drawing={AdditionDrawing} />
-            )}
           </div>
         </section>
       </div>

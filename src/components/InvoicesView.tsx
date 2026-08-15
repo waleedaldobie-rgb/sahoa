@@ -283,7 +283,7 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
             <div className="flex flex-col md:flex-row items-center justify-between w-full gap-4">
               <div className="flex flex-wrap items-center gap-3">
                 <Button variant="primary" onClick={handlePrintInvoice} icon={<Printer className="w-4 h-4" />}>
-                  طباعة الفاتورة (A4)
+                  طباعة الفاتورة (15×21 سم)
                 </Button>
                 <p className="text-[10px] text-[#6B7280] font-bold">
                   * لحفظها كـ PDF، اختر (Save as PDF) من نافذة الطباعة.

@@ -886,17 +886,37 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
                 </div>
               </div>
             ) : (
-              <MeasurementsTableForm
-                measurements={selectedOrder.measurements}
-                onChange={(m) => onSaveOrder({ ...selectedOrder, measurements: m })}
-                styleDetails={selectedOrder.styleDetails}
-                onStyleChange={(s) => onSaveOrder({ ...selectedOrder, styleDetails: s })}
-                customerName={selectedOrder.customerName}
-                customerPhone={selectedOrder.customerPhone}
-                draftScope={selectedOrder.id}
-                saveLabel="تحديث المقاسات"
-                onSave={() => showToast('تم تحديث المقاسات بنجاح', 'success')}
-              />
+              <>
+                <MeasurementsTableForm
+                  measurements={selectedOrder.measurements}
+                  onChange={(m) => onSaveOrder({ ...selectedOrder, measurements: m })}
+                  styleDetails={selectedOrder.styleDetails}
+                  onStyleChange={(s) => onSaveOrder({ ...selectedOrder, styleDetails: s })}
+                  customerName={selectedOrder.customerName}
+                  customerPhone={selectedOrder.customerPhone}
+                  draftScope={selectedOrder.id}
+                  saveLabel="تحديث المقاسات"
+                  onSave={() => showToast('تم تحديث المقاسات بنجاح', 'success')}
+                />
+
+                <div className="mt-6 rounded-2xl border border-[#D9D9D9] bg-white p-5 shadow-sm">
+                  <div className="flex items-center gap-2 mb-3">
+                    <Notebook className="w-4 h-4 text-[#111111]" />
+                    <label className="text-sm font-black text-[#111111]">ملاحظات الخياط</label>
+                  </div>
+                  <textarea
+                    value={selectedOrder.styleDetails?.tailorNotes || ''}
+                    onChange={(e) => onSaveOrder({
+                      ...selectedOrder,
+                      styleDetails: { ...selectedOrder.styleDetails, tailorNotes: e.target.value }
+                    })}
+                    placeholder="اكتب التعليمات الفنية الخاصة بالخياط أو المقص دار..."
+                    rows={4}
+                    className="w-full rounded-xl border-2 border-[#E5E7EB] bg-[#FAFAF8] px-4 py-3 text-sm font-bold text-[#111111] outline-none transition focus:border-[#111111] resize-y"
+                  />
+                  <p className="mt-2 text-[11px] font-bold text-[#6B7280]">تظهر هذه الملاحظات في أسفل الفاتورة المطبوعة.</p>
+                </div>
+              </>
             )}
           </div>
         )}
