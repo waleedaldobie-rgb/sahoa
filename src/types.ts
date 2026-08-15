@@ -323,6 +323,7 @@ export interface UserPreferences {
   activeTab: string;
   invoicePrintMode: 'detailed' | 'summary';
   shopName?: string;
+  managerName?: string;
   shopLogoUrl?: string;
   shopPhone?: string;
   vatNumber?: string;

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Order, Invoice, Customer, FabricItem, AccessoryItem, ThobeType, OrderStatus, CustomerMeasurements, CustomerStyleDetails, UserPreferences } from '../types';
+import { Order, Invoice, Customer, FabricItem, AccessoryItem, ThobeType, OrderStatus, CustomerMeasurements, CustomerStyleDetails, UserPreferences, MeasurementHistoryRecord } from '../types';
 import { EMPTY_MEASUREMENTS, EMPTY_STYLE_DETAILS } from '../services/electronMock';
 import { Card, Button, Input, Select, Modal, EmptyState, Badge } from './ui';
 import { ConfirmModal } from './ConfirmModal';
@@ -11,6 +11,7 @@ import {
   Plus,
   Printer,
   Calendar,
+  History,
   Ruler,
   Trash2,
   Save,
@@ -68,6 +69,7 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
   // New Order Form State
   const [selectedCustomerId, setSelectedCustomerId] = useState('');
   const [isCreatingCustomerInline, setIsCreatingCustomerInline] = useState(false);
+  const [isMeasurementHistoryOpen, setIsMeasurementHistoryOpen] = useState(false);
   const [newCustomerName, setNewCustomerName] = useState('');
   const [newCustomerPhone, setNewCustomerPhone] = useState('');
   const [inlineCustomer, setInlineCustomer] = useState<Customer | null>(null);
@@ -88,6 +90,16 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
   const [selectedMaterials, setSelectedMaterials] = useState<Array<{ itemType: 'accessory'; itemId: string; itemName: string; quantity: number; unit: string; unitCostAtUsage: number }>>([]);
 
   const remainingAmount = Math.max(0, totalAmount - paidAmount);
+  const selectedCustomer = selectedCustomerId ? customers.find((customer) => customer.id === selectedCustomerId) : undefined;
+  const selectedCustomerHistory = selectedCustomer?.measurementHistory || [];
+
+  const handleUseHistoryForOrder = (historyRecord: MeasurementHistoryRecord) => {
+    setNewOrderMeasurements({ ...historyRecord.measurements });
+    setNewOrderStyleDetails({ ...historyRecord.styleDetails });
+    setIsMeasurementHistoryOpen(false);
+    setHasUnsavedChanges(true);
+    showToast(`تم تطبيق نسخة ${historyRecord.savedAt} على هذا الطلب فقط`, 'info');
+  };
 
   // Filtered Orders
   const filteredOrders = orders.filter((ord) => {
@@ -145,6 +157,7 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
     setGarmentCount(1);
     setSelectedCustomerId('');
     setInlineCustomer(null);
+    setIsMeasurementHistoryOpen(false);
     setIsCreatingCustomerInline(false);
     setNewCustomerName('');
     setNewCustomerPhone('');
@@ -612,6 +625,71 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
                       </option>
                     ))}
                   </Select>
+                )}
+
+                {!isCreatingCustomerInline && selectedCustomer && selectedCustomerHistory.length > 0 && (
+                  <div className="rounded-xl border border-[#E5E7EB] bg-[#FAFAF8] p-3.5">
+                    <div className="flex items-center justify-between gap-3 mb-2">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <History className="w-4 h-4 text-[#111111] shrink-0" />
+                        <div className="min-w-0">
+                          <p className="text-xs font-black text-[#111111] truncate">سجل المقاسات القديمة</p>
+                          <p className="text-[10px] text-[#6B7280] font-bold truncate">اختر نسخة سابقة لهذا الطلب فقط</p>
+                        </div>
+                      </div>
+                      <Badge variant="slate">{selectedCustomerHistory.length} نسخ</Badge>
+                    </div>
+                    <div className="space-y-2">
+                      {selectedCustomerHistory.slice(0, 3).map((historyRecord) => (
+                        <div key={historyRecord.id} className="flex items-center justify-between gap-2 rounded-lg border border-[#E5E7EB] bg-white px-2.5 py-2">
+                          <div className="flex items-center gap-2 min-w-0">
+                            <Calendar className="w-3.5 h-3.5 text-[#6B7280] shrink-0" />
+                            <div className="min-w-0">
+                              <span className="block text-[10px] font-black text-[#111111]">نسخة محفوظة</span>
+                              <span className="block text-[10px] font-mono font-bold text-[#6B7280] truncate">{historyRecord.savedAt}</span>
+                            </div>
+                          </div>
+                          <Button
+                            type="button"
+                            variant="secondary"
+                            size="sm"
+                            onClick={() => handleUseHistoryForOrder(historyRecord)}
+                          >
+                            استخدام لهذا الطلب فقط
+                          </Button>
+                        </div>
+                      ))}
+                    </div>
+                    {selectedCustomerHistory.length > 3 && (
+                      <button
+                        type="button"
+                        onClick={() => setIsMeasurementHistoryOpen((open) => !open)}
+                        className="mt-2 text-[10px] font-black text-[#111111] hover:underline"
+                      >
+                        {isMeasurementHistoryOpen ? 'إخفاء بقية السجل' : `عرض بقية السجل (${selectedCustomerHistory.length - 3})`}
+                      </button>
+                    )}
+                    {isMeasurementHistoryOpen && selectedCustomerHistory.length > 3 && (
+                      <div className="mt-2 space-y-2 border-t border-[#E5E7EB] pt-2">
+                        {selectedCustomerHistory.slice(3).map((historyRecord) => (
+                          <div key={historyRecord.id} className="flex items-center justify-between gap-2 rounded-lg border border-[#E5E7EB] bg-white px-2.5 py-2">
+                            <div className="flex items-center gap-2 min-w-0">
+                              <Calendar className="w-3.5 h-3.5 text-[#6B7280] shrink-0" />
+                              <span className="text-[10px] font-mono font-bold text-[#6B7280] truncate">{historyRecord.savedAt}</span>
+                            </div>
+                            <Button
+                              type="button"
+                              variant="secondary"
+                              size="sm"
+                              onClick={() => handleUseHistoryForOrder(historyRecord)}
+                            >
+                              استخدام لهذا الطلب فقط
+                            </Button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                 )}
               </div>
             </Card>

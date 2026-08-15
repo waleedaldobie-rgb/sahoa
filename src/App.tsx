@@ -833,6 +833,7 @@ await executeCrud('جاري حذف الإكسسوار...', async () => {
         onTabChange={handleTabChange}
         onOpenBackupModal={() => setIsBackupModalOpen(true)}
         unreadNotifCount={unreadNotifCount}
+        managerName={prefs.managerName}
       />
 
       {/* Main Content Area */}

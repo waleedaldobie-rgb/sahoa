@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { UserPreferences } from '../types';
 import { Card, Button, Input } from './ui';
 import { Store, Phone, MapPin, ImageUp, Trash2, Save, Printer } from 'lucide-react';
+import { SahwaLogo } from './SahwaLogo';
 
 export interface SettingsViewProps {
   preferences: UserPreferences;
@@ -15,6 +16,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   showToast
 }) => {
   const [shopName, setShopName] = useState(preferences?.shopName || 'مَشْغَلْ صَهْوَةْ لِلْخِيَاطَةِ الرَّجَالِيَّةِ');
+  const [managerName, setManagerName] = useState(preferences?.managerName || 'حاتم محمد الدبعي');
   const [shopAddress, setShopAddress] = useState(preferences?.shopAddress || 'نجران شارع الفيصليه');
   const [shopPhone, setShopPhone] = useState(preferences?.shopPhone || '0500000000');
   const [shopLogoUrl, setShopLogoUrl] = useState<string | undefined>(preferences?.shopLogoUrl);
@@ -30,6 +32,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   const handleSave = () => {
     onSaveShopSettings({
       shopName: shopName.trim(),
+      managerName: managerName.trim(),
       shopAddress: shopAddress.trim(),
       shopPhone: shopPhone.trim(),
       shopLogoUrl
@@ -53,6 +56,13 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             value={shopName}
             onChange={(e) => setShopName(e.target.value)}
             placeholder="مثال: مَشْغَلْ صَهْوَةْ لِلْخِيَاطَةِ الرَّجَالِيَّةِ"
+          />
+
+          <Input
+            label="اسم المسؤول الظاهر في الواجهة"
+            value={managerName}
+            onChange={(e) => setManagerName(e.target.value)}
+            placeholder="مثال: حاتم محمد الدبعي"
           />
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -81,9 +91,9 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 {shopLogoUrl ? (
                   <img src={shopLogoUrl} alt="شعار المحل" className="w-full h-full object-contain" />
                 ) : (
-                  <span className="bg-black text-white font-black text-[13px] leading-none w-full h-full flex items-center justify-center px-0.5">
-                    صهوة
-                  </span>
+                  <div className="bg-black text-white w-full h-full flex items-center justify-center p-2">
+                    <SahwaLogo className="w-full h-full" color="#ffffff" />
+                  </div>
                 )}
               </div>
 
@@ -137,9 +147,9 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                   {shopLogoUrl ? (
                     <img src={shopLogoUrl} alt={shopName} className="w-full h-full object-contain" referrerPolicy="no-referrer" />
                   ) : (
-                    <span className="bg-black text-white font-black text-[13px] leading-none w-full h-full flex items-center justify-center px-0.5">
-                      صهوة
-                    </span>
+                    <div className="bg-black text-white w-full h-full flex items-center justify-center p-2">
+                      <SahwaLogo className="w-full h-full" color="#ffffff" />
+                    </div>
                   )}
                 </div>
                 <div className="space-y-0.5">

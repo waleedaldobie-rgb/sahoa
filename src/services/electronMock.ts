@@ -214,7 +214,8 @@ const INITIAL_APP_DATA: AppData = {
 
 const INITIAL_PREFS: UserPreferences = {
   activeTab: 'dashboard',
-  invoicePrintMode: 'detailed'
+  invoicePrintMode: 'detailed',
+  managerName: 'حاتم محمد الدبعي'
 };
 
 function deduplicateById<T extends { id: string }>(items: T[]): T[] {

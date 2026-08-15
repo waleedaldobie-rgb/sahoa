@@ -20,6 +20,7 @@ export interface SidebarProps {
   onTabChange: (tab: string) => void;
   onOpenBackupModal: () => void;
   unreadNotifCount: number;
+  managerName?: string;
 }
 
 export const navItems = [
@@ -36,7 +37,8 @@ export const navItems = [
 export const Sidebar: React.FC<SidebarProps> = ({
   activeTab,
   onTabChange,
-  onOpenBackupModal
+  onOpenBackupModal,
+  managerName = 'حاتم محمد الدبعي'
 }) => {
   return (
     <aside className="w-68 bg-[var(--ui-charcoal)] border-l border-white/5 flex flex-col justify-between shrink-0 h-full select-none no-print text-white shadow-[0_12px_35px_rgba(28,28,26,.14)] overflow-y-auto">
@@ -70,6 +72,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 <span className="h-px w-5 bg-gradient-to-l from-[#c9a35f] to-transparent shrink-0" />
                 <span className="truncate">الخياطة الرجالية الراقية</span>
                 <Sparkles className="w-3 h-3 text-amber-500/80 shrink-0" />
+              </p>
+              <p className="text-[9px] text-[#d8bd86]/80 font-bold mt-1 truncate" title={`إشراف ${managerName}`}>
+                إشراف {managerName}
               </p>
             </div>
           </div>
