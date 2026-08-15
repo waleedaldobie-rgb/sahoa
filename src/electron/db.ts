@@ -3,7 +3,7 @@ import fs from 'fs';
 import path from 'path';
 import * as XLSX from 'xlsx';
 import { CREATE_TABLES_SQL, CURRENT_SCHEMA_VERSION, DatabaseSettings } from './schema';
-import { Customer, Order, FabricItem, AccessoryItem, ThobeType, ColorItem, NotificationItem, Invoice } from '../types';
+import { Customer, Order, OrderEvent, FabricItem, AccessoryItem, ThobeType, ColorItem, NotificationItem, Invoice } from '../types';
 import { DEFAULT_MEASUREMENTS, DEFAULT_STYLE_DETAILS, normalizeMeasurements, normalizeStyleDetails } from '../services/electronMock';
 
 const parseMeasurementsJson = (value?: string) => {
@@ -119,6 +119,10 @@ export class SahwaDatabaseManager {
     const settingsColumns = db.pragma('table_info(system_settings)') as Array<{ name: string }>;
     if (settingsColumns.length === 0) {
       throw new Error('تعذر التحقق من جدول إعدادات النظام');
+    }
+    const storedVersion = Number((db.prepare('SELECT value FROM system_settings WHERE key = ?').get('schemaVersion') as { value?: string } | undefined)?.value || 0);
+    if (storedVersion < CURRENT_SCHEMA_VERSION) {
+      db.prepare('INSERT OR REPLACE INTO system_settings (key, value) VALUES (?, ?)').run('schemaVersion', String(CURRENT_SCHEMA_VERSION));
     }
   }
 
@@ -258,6 +262,7 @@ export class SahwaDatabaseManager {
       const db = this.getRawDb();
       const restoreTx = db.transaction(() => {
         // Clear existing tables. New ledgers are cleared first so restore remains atomic and FK-safe.
+        db.prepare('DELETE FROM order_events').run();
         db.prepare('DELETE FROM order_material_usages').run();
         db.prepare('DELETE FROM purchase_lines').run();
         db.prepare('DELETE FROM cash_transactions').run();
@@ -434,6 +439,17 @@ export class SahwaDatabaseManager {
           }
         }
 
+        // Restore Order Event Timeline
+        if (Array.isArray(parsed.orderEvents)) {
+          const eventStmt = db.prepare(`
+            INSERT INTO order_events (id, order_id, event_type, title, description, from_status, to_status, actor, metadata_json, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `);
+          for (const event of (parsed.orderEvents as OrderEvent[])) {
+            eventStmt.run(event.id, event.orderId, event.type, event.title, event.description, event.fromStatus || null, event.toStatus || null, event.actor || null, event.metadata ? JSON.stringify(event.metadata) : null, event.createdAt || new Date().toISOString());
+          }
+        }
+
         // Restore immutable Order Material Cost snapshots
         if (Array.isArray(parsed.orderMaterialUsages)) {
           const materialStmt = db.prepare(`
@@ -486,6 +502,7 @@ export class SahwaDatabaseManager {
     const rawExpenses = db.prepare('SELECT * FROM expenses').all() as any[];
     const rawCashTransactions = db.prepare('SELECT * FROM cash_transactions').all() as any[];
     const rawOrderMaterialUsages = db.prepare('SELECT * FROM order_material_usages').all() as any[];
+    const rawOrderEvents = db.prepare('SELECT * FROM order_events ORDER BY created_at DESC').all() as any[];
 
     // Map history to customers
     const historyMap = new Map<string, any[]>();
@@ -624,8 +641,13 @@ export class SahwaDatabaseManager {
       quantity: m.quantity, unit: m.unit, unitCostAtUsage: m.unit_cost_at_usage, totalCost: m.total_cost,
       sourceMovementId: m.source_movement_id, createdAt: m.created_at
     }));
+    const orderEvents = rawOrderEvents.map(e => ({
+      id: e.id, orderId: e.order_id, type: e.event_type, title: e.title, description: e.description,
+      fromStatus: e.from_status || undefined, toStatus: e.to_status || undefined, actor: e.actor || undefined,
+      metadata: e.metadata_json ? JSON.parse(e.metadata_json) : undefined, createdAt: e.created_at
+    }));
 
-    return { customers, fabrics, accessories, thobeTypes, colors, orders, invoices, notifications, stockMovements, purchases, expenses, cashTransactions, orderMaterialUsages };
+    return { customers, fabrics, accessories, thobeTypes, colors, orders, invoices, notifications, stockMovements, purchases, expenses, cashTransactions, orderMaterialUsages, orderEvents };
   }
 
   /**

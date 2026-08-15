@@ -109,6 +109,21 @@ export interface Customer {
 
 export type OrderStatus = 'new' | 'processing' | 'ready' | 'delivered';
 
+export type OrderEventType = 'created' | 'status_changed' | 'inventory' | 'payment' | 'whatsapp' | 'printed' | 'measurement_applied' | 'note';
+
+export interface OrderEvent {
+  id: string;
+  orderId: string;
+  type: OrderEventType;
+  title: string;
+  description: string;
+  fromStatus?: string;
+  toStatus?: string;
+  actor?: string;
+  metadata?: Record<string, unknown>;
+  createdAt: string;
+}
+
 export type InventoryItemType = 'fabric' | 'accessory';
 export type InventoryMovementDirection = 'purchase' | 'sale' | 'adjustment' | 'return';
 export type PaymentMethod = 'cash' | 'card' | 'transfer';
@@ -317,6 +332,7 @@ export interface AppData {
   expenses?: ExpenseRecord[];
   cashTransactions?: CashTransaction[];
   orderMaterialUsages?: OrderMaterialUsage[];
+  orderEvents?: OrderEvent[];
 }
 
 export interface UserPreferences {
@@ -376,6 +392,7 @@ declare global {
       updateOrder?: (order: Order) => Promise<boolean>;
       deleteOrder?: (id: string) => Promise<boolean>;
       updateOrderStatus?: (id: string, status: string) => Promise<boolean>;
+      getOrderEvents?: (orderId?: string) => Promise<OrderEvent[]>;
 
       getInvoices?: () => Promise<Invoice[]>;
             addPayment?: (invoiceId: string, amount: number, method: string, note: string, paymentId?: string) => Promise<boolean>;

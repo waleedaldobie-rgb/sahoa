@@ -15,6 +15,7 @@ import {
   ExpenseRecord,
   CashTransaction,
   OrderMaterialUsage,
+  OrderEvent,
   InventoryItemType
 } from '../types';
 import { normalizeMeasurements, normalizeStyleDetails } from '../services/electronMock';
@@ -88,6 +89,32 @@ const insertInventoryMovement = (
     createdAt: new Date().toISOString()
   };
 };
+
+const insertOrderEvent = (db: any, event: OrderEvent) => {
+  const duplicate = db.prepare('SELECT id FROM order_events WHERE id = ?').get(event.id) as any;
+  if (duplicate) return;
+  db.prepare(`
+    INSERT INTO order_events (id, order_id, event_type, title, description, from_status, to_status, actor, metadata_json, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    event.id, event.orderId, event.type, event.title, event.description,
+    event.fromStatus || null, event.toStatus || null, event.actor || null,
+    event.metadata ? JSON.stringify(event.metadata) : null, event.createdAt
+  );
+};
+
+const mapOrderEvent = (row: any): OrderEvent => ({
+  id: row.id,
+  orderId: row.order_id,
+  type: row.event_type,
+  title: row.title,
+  description: row.description,
+  fromStatus: row.from_status || undefined,
+  toStatus: row.to_status || undefined,
+  actor: row.actor || undefined,
+  metadata: row.metadata_json ? JSON.parse(row.metadata_json) : undefined,
+  createdAt: row.created_at
+});
 
 const insertCashTransaction = (db: any, transaction: CashTransaction) => {
   db.prepare(`
@@ -619,6 +646,13 @@ export function registerIpcHandlers(dbManager: SahwaDatabaseManager) {
   // -------------------------------------------------------------
   // ORDERS & TRANSACTIONS IPC HANDLERS
   // -------------------------------------------------------------
+  safeIpcHandle(ipcMain, 'orders:events:list', async (_, orderId?: string) => {
+    const rows = orderId
+      ? db.prepare('SELECT * FROM order_events WHERE order_id = ? ORDER BY created_at DESC').all(orderId)
+      : db.prepare('SELECT * FROM order_events ORDER BY created_at DESC').all();
+    return (rows as any[]).map(mapOrderEvent);
+  });
+
   safeIpcHandle(ipcMain, 'orders:list', async () => {
     const rows = db.prepare('SELECT * FROM orders ORDER BY order_date DESC, created_at DESC').all() as any[];
     const materialRows = db.prepare('SELECT * FROM order_material_usages ORDER BY created_at ASC').all() as any[];
@@ -851,6 +885,17 @@ export function registerIpcHandlers(dbManager: SahwaDatabaseManager) {
       }
 
       const materialCost = round2(materialUsages.reduce((sum, usage) => sum + usage.totalCost, 0));
+      insertOrderEvent(db, {
+        id: `EVT-CREATED-${orderId}`,
+        orderId,
+        type: 'created',
+        title: 'تم إنشاء الطلب',
+        description: `تم إنشاء الطلب #${orderNumber} وتسجيل الفاتورة${paidAmount > 0 ? ' والدفعة الأولى' : ''}.`,
+        toStatus: orderData.status || 'new',
+        actor: 'النظام',
+        metadata: { materialCost, paidAmount, remainingAmount },
+        createdAt: new Date().toISOString()
+      });
       return { orderId, orderNumber, remainingAmount, materialUsages, materialCost, profit: round2(totalAmount - materialCost) };
     });
 
@@ -1053,6 +1098,19 @@ export function registerIpcHandlers(dbManager: SahwaDatabaseManager) {
       }
 
       db.prepare('UPDATE orders SET status = ?, updated_at = ? WHERE id = ?').run(status, new Date().toISOString(), orderId);
+      if (order.status !== status) {
+        insertOrderEvent(db, {
+          id: `EVT-STATUS-${orderId}-${Date.now()}`,
+          orderId,
+          type: 'status_changed',
+          title: `تغيير الحالة إلى ${status}`,
+          description: `تم تغيير حالة الطلب من ${order.status} إلى ${status}${status === 'cancelled' ? ' مع إعادة المواد للمخزون' : order.status === 'cancelled' ? ' مع إعادة استهلاك المواد' : ''}.`,
+          fromStatus: order.status,
+          toStatus: status,
+          actor: 'النظام',
+          createdAt: new Date().toISOString()
+        });
+      }
     });
 
     statusTx();
@@ -1134,6 +1192,16 @@ export function registerIpcHandlers(dbManager: SahwaDatabaseManager) {
         notes: note || undefined,
         createdAt: new Date().toISOString()
       });
+      insertOrderEvent(db, {
+        id: `EVT-PAYMENT-${id}`,
+        orderId: inv.order_id,
+        type: 'payment',
+        title: 'تم تسجيل دفعة',
+        description: `تم تسجيل دفعة بقيمة ${numericAmount} للفاتورة ${inv.invoice_number}.`,
+        actor: 'النظام',
+        metadata: { paymentId: id, amount: numericAmount, method, remainingAmount: newRemaining },
+        createdAt: new Date().toISOString()
+      });
     });
 
     paymentTx();
@@ -1193,6 +1261,19 @@ export function registerIpcHandlers(dbManager: SahwaDatabaseManager) {
         1,
         phone
       );
+      const order = db.prepare('SELECT id FROM orders WHERE order_number = ?').get(orderNumber) as any;
+      if (order) {
+        insertOrderEvent(db, {
+          id: `EVT-WHATSAPP-${notifId}`,
+          orderId: order.id,
+          type: 'whatsapp',
+          title: 'فتح رسالة واتساب',
+          description: `تم تجهيز رسالة واتساب للعميل ${customerName} عن حالة الطلب: ${statusText}.`,
+          actor: 'النظام',
+          metadata: { phone, orderNumber, statusText },
+          createdAt: new Date().toISOString()
+        });
+      }
     } catch (err) {
       console.error('Failed to insert notification into database', err);
     }

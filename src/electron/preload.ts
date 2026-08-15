@@ -43,6 +43,7 @@ export const electronBridge = {
   updateOrder: (order: Order) => ipcRenderer.invoke('orders:update', order),
   deleteOrder: (id: string) => ipcRenderer.invoke('orders:delete', id),
   updateOrderStatus: (id: string, status: string) => ipcRenderer.invoke('orders:updateStatus', id, status),
+  getOrderEvents: (orderId?: string) => ipcRenderer.invoke('orders:events:list', orderId),
 
   // Invoices & Payments
   getInvoices: () => ipcRenderer.invoke('invoices:list'),

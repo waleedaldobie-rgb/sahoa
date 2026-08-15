@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Order, Invoice, Customer, FabricItem, AccessoryItem, ThobeType, OrderStatus, CustomerMeasurements, CustomerStyleDetails, UserPreferences, MeasurementHistoryRecord } from '../types';
+import { Order, Invoice, Customer, FabricItem, AccessoryItem, ThobeType, OrderStatus, CustomerMeasurements, CustomerStyleDetails, UserPreferences, MeasurementHistoryRecord, OrderEvent } from '../types';
 import { EMPTY_MEASUREMENTS, EMPTY_STYLE_DETAILS } from '../services/electronMock';
 import { Card, Button, Input, Select, Modal, EmptyState, Badge } from './ui';
 import { ConfirmModal } from './ConfirmModal';
@@ -19,7 +19,15 @@ import {
   Hash,
   ShoppingBag,
   CreditCard,
-  Notebook
+  Notebook,
+  MessageCircle,
+  Play,
+  CheckCircle2,
+  PackageCheck,
+  Clock3,
+  CircleDollarSign,
+  Warehouse,
+  Send
 } from 'lucide-react';
 
 export interface OrdersViewProps {
@@ -50,6 +58,7 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
   onSaveCustomer,
   onUpdateOrderStatus,
   onDeleteOrder,
+  onSendWhatsAppNotice,
   showToast,
   initialSelectedOrder,
   openNewOrderTrigger
@@ -62,6 +71,8 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
   const [orderToDelete, setOrderToDelete] = useState<Order | null>(null);
   const [showDiscardConfirm, setShowDiscardConfirm] = useState(false);
   const [isSubmittingOrder, setIsSubmittingOrder] = useState(false);
+  const [orderEvents, setOrderEvents] = useState<OrderEvent[]>([]);
+  const [isEventsLoading, setIsEventsLoading] = useState(false);
 
   // Print Mode State
   const [printableOrder, setPrintableOrder] = useState<Order | null>(null);
@@ -112,11 +123,34 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
     return matchesSearch && matchesStatus;
   });
 
-  const [detailTab, setDetailTab] = useState<'info' | 'measurements'>('info');
+  const [detailTab, setDetailTab] = useState<'info' | 'measurements' | 'events'>('info');
   const [newOrderMeasurements, setNewOrderMeasurements] = useState<CustomerMeasurements>(EMPTY_MEASUREMENTS);
   const [newOrderStyleDetails, setNewOrderStyleDetails] = useState<CustomerStyleDetails>(EMPTY_STYLE_DETAILS);
 
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+
+  const loadOrderEvents = async (orderId: string) => {
+    setIsEventsLoading(true);
+    try {
+      const events = window.electronAPI.getOrderEvents
+        ? await window.electronAPI.getOrderEvents(orderId)
+        : (await window.electronAPI.getData()).orderEvents?.filter((event) => event.orderId === orderId) || [];
+      setOrderEvents(events);
+    } catch (error) {
+      console.error('تعذر تحميل سجل أحداث الطلب', error);
+      setOrderEvents([]);
+    } finally {
+      setIsEventsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (isDetailModalOpen && selectedOrder) {
+      void loadOrderEvents(selectedOrder.id);
+    } else {
+      setOrderEvents([]);
+    }
+  }, [isDetailModalOpen, selectedOrder?.id]);
   const skipNextDirtyCheck = useRef(true);
 
   useEffect(() => {
@@ -358,6 +392,45 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
     }
   };
 
+  const getWhatsAppStatusText = (status: OrderStatus) => {
+    switch (status) {
+      case 'new': return 'تم استلام الطلب وجارٍ التجهيز';
+      case 'processing': return 'الطلب تحت التنفيذ لدى الخياط';
+      case 'ready': return 'الطلب جاهز للاستلام';
+      case 'delivered': return 'تم تسليم الطلب بنجاح';
+    }
+  };
+
+  const handleQuickStatusChange = (order: Order, nextStatus: OrderStatus) => {
+    if (order.status === nextStatus) {
+      showToast(`الطلب بالفعل في حالة ${getStatusText(nextStatus)}`, 'info');
+      return;
+    }
+    onUpdateOrderStatus(order.id, nextStatus);
+    setSelectedOrder((current) => current?.id === order.id ? { ...current, status: nextStatus } : current);
+    window.setTimeout(() => void loadOrderEvents(order.id), 250);
+    showToast(`تم تحديث الطلب إلى «${getStatusText(nextStatus)}»`, 'success');
+  };
+
+  const handleQuickWhatsApp = (order: Order, status: OrderStatus = order.status) => {
+    onSendWhatsAppNotice(
+      order.customerPhone,
+      order.customerName,
+      order.orderNumber,
+      getWhatsAppStatusText(status)
+    );
+    window.setTimeout(() => void loadOrderEvents(order.id), 350);
+  };
+
+  const getNextStatusAction = (status: OrderStatus): { status: OrderStatus; label: string; icon: React.ReactNode } | null => {
+    switch (status) {
+      case 'new': return { status: 'processing', label: 'بدء التنفيذ', icon: <Play className="w-3.5 h-3.5" /> };
+      case 'processing': return { status: 'ready', label: 'تجهيز كجاهز', icon: <CheckCircle2 className="w-3.5 h-3.5" /> };
+      case 'ready': return { status: 'delivered', label: 'تسجيل التسليم', icon: <PackageCheck className="w-3.5 h-3.5" /> };
+      default: return null;
+    }
+  };
+
   const handlePrintOrderSheet = (order: Order) => {
     setPrintableOrder(order);
     setTimeout(() => {
@@ -516,7 +589,7 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
                       </Badge>
                     </td>
                     <td className="text-center">
-                      <div className="flex items-center justify-center gap-2">
+                      <div className="flex flex-wrap items-center justify-center gap-1.5 min-w-[190px]">
                         <Button
                           variant="secondary"
                           size="sm"
@@ -528,6 +601,24 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
                         >
                           عرض
                         </Button>
+                        {getNextStatusAction(ord.status) && (
+                          <Button
+                            variant="primary"
+                            size="sm"
+                            icon={getNextStatusAction(ord.status)?.icon}
+                            onClick={() => handleQuickStatusChange(ord, getNextStatusAction(ord.status)!.status)}
+                            title={getNextStatusAction(ord.status)?.label}
+                          >
+                            {getNextStatusAction(ord.status)?.label}
+                          </Button>
+                        )}
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          onClick={() => handleQuickWhatsApp(ord)}
+                          icon={<MessageCircle className="w-3.5 h-3.5" />}
+                          title="إرسال رسالة واتساب بالحالة الحالية"
+                        />
                         <Button
                           variant="secondary"
                           size="sm"
@@ -889,6 +980,14 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
               >
                 المقاسات والتصميم
               </button>
+              <button
+                onClick={() => setDetailTab('events')}
+                className={`px-6 py-2 rounded-lg text-xs font-black transition-all ${
+                  detailTab === 'events' ? 'bg-white text-[#111111] shadow-sm' : 'text-[#6B7280] hover:text-[#111111]'
+                }`}
+              >
+                سجل الأحداث
+              </button>
             </div>
 
             {detailTab === 'info' ? (
@@ -940,7 +1039,7 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
                       <div className="pt-2 border-t border-white/10">
                         <Select
                           value={selectedOrder.status}
-                          onChange={(e) => onUpdateOrderStatus(selectedOrder.id, e.target.value as OrderStatus)}
+                          onChange={(e) => handleQuickStatusChange(selectedOrder, e.target.value as OrderStatus)}
                           className="bg-white/10 border-white/20 text-white h-10"
                         >
                           <option value="new">جديد</option>
@@ -948,6 +1047,33 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
                           <option value="ready">جاهز</option>
                           <option value="delivered">مُسلم</option>
                         </Select>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-3">
+                          {getNextStatusAction(selectedOrder.status) && (
+                            <Button
+                              type="button"
+                              variant="secondary"
+                              size="sm"
+                              icon={getNextStatusAction(selectedOrder.status)?.icon}
+                              onClick={() => handleQuickStatusChange(selectedOrder, getNextStatusAction(selectedOrder.status)!.status)}
+                              className="bg-white text-[#111111] hover:bg-[#F3F4F6]"
+                            >
+                              {getNextStatusAction(selectedOrder.status)?.label}
+                            </Button>
+                          )}
+                          <Button
+                            type="button"
+                            variant="secondary"
+                            size="sm"
+                            icon={<MessageCircle className="w-3.5 h-3.5" />}
+                            onClick={() => handleQuickWhatsApp(selectedOrder)}
+                            className="bg-emerald-500 text-white border-emerald-500 hover:bg-emerald-600"
+                          >
+                            إرسال واتساب
+                          </Button>
+                        </div>
+                        <p className="text-[10px] font-bold text-white/60 mt-2 leading-relaxed">
+                          تفتح الرسالة جاهزة في واتساب، ويبقى الضغط على إرسال النهائي من الموظف.
+                        </p>
                       </div>
                     </div>
                   </div>
@@ -963,7 +1089,7 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
                   )}
                 </div>
               </div>
-            ) : (
+            ) : detailTab === 'measurements' ? (
               <>
                 <MeasurementsTableForm
                   measurements={selectedOrder.measurements}
@@ -995,6 +1121,48 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
                   <p className="mt-2 text-[11px] font-bold text-[#6B7280]">تظهر هذه الملاحظات في أسفل الفاتورة المطبوعة.</p>
                 </div>
               </>
+            ) : (
+              <div className="rounded-2xl border border-[#E5E7EB] bg-[#FAFAFA] p-5">
+                <div className="flex items-center justify-between gap-3 mb-5">
+                  <div>
+                    <h3 className="text-sm font-black text-[#111111]">التسلسل الزمني للطلب</h3>
+                    <p className="mt-1 text-[11px] font-bold text-[#6B7280]">يسجل النظام العمليات تلقائيًا دون تعطيل عمل الموظف.</p>
+                  </div>
+                  <Button type="button" variant="secondary" size="sm" onClick={() => void loadOrderEvents(selectedOrder.id)} disabled={isEventsLoading}>
+                    {isEventsLoading ? 'جارٍ التحديث...' : 'تحديث السجل'}
+                  </Button>
+                </div>
+                {isEventsLoading && orderEvents.length === 0 ? (
+                  <div className="py-12 text-center text-xs font-bold text-[#6B7280]">جارٍ تحميل سجل الأحداث...</div>
+                ) : orderEvents.length === 0 ? (
+                  <div className="py-12 text-center text-xs font-bold text-[#6B7280]">لا توجد أحداث مسجلة لهذا الطلب حتى الآن.</div>
+                ) : (
+                  <div className="relative space-y-4 before:absolute before:right-[15px] before:top-3 before:bottom-3 before:w-px before:bg-[#D9D9D9]">
+                    {orderEvents.map((event) => (
+                      <div key={event.id} className="relative flex gap-3 pr-1">
+                        <div className="relative z-10 flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-[#D9D9D9] bg-white text-[#111111]">
+                          {event.type === 'payment' ? <CircleDollarSign className="h-4 w-4" /> : event.type === 'inventory' ? <Warehouse className="h-4 w-4" /> : event.type === 'whatsapp' ? <Send className="h-4 w-4" /> : event.type === 'status_changed' ? <PackageCheck className="h-4 w-4" /> : <Clock3 className="h-4 w-4" />}
+                        </div>
+                        <div className="min-w-0 flex-1 rounded-xl border border-[#E5E7EB] bg-white px-4 py-3">
+                          <div className="flex flex-wrap items-start justify-between gap-2">
+                            <h4 className="text-xs font-black text-[#111111]">{event.title}</h4>
+                            <time className="text-[10px] font-bold text-[#9CA3AF]" dateTime={event.createdAt}>{new Date(event.createdAt).toLocaleString('ar-SA')}</time>
+                          </div>
+                          <p className="mt-1 text-xs font-bold leading-relaxed text-[#4B5563]">{event.description}</p>
+                          {(event.fromStatus || event.toStatus) && (
+                            <div className="mt-2 inline-flex items-center gap-2 rounded-lg bg-[#F3F4F6] px-2.5 py-1 text-[10px] font-black text-[#4B5563]">
+                              <span>{event.fromStatus ? getStatusText(event.fromStatus as OrderStatus) : 'بداية'}</span>
+                              <span>←</span>
+                              <span>{event.toStatus ? getStatusText(event.toStatus as OrderStatus) : 'غير محدد'}</span>
+                            </div>
+                          )}
+                          {event.actor && <div className="mt-2 text-[10px] font-bold text-[#9CA3AF]">بواسطة: {event.actor}</div>}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
             )}
           </div>
         )}

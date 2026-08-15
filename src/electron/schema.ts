@@ -7,7 +7,7 @@ export interface DatabaseSettings {
   schemaVersion: number; // current: 2
 }
 
-export const CURRENT_SCHEMA_VERSION = 2;
+export const CURRENT_SCHEMA_VERSION = 3;
 
 export const CREATE_TABLES_SQL = `
 -- Enable PRAGMA FKs and WAL
@@ -213,6 +213,21 @@ CREATE TABLE IF NOT EXISTS cash_transactions (
   created_at TEXT NOT NULL
 );
 
+-- Order audit/event timeline.
+CREATE TABLE IF NOT EXISTS order_events (
+  id TEXT PRIMARY KEY,
+  order_id TEXT NOT NULL,
+  event_type TEXT NOT NULL,
+  title TEXT NOT NULL,
+  description TEXT NOT NULL,
+  from_status TEXT,
+  to_status TEXT,
+  actor TEXT,
+  metadata_json TEXT,
+  created_at TEXT NOT NULL,
+  FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE CASCADE
+);
+
 -- Material snapshots used to calculate an order's historical cost.
 CREATE TABLE IF NOT EXISTS order_material_usages (
   id TEXT PRIMARY KEY,
@@ -242,4 +257,6 @@ CREATE INDEX IF NOT EXISTS idx_expenses_date ON expenses(expense_date);
 CREATE INDEX IF NOT EXISTS idx_cash_transactions_date ON cash_transactions(transaction_date, created_at);
 CREATE INDEX IF NOT EXISTS idx_cash_transactions_source ON cash_transactions(source_type, source_id);
 CREATE INDEX IF NOT EXISTS idx_order_material_usages_order ON order_material_usages(order_id);
+CREATE INDEX IF NOT EXISTS idx_order_events_order_date ON order_events(order_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_order_events_type ON order_events(event_type);
 `;
