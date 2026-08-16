@@ -33,6 +33,7 @@ import { PaymentService } from './services/paymentService';
 import { OrderStatusService } from './services/orderStatusService';
 import { NotificationRepository } from './repositories/notificationRepository';
 import { WhatsAppService } from './services/whatsappService';
+import { OrderService } from './services/orderService';
 
 const parseMeasurementsJson = (value?: string) => {
   try { return normalizeMeasurements(JSON.parse(value || '{}')); }
@@ -142,6 +143,7 @@ export function registerIpcHandlers(dbManager: SahwaDatabaseManager) {
   const orderStatusService = new OrderStatusService(orderRepository, inventoryService, orderEventRepository, db);
   const notificationRepository = new NotificationRepository(db);
   const whatsappService = new WhatsAppService(notificationRepository, orderRepository, orderEventRepository);
+  const orderService = new OrderService(orderRepository, inventoryService, cashRepository, orderEventRepository, db);
 
   // -------------------------------------------------------------
   // CUSTOMERS IPC HANDLERS
@@ -433,194 +435,8 @@ export function registerIpcHandlers(dbManager: SahwaDatabaseManager) {
    * TRANSACTION REQUIREMENT: Create Order + Deduct Fabric Stock synchronously inside db.transaction()
    */
   safeIpcHandle(ipcMain, 'orders:create', async (_, orderData: Partial<Order>) => {
-    if (orderData.id || orderData.orderNumber) {
-      const alreadyCreated = orderData.id
-        ? db.prepare('SELECT id, order_number, remaining_amount FROM orders WHERE id = ?').get(orderData.id) as any
-        : db.prepare('SELECT id, order_number, remaining_amount FROM orders WHERE order_number = ?').get(orderData.orderNumber) as any;
-      if (alreadyCreated) {
-        return { ...orderData, id: alreadyCreated.id, orderNumber: alreadyCreated.order_number, remainingAmount: alreadyCreated.remaining_amount };
-      }
-    }
     const settings = dbManager.getSettings();
-    const rate = settings.fabricConsumptionRatePerGarment || 3.5;
-    const garmentCount = orderData.garmentCount || 1;
-    const requiredMeters = garmentCount * rate;
-
-    // Execute in a single atomic transaction
-    const createOrderTx = db.transaction(() => {
-      const orderId = orderData.id || `ORD-${Date.now()}`;
-      const count = (db.prepare('SELECT COUNT(*) as c FROM orders').get() as any).c;
-      const orderNumber = orderData.orderNumber || `${1001 + count}`;
-      const totalAmount = orderData.totalAmount || 0;
-      const paidAmount = orderData.paidAmount || 0;
-      const remainingAmount = totalAmount - paidAmount;
-
-      // 1. Check Fabric Stock Availability and write an auditable sale movement
-      let fabricBuyPrice = 0;
-      let fabricMovement: StockMovement | undefined;
-      if (orderData.fabricId) {
-        const fab = db.prepare('SELECT * FROM fabrics WHERE id = ?').get(orderData.fabricId) as any;
-        if (!fab) throw new Error('القماش المختار غير موجود في المخزون');
-        fabricBuyPrice = fab.purchase_price || 0;
-        fabricMovement = inventoryService.recordMovement( 'fabric', orderData.fabricId, -requiredMeters, 'sale', 'استهلاك قماش للطلب', {
-          type: 'order', id: orderId, number: orderNumber
-        });
-      }
-
-      // 3. Insert Order
-      db.prepare(`
-        INSERT INTO orders (
-          id, order_number, customer_id, customer_name, customer_phone,
-          thobe_type_id, thobe_type_name, fabric_id, fabric_name, fabric_color,
-          fabric_consumption_meters, fabric_buy_price_at_order, garment_count,
-          order_date, delivery_date, status, total_amount, paid_amount, remaining_amount,
-          is_custom_measurement, measurements_json, style_details_json, notes, created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(
-        orderId,
-        orderNumber,
-        orderData.customerId,
-        orderData.customerName,
-        orderData.customerPhone,
-        orderData.thobeTypeId || null,
-        orderData.thobeTypeName || 'ثوب',
-        orderData.fabricId || null,
-        orderData.fabricName || 'قماش',
-        orderData.fabricColor || 'أبيض',
-        requiredMeters,
-        fabricBuyPrice,
-        garmentCount,
-        orderData.orderDate || new Date().toISOString().slice(0, 10),
-        orderData.deliveryDate || new Date().toISOString().slice(0, 10),
-        orderData.status || 'new',
-        totalAmount,
-        paidAmount,
-        remainingAmount,
-        orderData.isCustomMeasurement ? 1 : 0,
-        JSON.stringify(normalizeMeasurements(orderData.measurements)),
-        JSON.stringify(normalizeStyleDetails(orderData.styleDetails)),
-        orderData.notes || '',
-        new Date().toISOString()
-      );
-
-      // 4. Record material snapshots. Fabric is always included; optional accessory usages are consumed atomically.
-      const materialUsages: OrderMaterialUsage[] = [];
-      if (orderData.fabricId && fabricMovement) {
-        const fabricCost = round2(requiredMeters * fabricBuyPrice);
-        const usage: OrderMaterialUsage = {
-          id: `OMU-${Date.now()}-fabric`,
-          orderId,
-          itemType: 'fabric',
-          itemId: orderData.fabricId,
-          itemName: orderData.fabricName || 'قماش',
-          quantity: requiredMeters,
-          unit: 'متر',
-          unitCostAtUsage: fabricBuyPrice,
-          totalCost: fabricCost,
-          sourceMovementId: fabricMovement.id,
-          createdAt: new Date().toISOString()
-        };
-        db.prepare(`
-          INSERT INTO order_material_usages (id, order_id, item_type, item_id, item_name, quantity, unit, unit_cost_at_usage, total_cost, source_movement_id, created_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `).run(usage.id, usage.orderId, usage.itemType, usage.itemId, usage.itemName, usage.quantity, usage.unit, usage.unitCostAtUsage, usage.totalCost, usage.sourceMovementId, usage.createdAt);
-        materialUsages.push(usage);
-      }
-
-      for (const material of (orderData.materialUsages || [])) {
-        if (!material.itemId || (material.itemType === 'fabric' && material.itemId === orderData.fabricId)) continue;
-        const quantity = Number(material.quantity);
-        if (!Number.isFinite(quantity) || quantity <= 0) throw new Error('كمية المادة المرتبطة بالطلب غير صحيحة');
-        const meta = inventoryService.getMeta( material.itemType, material.itemId);
-        const movement = inventoryService.recordMovement( material.itemType, material.itemId, -quantity, 'sale', 'استهلاك مادة للطلب', {
-          type: 'order', id: orderId, number: orderNumber
-        });
-        const unitCost = Number.isFinite(Number(material.unitCostAtUsage)) ? Number(material.unitCostAtUsage) : Number(meta.purchasePrice || 0);
-        const usage: OrderMaterialUsage = {
-          id: `OMU-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-          orderId,
-          itemType: material.itemType,
-          itemId: material.itemId,
-          itemName: material.itemName || meta.name,
-          quantity,
-          unit: material.unit || meta.unit,
-          unitCostAtUsage: unitCost,
-          totalCost: round2(quantity * unitCost),
-          sourceMovementId: movement.id,
-          createdAt: new Date().toISOString()
-        };
-        db.prepare(`
-          INSERT INTO order_material_usages (id, order_id, item_type, item_id, item_name, quantity, unit, unit_cost_at_usage, total_cost, source_movement_id, created_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `).run(usage.id, usage.orderId, usage.itemType, usage.itemId, usage.itemName, usage.quantity, usage.unit, usage.unitCostAtUsage, usage.totalCost, usage.sourceMovementId, usage.createdAt);
-        materialUsages.push(usage);
-      }
-
-      // 5. Create Matching Invoice Record
-      const invId = `INV-${orderNumber}`;
-      const pStatus = remainingAmount <= 0 ? 'paid' : paidAmount > 0 ? 'partial' : 'unpaid';
-      const initialPaymentId = paidAmount > 0 ? `PAY-${Date.now()}-${Math.random().toString(36).slice(2, 6)}` : undefined;
-      const initialPayments = paidAmount > 0 ? [{
-        id: initialPaymentId,
-        invoiceId: invId,
-        orderId: orderId,
-        amount: paidAmount,
-        paymentDate: orderData.orderDate || new Date().toISOString().slice(0, 10),
-        method: orderData.initialPaymentMethod || 'cash',
-        note: 'دفعة أولى عند إنشاء الطلب'
-      }] : [];
-
-      db.prepare(`
-        INSERT INTO invoices (
-          id, invoice_number, order_id, customer_name, customer_phone,
-          order_date, total_amount, paid_amount, remaining_amount, payment_status, payments_json
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(
-        invId,
-        `INV-${orderNumber}`,
-        orderId,
-        orderData.customerName,
-        orderData.customerPhone,
-        orderData.orderDate || new Date().toISOString().slice(0, 10),
-        totalAmount,
-        paidAmount,
-        remainingAmount,
-        pStatus,
-        JSON.stringify(initialPayments)
-      );
-
-      if (paidAmount > 0 && initialPaymentId) {
-        cashRepository.insert({
-          id: `CASH-PAY-${initialPaymentId}`,
-          direction: 'in',
-          sourceType: 'customer_payment',
-          sourceId: initialPaymentId,
-          orderId,
-          referenceNumber: orderNumber,
-          amount: paidAmount,
-          paymentMethod: orderData.initialPaymentMethod || 'cash',
-          transactionDate: orderData.orderDate || new Date().toISOString().slice(0, 10),
-          description: `دفعة أولى للطلب #${orderNumber}`,
-          createdAt: new Date().toISOString()
-        });
-      }
-
-      const materialCost = round2(materialUsages.reduce((sum, usage) => sum + usage.totalCost, 0));
-      orderEventRepository.insert( {
-        id: `EVT-CREATED-${orderId}`,
-        orderId,
-        type: 'created',
-        title: 'تم إنشاء الطلب',
-        description: `تم إنشاء الطلب #${orderNumber} وتسجيل الفاتورة${paidAmount > 0 ? ' والدفعة الأولى' : ''}.`,
-        toStatus: orderData.status || 'new',
-        actor: 'النظام',
-        metadata: { materialCost, paidAmount, remainingAmount },
-        createdAt: new Date().toISOString()
-      });
-      return { orderId, orderNumber, remainingAmount, materialUsages, materialCost, profit: round2(totalAmount - materialCost) };
-    });
-
-    const result = createOrderTx();
+    const result = orderService.createOrder(orderData, settings.fabricConsumptionRatePerGarment || 3.5);
     return {
       ...orderData,
       id: result.orderId,
@@ -630,13 +446,9 @@ export function registerIpcHandlers(dbManager: SahwaDatabaseManager) {
       materialCost: result.materialCost,
       profit: result.profit,
       measurements: normalizeMeasurements(orderData.measurements),
-      styleDetails: normalizeStyleDetails(orderData.styleDetails),
+      styleDetails: normalizeStyleDetails(orderData.styleDetails)
     };
   });
-
-  /**
-   * TRANSACTION REQUIREMENT: Update order + Adjust fabric deduction differences cleanly
-   */
   safeIpcHandle(ipcMain, 'orders:update', async (_, updatedOrder: Order) => {
     const updateTx = db.transaction(() => {
       const existing = db.prepare('SELECT * FROM orders WHERE id = ?').get(updatedOrder.id) as any;
