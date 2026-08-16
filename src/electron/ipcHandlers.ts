@@ -18,7 +18,13 @@ import {
   OrderEvent,
   InventoryItemType
 } from '../types';
-import { normalizeMeasurements, normalizeStyleDetails } from '../services/electronMock';
+import { normalizeMeasurements, normalizeStyleDetails } from '../services/shared/measurementDefaults';
+import { CustomerRepository } from './repositories/customerRepository';
+import { CashRepository } from './repositories/cashRepository';
+import { CustomerService } from './services/customerService';
+import { InventoryRepository } from './repositories/inventoryRepository';
+import { InventoryService } from './services/inventoryService';
+import { OrderEventRepository } from './repositories/orderEventRepository';
 
 const parseMeasurementsJson = (value?: string) => {
   try { return normalizeMeasurements(JSON.parse(value || '{}')); }
@@ -32,77 +38,6 @@ const parseStyleDetailsJson = (value?: string) => {
 
 const round2 = (value: number) => Math.round((Number(value) + Number.EPSILON) * 100) / 100;
 
-const inventoryMeta = (db: any, itemType: InventoryItemType, itemId: string) => {
-  if (itemType === 'fabric') {
-    const row = db.prepare('SELECT id, name, quantity_meters AS quantity, purchase_price AS purchasePrice, \'متر\' AS unit FROM fabrics WHERE id = ?').get(itemId) as any;
-    if (!row) throw new Error('صنف القماش غير موجود');
-    return { table: 'fabrics', quantityColumn: 'quantity_meters', ...row };
-  }
-  if (itemType === 'accessory') {
-    const row = db.prepare('SELECT id, name, quantity, purchase_price AS purchasePrice, unit FROM accessories WHERE id = ?').get(itemId) as any;
-    if (!row) throw new Error('صنف الإكسسوار غير موجود');
-    return { table: 'accessories', quantityColumn: 'quantity', ...row };
-  }
-  throw new Error('نوع الصنف غير مدعوم');
-};
-
-const insertInventoryMovement = (
-  db: any,
-  itemType: InventoryItemType,
-  itemId: string,
-  delta: number,
-  direction: StockMovement['direction'],
-  reason: string,
-  reference?: { type?: string; id?: string; number?: string }
-): StockMovement => {
-  const meta = inventoryMeta(db, itemType, itemId);
-  const before = round2(meta.quantity);
-  const after = round2(before + delta);
-  if (after < -0.0001) {
-    throw new Error(`لا يمكن تنفيذ الحركة؛ الكمية المتاحة من ${meta.name} غير كافية.`);
-  }
-  db.prepare(`UPDATE ${meta.table} SET ${meta.quantityColumn} = ? WHERE id = ?`).run(Math.max(0, after), itemId);
-  const id = `MOV-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
-  db.prepare(`
-    INSERT INTO inventory_movements (
-      id, item_type, item_id, item_name, direction, quantity, quantity_before,
-      quantity_after, unit, reason, reference_type, reference_id, reference_number, created_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(
-    id, itemType, itemId, meta.name, direction, Math.abs(delta), before, Math.max(0, after),
-    meta.unit, reason, reference?.type || null, reference?.id || null, reference?.number || null, new Date().toISOString()
-  );
-  return {
-    id,
-    itemType,
-    itemId,
-    itemName: meta.name,
-    direction,
-    quantity: Math.abs(delta),
-    quantityBefore: before,
-    quantityAfter: Math.max(0, after),
-    unit: meta.unit,
-    reason,
-    referenceType: reference?.type,
-    referenceId: reference?.id,
-    referenceNumber: reference?.number,
-    createdAt: new Date().toISOString()
-  };
-};
-
-const insertOrderEvent = (db: any, event: OrderEvent) => {
-  const duplicate = db.prepare('SELECT id FROM order_events WHERE id = ?').get(event.id) as any;
-  if (duplicate) return;
-  db.prepare(`
-    INSERT INTO order_events (id, order_id, event_type, title, description, from_status, to_status, actor, metadata_json, created_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(
-    event.id, event.orderId, event.type, event.title, event.description,
-    event.fromStatus || null, event.toStatus || null, event.actor || null,
-    event.metadata ? JSON.stringify(event.metadata) : null, event.createdAt
-  );
-};
-
 const mapOrderEvent = (row: any): OrderEvent => ({
   id: row.id,
   orderId: row.order_id,
@@ -115,28 +50,6 @@ const mapOrderEvent = (row: any): OrderEvent => ({
   metadata: row.metadata_json ? JSON.parse(row.metadata_json) : undefined,
   createdAt: row.created_at
 });
-
-const insertCashTransaction = (db: any, transaction: CashTransaction) => {
-  db.prepare(`
-    INSERT INTO cash_transactions (
-      id, direction, source_type, source_id, order_id, reference_number, amount,
-      payment_method, transaction_date, description, notes, created_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(
-    transaction.id,
-    transaction.direction,
-    transaction.sourceType,
-    transaction.sourceId || null,
-    transaction.orderId || null,
-    transaction.referenceNumber || null,
-    round2(transaction.amount),
-    transaction.paymentMethod,
-    transaction.transactionDate,
-    transaction.description,
-    transaction.notes || null,
-    transaction.createdAt
-  );
-};
 
 const mapStockMovement = (row: any): StockMovement => ({
   id: row.id,
@@ -207,118 +120,21 @@ const mapExpense = (row: any): ExpenseRecord => ({
 
 export function registerIpcHandlers(dbManager: SahwaDatabaseManager) {
   const db = dbManager.getRawDb();
+  const customerRepository = new CustomerRepository(db);
+  const customerService = new CustomerService(customerRepository);
+  const cashRepository = new CashRepository(db);
+  const inventoryRepository = new InventoryRepository(db);
+  const inventoryService = new InventoryService(inventoryRepository);
+  const orderEventRepository = new OrderEventRepository(db);
 
   // -------------------------------------------------------------
   // CUSTOMERS IPC HANDLERS
   // -------------------------------------------------------------
-  safeIpcHandle(ipcMain, 'customers:list', async () => {
-    const rawCustomers = db.prepare('SELECT * FROM customers ORDER BY name ASC').all() as any[];
-    const rawHistory = db.prepare('SELECT * FROM customer_measurement_history ORDER BY saved_at DESC').all() as any[];
-
-    const historyMap = new Map<string, any[]>();
-    for (const h of rawHistory) {
-      const list = historyMap.get(h.customer_id) || [];
-      list.push({
-        id: h.id,
-        savedAt: h.saved_at,
-        note: h.note || '',
-        measurements: parseMeasurementsJson(h.measurements_json),
-        styleDetails: parseStyleDetailsJson(h.style_details_json)
-      });
-      historyMap.set(h.customer_id, list);
-    }
-
-    return rawCustomers.map(c => ({
-      id: c.id,
-      name: c.name,
-      phone: c.phone,
-      createdAt: c.created_at,
-      measurements: parseMeasurementsJson(c.measurements_json),
-      styleDetails: parseStyleDetailsJson(c.style_details_json),
-      measurementHistory: historyMap.get(c.id) || []
-    }));
-  });
-
-  safeIpcHandle(ipcMain, 'customers:create', async (_, customer: Partial<Customer>) => {
-    const id = customer.id || `CUST-${Date.now()}`;
-    const name = customer.name || 'عميل جديد';
-    const phone = (customer.phone || '').trim();
-    const createdAt = customer.createdAt || new Date().toISOString().slice(0, 10);
-    
-    // Check if phone number is already registered
-    const existing = db.prepare('SELECT id FROM customers WHERE phone = ?').get(phone) as any;
-    if (existing) {
-      throw new Error('رقم الجوال مسجل بالفعل لعميل آخر');
-    }
-
-    const measurementsJson = JSON.stringify(normalizeMeasurements(customer.measurements));
-    const styleDetailsJson = JSON.stringify(normalizeStyleDetails(customer.styleDetails));
-
-    db.prepare(`
-      INSERT INTO customers (id, name, phone, created_at, measurements_json, style_details_json)
-      VALUES (?, ?, ?, ?, ?, ?)
-    `).run(id, name, phone, createdAt, measurementsJson, styleDetailsJson);
-
-    return {
-      id,
-      name,
-      phone,
-      createdAt,
-      measurements: normalizeMeasurements(customer.measurements),
-      styleDetails: normalizeStyleDetails(customer.styleDetails),
-      measurementHistory: []
-    };
-  });
-
-  safeIpcHandle(ipcMain, 'customers:update', async (_, customer: Customer) => {
-    const phone = (customer.phone || '').trim();
-    // Check if phone is used by another customer
-    const existing = db.prepare('SELECT id FROM customers WHERE phone = ? AND id != ?').get(phone, customer.id) as any;
-    if (existing) {
-      throw new Error('رقم الجوال مسجل بالفعل لعميل آخر');
-    }
-
-    db.prepare(`
-      UPDATE customers 
-      SET name = ?, phone = ?, measurements_json = ?, style_details_json = ?, updated_at = ?
-      WHERE id = ?
-    `).run(
-      customer.name,
-      phone,
-      JSON.stringify(normalizeMeasurements(customer.measurements)),
-      JSON.stringify(normalizeStyleDetails(customer.styleDetails)),
-      new Date().toISOString(),
-      customer.id
-    );
-
-    return true;
-  });
-
-  safeIpcHandle(ipcMain, 'customers:delete', async (_, customerId: string) => {
-    db.prepare('DELETE FROM customers WHERE id = ?').run(customerId);
-    return true;
-  });
-
-  safeIpcHandle(ipcMain, 'customers:saveMeasurementHistory', async (_, customerId: string, note: string) => {
-    const cust = db.prepare('SELECT * FROM customers WHERE id = ?').get(customerId) as any;
-    if (!cust) throw new Error('العميل غير موجود في قاعدة البيانات');
-
-    const histId = `HIST-${Date.now()}`;
-    const savedAt = new Date().toISOString().slice(0, 10);
-
-    db.prepare(`
-      INSERT INTO customer_measurement_history (id, customer_id, saved_at, note, measurements_json, style_details_json)
-      VALUES (?, ?, ?, ?, ?, ?)
-    `).run(histId, customerId, savedAt, note || 'تحديث مقاسات', cust.measurements_json, cust.style_details_json);
-
-    return {
-      id: histId,
-      savedAt,
-      note,
-      measurements: parseMeasurementsJson(cust.measurements_json),
-      styleDetails: parseStyleDetailsJson(cust.style_details_json)
-    };
-  });
+  safeIpcHandle(ipcMain, 'customers:list', async () => customerService.list());
+  safeIpcHandle(ipcMain, 'customers:create', async (_, customer: Partial<Customer>) => customerService.create(customer));
+  safeIpcHandle(ipcMain, 'customers:update', async (_, customer: Customer) => customerService.update(customer));
+  safeIpcHandle(ipcMain, 'customers:delete', async (_, customerId: string) => customerService.delete(customerId));
+  safeIpcHandle(ipcMain, 'customers:saveMeasurementHistory', async (_, customerId: string, note: string) => customerService.saveMeasurementHistory(customerId, note));
 
   // -------------------------------------------------------------
   // FABRICS & INVENTORY IPC HANDLERS
@@ -414,14 +230,7 @@ export function registerIpcHandlers(dbManager: SahwaDatabaseManager) {
   // INVENTORY MOVEMENTS, PURCHASES, EXPENSES & CASH LEDGER
   // -------------------------------------------------------------
   safeIpcHandle(ipcMain, 'stockMovements:list', async (_, itemType?: InventoryItemType, itemId?: string) => {
-    let query = 'SELECT * FROM inventory_movements';
-    const params: string[] = [];
-    const filters: string[] = [];
-    if (itemType) { filters.push('item_type = ?'); params.push(itemType); }
-    if (itemId) { filters.push('item_id = ?'); params.push(itemId); }
-    if (filters.length) query += ` WHERE ${filters.join(' AND ')}`;
-    query += ' ORDER BY created_at DESC';
-    return (db.prepare(query).all(...params) as any[]).map(mapStockMovement);
+    return inventoryService.listMovements(itemType, itemId);
   });
 
   safeIpcHandle(ipcMain, 'stock:adjust', async (_, itemType: InventoryItemType, itemId: string, quantity: number, reason: string, direction: 'adjustment' | 'return' = 'adjustment') => {
@@ -430,7 +239,7 @@ export function registerIpcHandlers(dbManager: SahwaDatabaseManager) {
     if (!Number.isFinite(numericQuantity) || numericQuantity === 0) throw new Error('كمية التسوية يجب أن تكون رقماً غير صفري');
     const tx = db.transaction(() => {
       const delta = direction === 'return' ? Math.abs(numericQuantity) : numericQuantity;
-      return insertInventoryMovement(db, itemType, itemId, delta, direction, reason.trim(), { type: 'stock_adjustment', id: itemId });
+      return inventoryService.recordMovement( itemType, itemId, delta, direction, reason.trim(), { type: 'stock_adjustment', id: itemId });
     });
     return tx();
   });
@@ -462,7 +271,7 @@ export function registerIpcHandlers(dbManager: SahwaDatabaseManager) {
         const unitPrice = Number(line.unitPrice);
         if (!line.itemType || !line.itemId || !Number.isFinite(quantity) || quantity <= 0) throw new Error('بيانات كمية المشتريات غير صحيحة');
         if (!Number.isFinite(unitPrice) || unitPrice < 0) throw new Error('سعر الشراء لا يمكن أن يكون سالباً');
-        const meta = inventoryMeta(db, line.itemType, line.itemId);
+        const meta = inventoryService.getMeta( line.itemType, line.itemId);
         const total = round2(quantity * unitPrice);
         totalAmount += total;
         preparedLines.push({ input: line, meta, quantity, unitPrice, total });
@@ -474,7 +283,7 @@ export function registerIpcHandlers(dbManager: SahwaDatabaseManager) {
       `).run(purchaseId, payload.supplier.trim(), payload.invoiceNumber || null, purchaseDate, round2(totalAmount), payload.paymentMethod || 'cash', payload.notes || null, now);
 
       for (const line of preparedLines) {
-        const movement = insertInventoryMovement(db, line.input.itemType, line.input.itemId, line.quantity, 'purchase', `شراء من المورد ${payload.supplier.trim()}`, {
+        const movement = inventoryService.recordMovement( line.input.itemType, line.input.itemId, line.quantity, 'purchase', `شراء من المورد ${payload.supplier.trim()}`, {
           type: 'purchase', id: purchaseId, number: payload.invoiceNumber || purchaseId
         });
         db.prepare(`
@@ -500,7 +309,7 @@ export function registerIpcHandlers(dbManager: SahwaDatabaseManager) {
       }
 
       if (totalAmount > 0) {
-        insertCashTransaction(db, {
+        cashRepository.insert({
           id: `CASH-PUR-${purchaseId}`,
           direction: 'out',
           sourceType: 'purchase',
@@ -542,7 +351,7 @@ export function registerIpcHandlers(dbManager: SahwaDatabaseManager) {
         INSERT INTO expenses (id, category, amount, expense_date, payment_method, description, notes, created_at)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
       `).run(expenseId, payload.category.trim(), round2(amount), expenseDate, payload.paymentMethod || 'cash', payload.description.trim(), payload.notes || null, now);
-      insertCashTransaction(db, {
+      cashRepository.insert({
         id: `CASH-EXP-${expenseId}`,
         direction: 'out',
         sourceType: 'expense',
@@ -561,7 +370,7 @@ export function registerIpcHandlers(dbManager: SahwaDatabaseManager) {
   });
 
   safeIpcHandle(ipcMain, 'cash:list', async () => {
-    return (db.prepare('SELECT * FROM cash_transactions ORDER BY transaction_date DESC, created_at DESC').all() as any[]).map(mapCashTransaction);
+    return (cashRepository.list() as any[]).map(mapCashTransaction);
   });
 
   safeIpcHandle(ipcMain, 'cash:createAdjustment', async (_, payload: any) => {
@@ -569,7 +378,7 @@ export function registerIpcHandlers(dbManager: SahwaDatabaseManager) {
     if (!Number.isFinite(amount) || amount <= 0) throw new Error('مبلغ الحركة يجب أن يكون أكبر من صفر');
     if (!payload.description?.trim()) throw new Error('وصف الحركة المالية مطلوب');
     const id = payload.id || `CASH-${Date.now()}`;
-    const existing = db.prepare('SELECT * FROM cash_transactions WHERE id = ?').get(id) as any;
+    const existing = cashRepository.findById(id) as any;
     if (existing) return mapCashTransaction(existing);
     const transaction: CashTransaction = {
       id,
@@ -584,7 +393,7 @@ export function registerIpcHandlers(dbManager: SahwaDatabaseManager) {
       notes: payload.notes,
       createdAt: new Date().toISOString()
     };
-    insertCashTransaction(db, transaction);
+    cashRepository.insert(transaction);
     return transaction;
   });
 
@@ -649,10 +458,7 @@ export function registerIpcHandlers(dbManager: SahwaDatabaseManager) {
   // ORDERS & TRANSACTIONS IPC HANDLERS
   // -------------------------------------------------------------
   safeIpcHandle(ipcMain, 'orders:events:list', async (_, orderId?: string) => {
-    const rows = orderId
-      ? db.prepare('SELECT * FROM order_events WHERE order_id = ? ORDER BY created_at DESC').all(orderId)
-      : db.prepare('SELECT * FROM order_events ORDER BY created_at DESC').all();
-    return (rows as any[]).map(mapOrderEvent);
+    return (orderEventRepository.list(orderId) as any[]).map(mapOrderEvent);
   });
 
   safeIpcHandle(ipcMain, 'orders:list', async () => {
@@ -746,7 +552,7 @@ export function registerIpcHandlers(dbManager: SahwaDatabaseManager) {
         const fab = db.prepare('SELECT * FROM fabrics WHERE id = ?').get(orderData.fabricId) as any;
         if (!fab) throw new Error('القماش المختار غير موجود في المخزون');
         fabricBuyPrice = fab.purchase_price || 0;
-        fabricMovement = insertInventoryMovement(db, 'fabric', orderData.fabricId, -requiredMeters, 'sale', 'استهلاك قماش للطلب', {
+        fabricMovement = inventoryService.recordMovement( 'fabric', orderData.fabricId, -requiredMeters, 'sale', 'استهلاك قماش للطلب', {
           type: 'order', id: orderId, number: orderNumber
         });
       }
@@ -815,8 +621,8 @@ export function registerIpcHandlers(dbManager: SahwaDatabaseManager) {
         if (!material.itemId || (material.itemType === 'fabric' && material.itemId === orderData.fabricId)) continue;
         const quantity = Number(material.quantity);
         if (!Number.isFinite(quantity) || quantity <= 0) throw new Error('كمية المادة المرتبطة بالطلب غير صحيحة');
-        const meta = inventoryMeta(db, material.itemType, material.itemId);
-        const movement = insertInventoryMovement(db, material.itemType, material.itemId, -quantity, 'sale', 'استهلاك مادة للطلب', {
+        const meta = inventoryService.getMeta( material.itemType, material.itemId);
+        const movement = inventoryService.recordMovement( material.itemType, material.itemId, -quantity, 'sale', 'استهلاك مادة للطلب', {
           type: 'order', id: orderId, number: orderNumber
         });
         const unitCost = Number.isFinite(Number(material.unitCostAtUsage)) ? Number(material.unitCostAtUsage) : Number(meta.purchasePrice || 0);
@@ -874,7 +680,7 @@ export function registerIpcHandlers(dbManager: SahwaDatabaseManager) {
       );
 
       if (paidAmount > 0 && initialPaymentId) {
-        insertCashTransaction(db, {
+        cashRepository.insert({
           id: `CASH-PAY-${initialPaymentId}`,
           direction: 'in',
           sourceType: 'customer_payment',
@@ -890,7 +696,7 @@ export function registerIpcHandlers(dbManager: SahwaDatabaseManager) {
       }
 
       const materialCost = round2(materialUsages.reduce((sum, usage) => sum + usage.totalCost, 0));
-      insertOrderEvent(db, {
+      orderEventRepository.insert( {
         id: `EVT-CREATED-${orderId}`,
         orderId,
         type: 'created',
@@ -939,7 +745,7 @@ export function registerIpcHandlers(dbManager: SahwaDatabaseManager) {
       if (materialChanged && existing.status !== 'cancelled') {
         for (const oldMaterial of materialRows) {
           if (oldMaterial.item_id) {
-            insertInventoryMovement(db, oldMaterial.item_type, oldMaterial.item_id, oldMaterial.quantity, 'return', 'إرجاع استهلاك مادة بعد تعديل الطلب', {
+            inventoryService.recordMovement( oldMaterial.item_type, oldMaterial.item_id, oldMaterial.quantity, 'return', 'إرجاع استهلاك مادة بعد تعديل الطلب', {
               type: 'order_update', id: updatedOrder.id, number: existing.order_number
             });
           }
@@ -950,7 +756,7 @@ export function registerIpcHandlers(dbManager: SahwaDatabaseManager) {
           if (!newFab) throw new Error('القماش الجديد المختار غير موجود');
           if (fabricChanged) updatedOrder.fabricBuyPriceAtOrder = newFab.purchase_price || 0;
           else updatedOrder.fabricBuyPriceAtOrder = existing.fabric_buy_price_at_order || updatedOrder.fabricBuyPriceAtOrder || 0;
-          const newFabricMovement = insertInventoryMovement(db, 'fabric', updatedOrder.fabricId, -newMeters, 'sale', 'استهلاك قماش بعد تعديل الطلب', {
+          const newFabricMovement = inventoryService.recordMovement( 'fabric', updatedOrder.fabricId, -newMeters, 'sale', 'استهلاك قماش بعد تعديل الطلب', {
             type: 'order_update', id: updatedOrder.id, number: existing.order_number
           });
           const fabricUsageCost = round2(newMeters * (updatedOrder.fabricBuyPriceAtOrder || 0));
@@ -969,8 +775,8 @@ export function registerIpcHandlers(dbManager: SahwaDatabaseManager) {
             if (material.itemType === 'fabric' && itemId === updatedOrder.fabricId) continue;
             const quantity = Number(material.quantity);
             if (!Number.isFinite(quantity) || quantity <= 0) throw new Error('كمية المادة المرتبطة بالطلب غير صحيحة');
-            const meta = inventoryMeta(db, material.itemType || material.item_type, itemId);
-            const movement = insertInventoryMovement(db, material.itemType || material.item_type, itemId, -quantity, 'sale', 'استهلاك مادة بعد تعديل الطلب', {
+            const meta = inventoryService.getMeta( material.itemType || material.item_type, itemId);
+            const movement = inventoryService.recordMovement( material.itemType || material.item_type, itemId, -quantity, 'sale', 'استهلاك مادة بعد تعديل الطلب', {
               type: 'order_update', id: updatedOrder.id, number: existing.order_number
             });
             const unitCost = Number(material.unitCostAtUsage ?? material.unit_cost_at_usage ?? meta.purchasePrice ?? 0);
@@ -1034,7 +840,7 @@ export function registerIpcHandlers(dbManager: SahwaDatabaseManager) {
         const materials = db.prepare('SELECT * FROM order_material_usages WHERE order_id = ?').all(orderId) as any[];
         for (const material of materials) {
           if (material.item_id) {
-            insertInventoryMovement(db, material.item_type, material.item_id, material.quantity, 'return', 'إرجاع مواد بسبب حذف الطلب', {
+            inventoryService.recordMovement( material.item_type, material.item_id, material.quantity, 'return', 'إرجاع مواد بسبب حذف الطلب', {
               type: 'order_delete', id: orderId, number: order.order_number
             });
           }
@@ -1049,7 +855,7 @@ export function registerIpcHandlers(dbManager: SahwaDatabaseManager) {
           const reversalId = `CASH-REV-${payment.id}`;
           const alreadyReversed = db.prepare('SELECT id FROM cash_transactions WHERE id = ?').get(reversalId) as any;
           if (!alreadyReversed) {
-            insertCashTransaction(db, {
+            cashRepository.insert({
               id: reversalId,
               direction: 'out',
               sourceType: 'adjustment',
@@ -1086,7 +892,7 @@ export function registerIpcHandlers(dbManager: SahwaDatabaseManager) {
         const materials = db.prepare('SELECT * FROM order_material_usages WHERE order_id = ?').all(orderId) as any[];
         for (const material of materials) {
           if (material.item_id) {
-            insertInventoryMovement(db, material.item_type, material.item_id, material.quantity, 'return', 'إرجاع مواد بسبب إلغاء الطلب', {
+            inventoryService.recordMovement( material.item_type, material.item_id, material.quantity, 'return', 'إرجاع مواد بسبب إلغاء الطلب', {
               type: 'order_cancel', id: orderId, number: order.order_number
             });
           }
@@ -1095,7 +901,7 @@ export function registerIpcHandlers(dbManager: SahwaDatabaseManager) {
         const materials = db.prepare('SELECT * FROM order_material_usages WHERE order_id = ?').all(orderId) as any[];
         for (const material of materials) {
           if (material.item_id) {
-            insertInventoryMovement(db, material.item_type, material.item_id, -material.quantity, 'sale', 'إعادة استهلاك مواد بعد إلغاء الإلغاء', {
+            inventoryService.recordMovement( material.item_type, material.item_id, -material.quantity, 'sale', 'إعادة استهلاك مواد بعد إلغاء الإلغاء', {
               type: 'order_reactivate', id: orderId, number: order.order_number
             });
           }
@@ -1104,7 +910,7 @@ export function registerIpcHandlers(dbManager: SahwaDatabaseManager) {
 
       db.prepare('UPDATE orders SET status = ?, updated_at = ? WHERE id = ?').run(status, new Date().toISOString(), orderId);
       if (order.status !== status) {
-        insertOrderEvent(db, {
+        orderEventRepository.insert( {
           id: `EVT-STATUS-${orderId}-${Date.now()}`,
           orderId,
           type: 'status_changed',
@@ -1184,7 +990,7 @@ export function registerIpcHandlers(dbManager: SahwaDatabaseManager) {
         WHERE id = ?
       `).run(newPaid, newRemaining, inv.order_id);
 
-      insertCashTransaction(db, {
+      cashRepository.insert({
         id: `CASH-PAY-${id}`,
         direction: 'in',
         sourceType: 'customer_payment',
@@ -1198,7 +1004,7 @@ export function registerIpcHandlers(dbManager: SahwaDatabaseManager) {
         notes: note || undefined,
         createdAt: new Date().toISOString()
       });
-      insertOrderEvent(db, {
+      orderEventRepository.insert( {
         id: `EVT-PAYMENT-${id}`,
         orderId: inv.order_id,
         type: 'payment',
@@ -1270,7 +1076,7 @@ export function registerIpcHandlers(dbManager: SahwaDatabaseManager) {
       );
       const order = db.prepare('SELECT id FROM orders WHERE order_number = ?').get(orderNumber) as any;
       if (order) {
-        insertOrderEvent(db, {
+        orderEventRepository.insert( {
           id: `EVT-WHATSAPP-${notifId}`,
           orderId: order.id,
           type: 'whatsapp',
