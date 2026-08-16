@@ -7,6 +7,7 @@ let mainWindow: BrowserWindow | null = null;
 let dbManager: SahwaDatabaseManager | null = null;
 
 function createWindow() {
+  app.setAppUserModelId('com.sahwa.tailoring');
   const userDataDir = app.getPath('userData');
   const databaseDir = path.join(userDataDir, 'database');
   const backupDir = path.join(userDataDir, 'backups');
@@ -28,6 +29,7 @@ function createWindow() {
     width: 1280,
     height: 850,
     title: 'صهوة للخياطة الرجالية - إدارة المحل والمأخوذات',
+    icon: path.join(__dirname, '../build/icon.ico'),
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
