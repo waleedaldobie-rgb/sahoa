@@ -34,6 +34,8 @@ import { OrderStatusService } from './services/orderStatusService';
 import { NotificationRepository } from './repositories/notificationRepository';
 import { WhatsAppService } from './services/whatsappService';
 import { OrderService } from './services/orderService';
+import { FabricRepository } from './repositories/fabricRepository';
+import { AccessoryRepository } from './repositories/accessoryRepository';
 
 const parseMeasurementsJson = (value?: string) => {
   try { return normalizeMeasurements(JSON.parse(value || '{}')); }
@@ -144,6 +146,8 @@ export function registerIpcHandlers(dbManager: SahwaDatabaseManager) {
   const notificationRepository = new NotificationRepository(db);
   const whatsappService = new WhatsAppService(notificationRepository, orderRepository, orderEventRepository);
   const orderService = new OrderService(orderRepository, inventoryService, cashRepository, orderEventRepository, db);
+  const fabricRepository = new FabricRepository(db);
+  const accessoryRepository = new AccessoryRepository(db);
 
   // -------------------------------------------------------------
   // CUSTOMERS IPC HANDLERS
@@ -157,92 +161,15 @@ export function registerIpcHandlers(dbManager: SahwaDatabaseManager) {
   // -------------------------------------------------------------
   // FABRICS & INVENTORY IPC HANDLERS
   // -------------------------------------------------------------
-  safeIpcHandle(ipcMain, 'fabrics:list', async () => {
-    const rows = db.prepare('SELECT * FROM fabrics ORDER BY name ASC').all() as any[];
-    return rows.map(r => ({
-      id: r.id,
-      name: r.name,
-      color: r.color,
-      colorHex: r.color_hex,
-      purchasePrice: r.purchase_price,
-      sellingPrice: r.selling_price,
-      quantityMeters: r.quantity_meters,
-      minStockMeters: r.min_stock_meters
-    }));
-  });
+  safeIpcHandle(ipcMain, 'fabrics:list', async () => fabricRepository.list());
+  safeIpcHandle(ipcMain, 'fabrics:create', async (_, fabric: Partial<FabricItem>) => fabricRepository.insert(fabric));
+  safeIpcHandle(ipcMain, 'fabrics:update', async (_, fabric: FabricItem) => { fabricRepository.update(fabric); return true; });
+  safeIpcHandle(ipcMain, 'fabrics:delete', async (_, fabricId: string) => { fabricRepository.delete(fabricId); return true; });
 
-  safeIpcHandle(ipcMain, 'fabrics:create', async (_, fabric: Partial<FabricItem>) => {
-    const id = fabric.id || `FAB-${Date.now()}`;
-    db.prepare(`
-      INSERT INTO fabrics (id, name, color, color_hex, purchase_price, selling_price, quantity_meters, min_stock_meters, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
-      id,
-      fabric.name || 'قماش جديد',
-      fabric.color || 'أبيض',
-      fabric.colorHex || '#ffffff',
-      fabric.purchasePrice || 0,
-      fabric.sellingPrice || 0,
-      fabric.quantityMeters || 0,
-      fabric.minStockMeters || 10,
-      new Date().toISOString()
-    );
-
-    return { ...fabric, id };
-  });
-
-  safeIpcHandle(ipcMain, 'fabrics:update', async (_, fabric: FabricItem) => {
-    db.prepare(`
-      UPDATE fabrics
-      SET name = ?, color = ?, color_hex = ?, purchase_price = ?, selling_price = ?, quantity_meters = ?, min_stock_meters = ?
-      WHERE id = ?
-    `).run(
-      fabric.name, fabric.color, fabric.colorHex,
-      fabric.purchasePrice, fabric.sellingPrice, fabric.quantityMeters,
-      fabric.minStockMeters, fabric.id
-    );
-    return true;
-  });
-
-  safeIpcHandle(ipcMain, 'fabrics:delete', async (_, fabricId: string) => {
-    db.prepare('DELETE FROM fabrics WHERE id = ?').run(fabricId);
-    return true;
-  });
-
-  safeIpcHandle(ipcMain, 'accessories:list', async () => {
-    const rows = db.prepare('SELECT * FROM accessories ORDER BY category ASC, name ASC').all() as any[];
-    return rows.map(r => ({
-      id: r.id,
-      name: r.name,
-      category: r.category,
-      quantity: r.quantity,
-      minStock: r.min_stock,
-      unit: r.unit,
-      purchasePrice: r.purchase_price || 0,
-      sellingPrice: r.selling_price || 0
-    }));
-  });
-
-  safeIpcHandle(ipcMain, 'accessories:create', async (_, acc: Partial<AccessoryItem>) => {
-    const id = acc.id || `ACC-${Date.now()}`;
-    db.prepare(`
-      INSERT INTO accessories (id, name, category, quantity, min_stock, unit, purchase_price, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(id, acc.name || 'عنصر', acc.category || 'عام', acc.quantity || 0, acc.minStock || 5, acc.unit || 'حبة', acc.purchasePrice || 0, new Date().toISOString());
-    return { ...acc, id };
-  });
-
-  safeIpcHandle(ipcMain, 'accessories:update', async (_, acc: AccessoryItem) => {
-    db.prepare(`
-      UPDATE accessories SET name = ?, category = ?, quantity = ?, min_stock = ?, unit = ?, purchase_price = ?, selling_price = ? WHERE id = ?
-    `).run(acc.name, acc.category, acc.quantity, acc.minStock, acc.unit, acc.purchasePrice || 0, acc.sellingPrice || 0, acc.id);
-    return true;
-  });
-
-  safeIpcHandle(ipcMain, 'accessories:delete', async (_, accId: string) => {
-    db.prepare('DELETE FROM accessories WHERE id = ?').run(accId);
-    return true;
-  });
+  safeIpcHandle(ipcMain, 'accessories:list', async () => accessoryRepository.list());
+  safeIpcHandle(ipcMain, 'accessories:create', async (_, accessory: Partial<AccessoryItem>) => accessoryRepository.insert(accessory));
+  safeIpcHandle(ipcMain, 'accessories:update', async (_, accessory: AccessoryItem) => { accessoryRepository.update(accessory); return true; });
+  safeIpcHandle(ipcMain, 'accessories:delete', async (_, accessoryId: string) => { accessoryRepository.delete(accessoryId); return true; });
 
   // -------------------------------------------------------------
   // INVENTORY MOVEMENTS, PURCHASES, EXPENSES & CASH LEDGER
