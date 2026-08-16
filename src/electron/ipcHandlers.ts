@@ -400,6 +400,10 @@ export function registerIpcHandlers(dbManager: SahwaDatabaseManager) {
     return dbManager.restoreFromJson(jsonContent);
   });
 
+  safeIpcHandle(ipcMain, 'system:clearAllData', async () => {
+    return dbManager.clearAllData();
+  });
+
   safeIpcHandle(ipcMain, 'reports:exportExcel', async (_, startDate?: string, endDate?: string) => {
     const buffer = dbManager.generateExcelReport(startDate, endDate);
     return buffer.toString('base64');

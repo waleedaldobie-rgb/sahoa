@@ -65,6 +65,7 @@ export const electronBridge = {
   // System & Excel Reports
   exportBackup: () => ipcRenderer.invoke('system:backup'),
   importBackup: (jsonContent: string) => ipcRenderer.invoke('system:restore', jsonContent),
+  clearAllData: () => ipcRenderer.invoke('system:clearAllData'),
   exportExcelReport: (startDate?: string, endDate?: string) => ipcRenderer.invoke('reports:exportExcel', startDate, endDate),
   
   getSettings: () => ipcRenderer.invoke('settings:get'),

@@ -200,7 +200,7 @@ export class SahwaDatabaseManager {
     };
   }
 
-  public updateSetting(key: keyof DatabaseSettings, value: string | number): void {
+  public updateSetting(key: keyof DatabaseSettings | 'dataCleared', value: string | number): void {
     const db = this.getRawDb();
     db.prepare('INSERT OR REPLACE INTO system_settings (key, value) VALUES (?, ?)').run(key, String(value));
   }
@@ -288,6 +288,32 @@ export class SahwaDatabaseManager {
         console.error('Error in hourly auto backup:', err);
       });
     }, intervalMs);
+  }
+
+  /**
+   * Clears operational data after creating a safe pre-clear backup.
+   * Reference tables (dress types and colors) are intentionally preserved.
+   */
+  public async clearAllData(): Promise<boolean> {
+    try {
+      await this.backupDatabase('pre_clear');
+      const db = this.getRawDb();
+      const clearTx = db.transaction(() => {
+        for (const table of [
+          'order_events', 'order_material_usages', 'purchase_lines', 'cash_transactions',
+          'expenses', 'purchases', 'inventory_movements', 'invoices', 'orders',
+          'customer_measurement_history', 'customers', 'fabrics', 'accessories', 'notifications'
+        ]) {
+          db.prepare(`DELETE FROM ${table}`).run();
+        }
+      });
+      clearTx();
+      this.updateSetting('dataCleared', 'true');
+      return true;
+    } catch (error) {
+      console.error('Clear data error:', error);
+      return false;
+    }
   }
 
   /**
@@ -529,6 +555,7 @@ export class SahwaDatabaseManager {
       });
 
       restoreTx();
+      this.updateSetting('dataCleared', parsed.customers.length === 0 ? 'true' : 'false');
       return { success: true };
     } catch (err: any) {
       console.error('Restore error:', err);
@@ -782,7 +809,8 @@ export class SahwaDatabaseManager {
   private seedInitialDataIfEmpty(): void {
     const db = this.getRawDb();
     const count = (db.prepare('SELECT COUNT(*) as cnt FROM customers').get() as any).cnt;
-    if (count > 0) return; // Already has data
+    const dataCleared = (db.prepare('SELECT value FROM system_settings WHERE key = ?').get('dataCleared') as { value?: string } | undefined)?.value === 'true';
+    if (count > 0 || dataCleared) return; // Already has data or was explicitly cleared
 
     // Initial Seeds
     const seedCustomers: Customer[] = [
