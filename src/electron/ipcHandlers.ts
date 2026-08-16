@@ -25,6 +25,10 @@ import { CustomerService } from './services/customerService';
 import { InventoryRepository } from './repositories/inventoryRepository';
 import { InventoryService } from './services/inventoryService';
 import { OrderEventRepository } from './repositories/orderEventRepository';
+import { AccountingRepository } from './repositories/accountingRepository';
+import { AccountingService } from './services/accountingService';
+import { OrderRepository } from './repositories/orderRepository';
+import { InvoiceRepository } from './repositories/invoiceRepository';
 
 const parseMeasurementsJson = (value?: string) => {
   try { return normalizeMeasurements(JSON.parse(value || '{}')); }
@@ -126,6 +130,10 @@ export function registerIpcHandlers(dbManager: SahwaDatabaseManager) {
   const inventoryRepository = new InventoryRepository(db);
   const inventoryService = new InventoryService(inventoryRepository);
   const orderEventRepository = new OrderEventRepository(db);
+  const accountingRepository = new AccountingRepository(db);
+  const accountingService = new AccountingService(accountingRepository, inventoryService, cashRepository, db);
+  const orderRepository = new OrderRepository(db);
+  const invoiceRepository = new InvoiceRepository(db);
 
   // -------------------------------------------------------------
   // CUSTOMERS IPC HANDLERS
@@ -245,128 +253,24 @@ export function registerIpcHandlers(dbManager: SahwaDatabaseManager) {
   });
 
   safeIpcHandle(ipcMain, 'purchases:list', async () => {
-    const rows = db.prepare('SELECT * FROM purchases ORDER BY purchase_date DESC, created_at DESC').all() as any[];
-    const lines = db.prepare('SELECT * FROM purchase_lines ORDER BY created_at ASC').all() as any[];
+    const { rows, lines } = accountingService.listPurchases();
     return rows.map((row) => mapPurchase(row, lines));
   });
 
   safeIpcHandle(ipcMain, 'purchases:create', async (_, payload: any) => {
-    const purchaseId = payload.id || `PUR-${Date.now()}`;
-    const existing = db.prepare('SELECT * FROM purchases WHERE id = ?').get(purchaseId) as any;
-    if (existing) {
-      const lines = db.prepare('SELECT * FROM purchase_lines WHERE purchase_id = ? ORDER BY created_at ASC').all(purchaseId) as any[];
-      return mapPurchase(existing, lines);
-    }
-    const lines = Array.isArray(payload.lines) ? payload.lines : [];
-    if (!payload.supplier?.trim()) throw new Error('اسم المورد مطلوب');
-    if (lines.length === 0) throw new Error('أضف صنفاً واحداً على الأقل إلى المشتريات');
-
-    const approvedPurchase = db.transaction(() => {
-      const now = new Date().toISOString();
-      const purchaseDate = payload.purchaseDate || now.slice(0, 10);
-      let totalAmount = 0;
-      const preparedLines: Array<{ input: any; meta: any; quantity: number; unitPrice: number; total: number }> = [];
-      for (const line of lines) {
-        const quantity = Number(line.quantity);
-        const unitPrice = Number(line.unitPrice);
-        if (!line.itemType || !line.itemId || !Number.isFinite(quantity) || quantity <= 0) throw new Error('بيانات كمية المشتريات غير صحيحة');
-        if (!Number.isFinite(unitPrice) || unitPrice < 0) throw new Error('سعر الشراء لا يمكن أن يكون سالباً');
-        const meta = inventoryService.getMeta( line.itemType, line.itemId);
-        const total = round2(quantity * unitPrice);
-        totalAmount += total;
-        preparedLines.push({ input: line, meta, quantity, unitPrice, total });
-      }
-
-      db.prepare(`
-        INSERT INTO purchases (id, supplier, invoice_number, purchase_date, total_amount, payment_method, notes, status, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, 'approved', ?)
-      `).run(purchaseId, payload.supplier.trim(), payload.invoiceNumber || null, purchaseDate, round2(totalAmount), payload.paymentMethod || 'cash', payload.notes || null, now);
-
-      for (const line of preparedLines) {
-        const movement = inventoryService.recordMovement( line.input.itemType, line.input.itemId, line.quantity, 'purchase', `شراء من المورد ${payload.supplier.trim()}`, {
-          type: 'purchase', id: purchaseId, number: payload.invoiceNumber || purchaseId
-        });
-        db.prepare(`
-          INSERT INTO purchase_lines (id, purchase_id, item_type, item_id, item_name, quantity, unit, unit_price, total_amount, created_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `).run(
-          `PURL-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-          purchaseId,
-          line.input.itemType,
-          line.input.itemId,
-          line.meta.name,
-          line.quantity,
-          line.input.unit || line.meta.unit,
-          line.unitPrice,
-          line.total,
-          now
-        );
-
-        const table = line.input.itemType === 'fabric' ? 'fabrics' : 'accessories';
-        const priceColumn = line.input.itemType === 'fabric' ? 'purchase_price' : 'purchase_price';
-        db.prepare(`UPDATE ${table} SET ${priceColumn} = ? WHERE id = ?`).run(line.unitPrice, line.input.itemId);
-        void movement;
-      }
-
-      if (totalAmount > 0) {
-        cashRepository.insert({
-          id: `CASH-PUR-${purchaseId}`,
-          direction: 'out',
-          sourceType: 'purchase',
-          sourceId: purchaseId,
-          referenceNumber: payload.invoiceNumber || purchaseId,
-          amount: round2(totalAmount),
-          paymentMethod: payload.paymentMethod || 'cash',
-          transactionDate: purchaseDate,
-          description: `شراء مخزون من ${payload.supplier.trim()}`,
-          notes: payload.notes || undefined,
-          createdAt: now
-        });
-      }
-      return { id: purchaseId, now };
-    });
-
-    const result = approvedPurchase();
-    const row = db.prepare('SELECT * FROM purchases WHERE id = ?').get(result.id) as any;
-    const lineRows = db.prepare('SELECT * FROM purchase_lines WHERE purchase_id = ? ORDER BY created_at ASC').all(result.id) as any[];
-    return mapPurchase(row, lineRows);
+    const result = accountingService.createPurchase(payload);
+    const purchase = accountingService.findPurchase(result.id);
+    if (!purchase) throw new Error('تعذر قراءة عملية الشراء بعد اعتمادها');
+    return mapPurchase(purchase.row, purchase.lines);
   });
 
-  safeIpcHandle(ipcMain, 'expenses:list', async () => {
-    const rows = db.prepare('SELECT * FROM expenses ORDER BY expense_date DESC, created_at DESC').all() as any[];
-    return rows.map(mapExpense);
-  });
+  safeIpcHandle(ipcMain, 'expenses:list', async () => accountingService.listExpenses().map(mapExpense));
 
   safeIpcHandle(ipcMain, 'expenses:create', async (_, payload: any) => {
-    const expenseId = payload.id || `EXP-${Date.now()}`;
-    const existing = db.prepare('SELECT * FROM expenses WHERE id = ?').get(expenseId) as any;
-    if (existing) return mapExpense(existing);
-    const amount = Number(payload.amount);
-    if (!payload.category?.trim() || !payload.description?.trim()) throw new Error('تصنيف ووصف المصروف مطلوبان');
-    if (!Number.isFinite(amount) || amount <= 0) throw new Error('مبلغ المصروف يجب أن يكون أكبر من صفر');
-    const now = new Date().toISOString();
-    const expenseDate = payload.expenseDate || now.slice(0, 10);
-    const tx = db.transaction(() => {
-      db.prepare(`
-        INSERT INTO expenses (id, category, amount, expense_date, payment_method, description, notes, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(expenseId, payload.category.trim(), round2(amount), expenseDate, payload.paymentMethod || 'cash', payload.description.trim(), payload.notes || null, now);
-      cashRepository.insert({
-        id: `CASH-EXP-${expenseId}`,
-        direction: 'out',
-        sourceType: 'expense',
-        sourceId: expenseId,
-        referenceNumber: expenseId,
-        amount: round2(amount),
-        paymentMethod: payload.paymentMethod || 'cash',
-        transactionDate: expenseDate,
-        description: payload.description.trim(),
-        notes: payload.notes || undefined,
-        createdAt: now
-      });
-    });
-    tx();
-    return mapExpense(db.prepare('SELECT * FROM expenses WHERE id = ?').get(expenseId));
+    const expenseId = accountingService.createExpense(payload);
+    const expense = accountingService.findExpense(expenseId);
+    if (!expense) throw new Error('تعذر قراءة المصروف بعد حفظه');
+    return mapExpense(expense);
   });
 
   safeIpcHandle(ipcMain, 'cash:list', async () => {
@@ -398,9 +302,7 @@ export function registerIpcHandlers(dbManager: SahwaDatabaseManager) {
   });
 
   safeIpcHandle(ipcMain, 'orderMaterials:list', async (_, orderId?: string) => {
-    const rows = orderId
-      ? db.prepare('SELECT * FROM order_material_usages WHERE order_id = ? ORDER BY created_at ASC').all(orderId)
-      : db.prepare('SELECT * FROM order_material_usages ORDER BY created_at DESC').all();
+    const rows = orderRepository.listMaterialUsages(orderId);
     return (rows as any[]).map((row): OrderMaterialUsage => ({
       id: row.id,
       orderId: row.order_id,
@@ -462,8 +364,8 @@ export function registerIpcHandlers(dbManager: SahwaDatabaseManager) {
   });
 
   safeIpcHandle(ipcMain, 'orders:list', async () => {
-    const rows = db.prepare('SELECT * FROM orders ORDER BY order_date DESC, created_at DESC').all() as any[];
-    const materialRows = db.prepare('SELECT * FROM order_material_usages ORDER BY created_at ASC').all() as any[];
+    const rows = orderRepository.list();
+    const materialRows = orderRepository.listMaterialUsages();
     const materialsByOrder = new Map<string, OrderMaterialUsage[]>();
     for (const row of materialRows) {
       const usage: OrderMaterialUsage = {
@@ -932,7 +834,7 @@ export function registerIpcHandlers(dbManager: SahwaDatabaseManager) {
   // INVOICES & PAYMENTS IPC
   // -------------------------------------------------------------
   safeIpcHandle(ipcMain, 'invoices:list', async () => {
-    const rows = db.prepare('SELECT * FROM invoices ORDER BY order_date DESC').all() as any[];
+    const rows = invoiceRepository.list();
     return rows.map(i => ({
       id: i.id,
       invoiceNumber: i.invoice_number,
