@@ -36,6 +36,8 @@ import { WhatsAppService } from './services/whatsappService';
 import { OrderService } from './services/orderService';
 import { FabricRepository } from './repositories/fabricRepository';
 import { AccessoryRepository } from './repositories/accessoryRepository';
+import { ThobeTypeRepository } from './repositories/thobeTypeRepository';
+import { ColorRepository } from './repositories/colorRepository';
 
 const parseMeasurementsJson = (value?: string) => {
   try { return normalizeMeasurements(JSON.parse(value || '{}')); }
@@ -148,6 +150,8 @@ export function registerIpcHandlers(dbManager: SahwaDatabaseManager) {
   const orderService = new OrderService(orderRepository, inventoryService, cashRepository, orderEventRepository, db);
   const fabricRepository = new FabricRepository(db);
   const accessoryRepository = new AccessoryRepository(db);
+  const thobeTypeRepository = new ThobeTypeRepository(db);
+  const colorRepository = new ColorRepository(db);
 
   // -------------------------------------------------------------
   // CUSTOMERS IPC HANDLERS
@@ -259,39 +263,13 @@ export function registerIpcHandlers(dbManager: SahwaDatabaseManager) {
   // -------------------------------------------------------------
   // THOBE TYPES & COLORS IPC HANDLERS
   // -------------------------------------------------------------
-  safeIpcHandle(ipcMain, 'thobeTypes:list', async () => {
-    return db.prepare('SELECT id, name, default_price as defaultPrice, description FROM dress_types ORDER BY name ASC').all();
-  });
+  safeIpcHandle(ipcMain, 'thobeTypes:list', async () => thobeTypeRepository.list());
+  safeIpcHandle(ipcMain, 'thobeTypes:create', async (_, item: Partial<ThobeType>) => thobeTypeRepository.insert(item));
+  safeIpcHandle(ipcMain, 'thobeTypes:update', async (_, item: ThobeType) => { thobeTypeRepository.update(item); return true; });
 
-  safeIpcHandle(ipcMain, 'thobeTypes:create', async (_, item: Partial<ThobeType>) => {
-    const id = item.id || `TH-${Date.now()}`;
-    db.prepare('INSERT INTO dress_types (id,name,default_price,description) VALUES (?,?,?,?)')
-      .run(id, item.name || 'نوع جديد', item.defaultPrice || 0, item.description || '');
-    return { ...item, id } as ThobeType;
-  });
-
-  safeIpcHandle(ipcMain, 'thobeTypes:update', async (_, item: ThobeType) => {
-    db.prepare('UPDATE dress_types SET name=?, default_price=?, description=? WHERE id=?')
-      .run(item.name, item.defaultPrice || 0, item.description || '', item.id);
-    return true;
-  });
-
-  safeIpcHandle(ipcMain, 'colors:list', async () => {
-    return db.prepare('SELECT id, name, hex FROM colors ORDER BY name ASC').all();
-  });
-
-  safeIpcHandle(ipcMain, 'colors:create', async (_, item: Partial<ColorItem>) => {
-    const id = item.id || `COL-${Date.now()}`;
-    db.prepare('INSERT INTO colors (id,name,hex) VALUES (?,?,?)')
-      .run(id, item.name || 'لون جديد', item.hex || '#ffffff');
-    return { ...item, id } as ColorItem;
-  });
-
-  safeIpcHandle(ipcMain, 'colors:update', async (_, item: ColorItem) => {
-    db.prepare('UPDATE colors SET name=?, hex=? WHERE id=?')
-      .run(item.name, item.hex, item.id);
-    return true;
-  });
+  safeIpcHandle(ipcMain, 'colors:list', async () => colorRepository.list());
+  safeIpcHandle(ipcMain, 'colors:create', async (_, item: Partial<ColorItem>) => colorRepository.insert(item));
+  safeIpcHandle(ipcMain, 'colors:update', async (_, item: ColorItem) => { colorRepository.update(item); return true; });
 
   // -------------------------------------------------------------
   // ORDERS & TRANSACTIONS IPC HANDLERS
