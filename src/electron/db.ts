@@ -5,6 +5,7 @@ import * as XLSX from 'xlsx';
 import { CREATE_TABLES_SQL, CURRENT_SCHEMA_VERSION, DatabaseSettings } from './schema';
 import { Customer, Order, OrderEvent, FabricItem, AccessoryItem, ThobeType, ColorItem, NotificationItem, Invoice } from '../types';
 import { DEFAULT_MEASUREMENTS, DEFAULT_STYLE_DETAILS, normalizeMeasurements, normalizeStyleDetails } from '../services/shared/measurementDefaults';
+import { MIGRATIONS } from './migrations';
 
 const parseMeasurementsJson = (value?: string) => {
   try { return normalizeMeasurements(JSON.parse(value || '{}')); }
@@ -161,25 +162,20 @@ export class SahwaDatabaseManager {
 
   private ensureCompatibilityMigrations(): void {
     const db = this.getRawDb();
-    const accessoryColumns = db.pragma('table_info(accessories)') as Array<{ name: string }>;
-    if (!accessoryColumns.some((column) => column.name === 'purchase_price')) {
-      db.exec("ALTER TABLE accessories ADD COLUMN purchase_price REAL NOT NULL DEFAULT 0");
-    }
-    const notificationColumns = db.pragma('table_info(notifications)') as Array<{ name: string }>;
-    if (!notificationColumns.some((column) => column.name === 'order_id')) {
-      db.exec("ALTER TABLE notifications ADD COLUMN order_id TEXT");
-    }
-    const cashColumns = db.pragma('table_info(cash_transactions)') as Array<{ name: string }>;
-    if (!cashColumns.some((column) => column.name === 'order_id')) {
-      db.exec("ALTER TABLE cash_transactions ADD COLUMN order_id TEXT");
-    }
-    db.exec('CREATE INDEX IF NOT EXISTS idx_cash_transactions_order ON cash_transactions(order_id, transaction_date, created_at)');
-    db.exec('CREATE INDEX IF NOT EXISTS idx_notifications_order ON notifications(order_id, date)');
     const settingsColumns = db.pragma('table_info(system_settings)') as Array<{ name: string }>;
-    if (settingsColumns.length === 0) {
-      throw new Error('تعذر التحقق من جدول إعدادات النظام');
+    if (settingsColumns.length === 0) throw new Error('تعذر التحقق من جدول إعدادات النظام');
+
+    let storedVersion = Number((db.prepare('SELECT value FROM system_settings WHERE key = ?').get('schemaVersion') as { value?: string } | undefined)?.value || 0);
+    for (const migration of MIGRATIONS) {
+      if (migration.version <= storedVersion) continue;
+      const applyMigration = db.transaction(() => {
+        migration.up(db);
+        db.prepare('INSERT OR REPLACE INTO system_settings (key, value) VALUES (?, ?)').run('schemaVersion', String(migration.version));
+      });
+      applyMigration();
+      storedVersion = migration.version;
     }
-    const storedVersion = Number((db.prepare('SELECT value FROM system_settings WHERE key = ?').get('schemaVersion') as { value?: string } | undefined)?.value || 0);
+
     if (storedVersion < CURRENT_SCHEMA_VERSION) {
       db.prepare('INSERT OR REPLACE INTO system_settings (key, value) VALUES (?, ?)').run('schemaVersion', String(CURRENT_SCHEMA_VERSION));
     }
