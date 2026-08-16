@@ -21,20 +21,63 @@ export class SahwaDatabaseManager {
   private dbPath: string;
   private backupDir: string;
   private corruptDir: string;
+  private legacyDbPath?: string;
+  private legacyBackupDir?: string;
   private autoBackupTimer: NodeJS.Timeout | null = null;
 
-  constructor(customDir?: string) {
+  constructor(customDir?: string, legacyDir?: string, customBackupDir?: string) {
     const baseDir = customDir || path.join(process.cwd(), 'data');
     if (!fs.existsSync(baseDir)) {
       fs.mkdirSync(baseDir, { recursive: true });
     }
 
     this.dbPath = path.join(baseDir, 'sahwa_tailoring.db');
-    this.backupDir = path.join(baseDir, 'backups');
+    this.backupDir = customBackupDir || path.join(baseDir, 'backups');
     this.corruptDir = path.join(baseDir, 'corrupt_backups');
+    this.legacyDbPath = legacyDir ? path.join(legacyDir, 'sahwa_tailoring.db') : undefined;
+    this.legacyBackupDir = legacyDir ? path.join(legacyDir, 'backups') : undefined;
 
     if (!fs.existsSync(this.backupDir)) fs.mkdirSync(this.backupDir, { recursive: true });
     if (!fs.existsSync(this.corruptDir)) fs.mkdirSync(this.corruptDir, { recursive: true });
+  }
+
+  private migrateLegacyStorageIfNeeded(): string | undefined {
+    if (!this.legacyDbPath || path.resolve(this.legacyDbPath) === path.resolve(this.dbPath) || fs.existsSync(this.dbPath) || !fs.existsSync(this.legacyDbPath)) {
+      return undefined;
+    }
+
+    const migrationTag = new Date().toISOString().replace(/[:.]/g, '-');
+    const stagingPath = `${this.dbPath}.migration-${migrationTag}.tmp`;
+    let legacyDb: Database.Database | null = null;
+
+    try {
+      legacyDb = new Database(this.legacyDbPath);
+      legacyDb.pragma('wal_checkpoint(TRUNCATE)');
+      legacyDb.close();
+      legacyDb = null;
+
+      fs.copyFileSync(this.legacyDbPath, stagingPath);
+      const verificationDb = new Database(stagingPath, { readonly: true });
+      const integrity = verificationDb.pragma('integrity_check') as Array<{ integrity_check: string }>;
+      verificationDb.close();
+      if (!integrity[0] || integrity[0].integrity_check !== 'ok') {
+        throw new Error('فشل التحقق من سلامة قاعدة البيانات القديمة أثناء النقل');
+      }
+
+      fs.renameSync(stagingPath, this.dbPath);
+      if (this.legacyBackupDir && fs.existsSync(this.legacyBackupDir)) {
+        for (const fileName of fs.readdirSync(this.legacyBackupDir)) {
+          const source = path.join(this.legacyBackupDir, fileName);
+          const target = path.join(this.backupDir, fileName);
+          if (fs.statSync(source).isFile() && !fs.existsSync(target)) fs.copyFileSync(source, target);
+        }
+      }
+      return `تم نقل قاعدة البيانات القديمة بأمان إلى ${this.dbPath}. بقيت النسخة القديمة في مكانها ولم تُحذف.`;
+    } catch (error) {
+      try { legacyDb?.close(); } catch {}
+      try { if (fs.existsSync(stagingPath)) fs.unlinkSync(stagingPath); } catch {}
+      throw error;
+    }
   }
 
   /**
@@ -42,6 +85,12 @@ export class SahwaDatabaseManager {
    */
   public initDatabase(): { success: boolean; corruptedRecoveryMessage?: string; error?: string } {
     let corruptedRecoveryMessage: string | undefined;
+
+    try {
+      corruptedRecoveryMessage = this.migrateLegacyStorageIfNeeded();
+    } catch (error: any) {
+      return { success: false, error: error?.message || 'تعذر نقل قاعدة البيانات القديمة إلى مجلد بيانات المستخدم' };
+    }
 
     // Check if existing file needs integrity check
     if (fs.existsSync(this.dbPath)) {

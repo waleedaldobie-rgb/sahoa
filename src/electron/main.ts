@@ -7,9 +7,17 @@ let mainWindow: BrowserWindow | null = null;
 let dbManager: SahwaDatabaseManager | null = null;
 
 function createWindow() {
-  dbManager = new SahwaDatabaseManager();
+  const userDataDir = app.getPath('userData');
+  const databaseDir = path.join(userDataDir, 'database');
+  const backupDir = path.join(userDataDir, 'backups');
+  const legacyDataDir = path.join(process.cwd(), 'data');
+
+  dbManager = new SahwaDatabaseManager(databaseDir, legacyDataDir, backupDir);
   const initResult = dbManager.initDatabase();
 
+  if (!initResult.success) {
+    throw new Error(initResult.error || 'تعذر تهيئة قاعدة بيانات صهوة');
+  }
   if (initResult.corruptedRecoveryMessage) {
     console.warn('DB Recovery Notice:', initResult.corruptedRecoveryMessage);
   }
