@@ -1,7 +1,6 @@
 import { InventoryItemType, StockMovement } from '../../types';
 import { InventoryMeta, InventoryRepository } from '../repositories/inventoryRepository';
-
-const round2 = (value: number) => Math.round((Number(value) + Number.EPSILON) * 100) / 100;
+import { calculateStockBalance, round2 } from '../../services/shared/inventoryRules';
 
 export class InventoryService {
   constructor(private readonly repository: InventoryRepository) {}
@@ -38,11 +37,7 @@ export class InventoryService {
     reference?: { type?: string; id?: string; number?: string }
   ): StockMovement {
     const meta = this.repository.getMeta(itemType, itemId);
-    const before = round2(meta.quantity);
-    const after = round2(before + delta);
-    if (after < -0.0001) throw new Error(`لا يمكن تنفيذ الحركة؛ الكمية المتاحة من ${meta.name} غير كافية.`);
-
-    const safeAfter = Math.max(0, after);
+    const { before, after: safeAfter } = calculateStockBalance(meta.quantity, delta, meta.name);
     const id = `MOV-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
     const createdAt = new Date().toISOString();
     this.repository.updateQuantity(meta, safeAfter, itemId);

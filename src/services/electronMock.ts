@@ -1,5 +1,6 @@
 import { AppData, UserPreferences, Customer, CustomerMeasurements, CustomerStyleDetails, Order, Invoice, FabricItem, AccessoryItem, ThobeType, ColorItem, NotificationItem, PaymentRecord, StockMovement, PurchaseRecord, PurchaseLine, ExpenseRecord, CashTransaction, OrderMaterialUsage, OrderEvent, InventoryItemType } from '../types';
 import { checkAndSyncStockAlerts } from '../utils/stockAlerts';
+import { calculateStockBalance, round2 } from './shared/inventoryRules';
 
 const STORAGE_KEY = 'sahwa_tailoring_app_data_v1';
 const PREFS_KEY = 'sahwa_tailoring_prefs_v1';
@@ -142,8 +143,6 @@ export const db = {
   }
 };
 
-const mockRound2 = (value: number) => Math.round((Number(value) + Number.EPSILON) * 100) / 100;
-
 const mockInventoryMeta = (draft: AppData, itemType: InventoryItemType, itemId: string) => {
   if (itemType === 'fabric') {
     const item = draft.fabrics.find((fabric) => fabric.id === itemId);
@@ -156,8 +155,8 @@ const mockInventoryMeta = (draft: AppData, itemType: InventoryItemType, itemId: 
 };
 
 const mockWriteQuantity = (itemType: InventoryItemType, meta: any, value: number) => {
-  if (itemType === 'fabric') meta.item.quantityMeters = mockRound2(value);
-  else meta.item.quantity = mockRound2(value);
+  if (itemType === 'fabric') meta.item.quantityMeters = round2(value);
+  else meta.item.quantity = round2(value);
 };
 
 const mockInsertMovement = (
@@ -170,9 +169,7 @@ const mockInsertMovement = (
   reference?: { type?: string; id?: string; number?: string }
 ): StockMovement => {
   const meta = mockInventoryMeta(draft, itemType, itemId);
-  const before = mockRound2(meta.quantity);
-  const after = mockRound2(before + delta);
-  if (after < 0) throw new Error(`لا يمكن تنفيذ الحركة؛ الكمية المتاحة من ${meta.name} غير كافية.`);
+  const { before, after } = calculateStockBalance(meta.quantity, delta, meta.name);
   mockWriteQuantity(itemType, meta, after);
   const movement: StockMovement = {
     id: `MOV-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
@@ -612,15 +609,15 @@ export function initElectronMock() {
           const movement = mockInsertMovement(draft, input.itemType, input.itemId, quantity, 'purchase', `شراء من المورد ${payload.supplier.trim()}`, { type: 'purchase', id: purchaseId, number: payload.invoiceNumber || purchaseId });
           if (input.itemType === 'fabric') meta.item.purchasePrice = unitPrice;
           else meta.item.purchasePrice = unitPrice;
-          const lineTotal = mockRound2(quantity * unitPrice);
+          const lineTotal = round2(quantity * unitPrice);
           totalAmount += lineTotal;
           preparedLines.push({ id: `PURL-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, purchaseId, itemType: input.itemType, itemId: input.itemId, itemName: input.itemName || meta.name, quantity, unit: input.unit || meta.unit, unitPrice, totalAmount: lineTotal, createdAt: now });
           void movement;
         }
-        purchase = { id: purchaseId, supplier: payload.supplier.trim(), invoiceNumber: payload.invoiceNumber || undefined, purchaseDate, totalAmount: mockRound2(totalAmount), paymentMethod: payload.paymentMethod || 'cash', notes: payload.notes || undefined, status: 'approved', lines: preparedLines, createdAt: now };
+        purchase = { id: purchaseId, supplier: payload.supplier.trim(), invoiceNumber: payload.invoiceNumber || undefined, purchaseDate, totalAmount: round2(totalAmount), paymentMethod: payload.paymentMethod || 'cash', notes: payload.notes || undefined, status: 'approved', lines: preparedLines, createdAt: now };
         draft.purchases = [purchase, ...(draft.purchases || [])];
         if (totalAmount > 0) {
-          mockInsertCash(draft, { id: `CASH-PUR-${purchaseId}`, direction: 'out', sourceType: 'purchase', sourceId: purchaseId, referenceNumber: payload.invoiceNumber || purchaseId, amount: mockRound2(totalAmount), paymentMethod: payload.paymentMethod || 'cash', transactionDate: purchaseDate, description: `شراء مخزون من ${payload.supplier.trim()}`, notes: payload.notes || undefined, createdAt: now });
+          mockInsertCash(draft, { id: `CASH-PUR-${purchaseId}`, direction: 'out', sourceType: 'purchase', sourceId: purchaseId, referenceNumber: payload.invoiceNumber || purchaseId, amount: round2(totalAmount), paymentMethod: payload.paymentMethod || 'cash', transactionDate: purchaseDate, description: `شراء مخزون من ${payload.supplier.trim()}`, notes: payload.notes || undefined, createdAt: now });
         }
       });
       return purchase;
@@ -643,7 +640,7 @@ export function initElectronMock() {
         if (!payload.category?.trim() || !payload.description?.trim()) throw new Error('تصنيف ووصف المصروف مطلوبان');
         if (!Number.isFinite(amount) || amount <= 0) throw new Error('مبلغ المصروف يجب أن يكون أكبر من صفر');
         const now = new Date().toISOString();
-        expense = { id, category: payload.category.trim(), amount: mockRound2(amount), expenseDate: payload.expenseDate || now.slice(0, 10), paymentMethod: payload.paymentMethod || 'cash', description: payload.description.trim(), notes: payload.notes || undefined, createdAt: now };
+        expense = { id, category: payload.category.trim(), amount: round2(amount), expenseDate: payload.expenseDate || now.slice(0, 10), paymentMethod: payload.paymentMethod || 'cash', description: payload.description.trim(), notes: payload.notes || undefined, createdAt: now };
         draft.expenses = [expense, ...(draft.expenses || [])];
         mockInsertCash(draft, { id: `CASH-EXP-${id}`, direction: 'out', sourceType: 'expense', sourceId: id, referenceNumber: id, amount: expense.amount, paymentMethod: expense.paymentMethod, transactionDate: expense.expenseDate, description: expense.description, notes: expense.notes, createdAt: now });
       });
@@ -666,7 +663,7 @@ export function initElectronMock() {
         const id = payload.id || `CASH-${Date.now()}`;
         const duplicate = (draft.cashTransactions || []).find((entry) => entry.id === id);
         if (duplicate) { transaction = duplicate; return; }
-        transaction = { id, direction: payload.direction === 'out' ? 'out' : 'in', sourceType: payload.sourceType || 'adjustment', sourceId: payload.sourceId, referenceNumber: payload.referenceNumber, amount: mockRound2(amount), paymentMethod: payload.paymentMethod || 'cash', transactionDate: payload.transactionDate || new Date().toISOString().slice(0, 10), description: payload.description.trim(), notes: payload.notes, createdAt: new Date().toISOString() };
+        transaction = { id, direction: payload.direction === 'out' ? 'out' : 'in', sourceType: payload.sourceType || 'adjustment', sourceId: payload.sourceId, referenceNumber: payload.referenceNumber, amount: round2(amount), paymentMethod: payload.paymentMethod || 'cash', transactionDate: payload.transactionDate || new Date().toISOString().slice(0, 10), description: payload.description.trim(), notes: payload.notes, createdAt: new Date().toISOString() };
         mockInsertCash(draft, transaction);
       });
       return transaction;
@@ -723,7 +720,7 @@ export function initElectronMock() {
           const fabricUsage: OrderMaterialUsage = {
             id: `OMU-${Date.now()}-fabric`, orderId, itemType: 'fabric', itemId: orderData.fabricId,
             itemName: orderData.fabricName || 'قماش', quantity: requiredMeters, unit: 'متر',
-            unitCostAtUsage: fabricBuyPrice, totalCost: mockRound2(requiredMeters * fabricBuyPrice),
+            unitCostAtUsage: fabricBuyPrice, totalCost: round2(requiredMeters * fabricBuyPrice),
             sourceMovementId: fabricMovement.id, createdAt: new Date().toISOString()
           };
           mockWriteMaterial(draft, fabricUsage);
@@ -740,12 +737,12 @@ export function initElectronMock() {
             id: `OMU-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, orderId,
             itemType: material.itemType, itemId: material.itemId, itemName: material.itemName || meta.name,
             quantity, unit: material.unit || meta.unit, unitCostAtUsage: unitCost,
-            totalCost: mockRound2(quantity * unitCost), sourceMovementId: movement.id, createdAt: new Date().toISOString()
+            totalCost: round2(quantity * unitCost), sourceMovementId: movement.id, createdAt: new Date().toISOString()
           };
           mockWriteMaterial(draft, usage);
           materialUsages.push(usage);
         }
-        const materialCost = mockRound2(materialUsages.reduce((sum, usage) => sum + usage.totalCost, 0));
+        const materialCost = round2(materialUsages.reduce((sum, usage) => sum + usage.totalCost, 0));
 
         const newOrder: Order = {
           id: orderId,
@@ -764,7 +761,7 @@ export function initElectronMock() {
           initialPaymentMethod: orderData.initialPaymentMethod || 'cash',
           materialUsages,
           materialCost,
-          profit: mockRound2(totalAmount - materialCost),
+          profit: round2(totalAmount - materialCost),
           orderDate: orderData.orderDate || new Date().toISOString().slice(0, 10),
           deliveryDate: orderData.deliveryDate || new Date().toISOString().slice(0, 10),
           status: orderData.status || 'new',
