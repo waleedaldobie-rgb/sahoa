@@ -216,6 +216,10 @@ export function initElectronMock() {
   const existing = window.electronAPI;
   const isRealElectron = existing && !(existing as any).__isMock;
 
+  // Electron preload exposes a read-only contextBridge API. Never replace it
+  // with the browser mock; use the mock only when running outside Electron.
+  if (isRealElectron) return;
+
   window.electronAPI = {
     __isMock: true,
     ...existing,

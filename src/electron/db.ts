@@ -3,7 +3,7 @@ import fs from 'fs';
 import path from 'path';
 import * as XLSX from 'xlsx';
 import { CREATE_TABLES_SQL, CURRENT_SCHEMA_VERSION, DatabaseSettings } from './schema';
-import { Customer, Order, OrderEvent, FabricItem, AccessoryItem, ThobeType, ColorItem, NotificationItem, Invoice } from '../types';
+import { Customer, Order, OrderEvent, FabricItem, AccessoryItem, ThobeType, ColorItem, NotificationItem, Invoice, UserPreferences } from '../types';
 import { DEFAULT_MEASUREMENTS, DEFAULT_STYLE_DETAILS, normalizeMeasurements, normalizeStyleDetails } from '../services/shared/measurementDefaults';
 import { MIGRATIONS } from './migrations';
 
@@ -203,6 +203,65 @@ export class SahwaDatabaseManager {
   public updateSetting(key: keyof DatabaseSettings | 'dataCleared', value: string | number): void {
     const db = this.getRawDb();
     db.prepare('INSERT OR REPLACE INTO system_settings (key, value) VALUES (?, ?)').run(key, String(value));
+  }
+
+  public getUserPreferences(): UserPreferences {
+    const db = this.getRawDb();
+    const rows = db.prepare('SELECT key, value FROM system_settings WHERE key LIKE ?').all('ui.%') as Array<{ key: string; value: string }>;
+    const values = new Map(rows.map((row) => [row.key, row.value]));
+    const invoicePrintMode = values.get('ui.invoicePrintMode') === 'summary' ? 'summary' : 'detailed';
+
+    return {
+      activeTab: values.get('ui.activeTab') || 'dashboard',
+      invoicePrintMode,
+      shopName: values.get('ui.shopName') || undefined,
+      managerName: values.get('ui.managerName') || 'حاتم محمد الدبعي',
+      shopLogoUrl: values.get('ui.shopLogoUrl') || undefined,
+      shopPhone: values.get('ui.shopPhone') || undefined,
+      vatNumber: values.get('ui.vatNumber') || undefined,
+      shopAddress: values.get('ui.shopAddress') || undefined
+    };
+  }
+
+  public updateUserPreferences(preferences: Partial<UserPreferences>): boolean {
+    const allowedKeys: Array<keyof UserPreferences> = [
+      'activeTab', 'invoicePrintMode', 'shopName', 'managerName', 'shopLogoUrl', 'shopPhone', 'vatNumber', 'shopAddress'
+    ];
+    const db = this.getRawDb();
+    const update = db.transaction(() => {
+      const statement = db.prepare('INSERT OR REPLACE INTO system_settings (key, value) VALUES (?, ?)');
+      for (const key of allowedKeys) {
+        const value = preferences[key];
+        if (value !== undefined) statement.run(`ui.${key}`, String(value));
+      }
+    });
+    update();
+    return true;
+  }
+
+  public replaceNotifications(notifications: NotificationItem[]): boolean {
+    const db = this.getRawDb();
+    const replace = db.transaction((items: NotificationItem[]) => {
+      db.prepare('DELETE FROM notifications').run();
+      const statement = db.prepare(`
+        INSERT INTO notifications (id, type, title, message, date, read, customer_phone, order_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `);
+      for (const notification of items) {
+        statement.run(
+          notification.id,
+          notification.type,
+          notification.title,
+          notification.message,
+          notification.date,
+          notification.read ? 1 : 0,
+          notification.customerPhone || null,
+          notification.orderId || null
+        );
+      }
+    });
+    replace(notifications);
+    return true;
   }
 
   private initSystemSettings(): void {

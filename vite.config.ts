@@ -8,7 +8,12 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 export default defineConfig(() => {
-  const base = process.env.GITHUB_PAGES === 'true' ? '/sahwa-tailoring-preview/' : '/';
+  const base =
+    process.env.ELECTRON_BUILD === 'true'
+      ? './'
+      : process.env.GITHUB_PAGES === 'true'
+        ? '/sahwa-tailoring-preview/'
+        : '/';
 
   return {
     base,

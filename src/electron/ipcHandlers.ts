@@ -390,9 +390,26 @@ export function registerIpcHandlers(dbManager: SahwaDatabaseManager) {
   });
 
   // -------------------------------------------------------------
-  // SYSTEM & REPORTS IPC
-  // -------------------------------------------------------------
-  safeIpcHandle(ipcMain, 'system:backup', async () => {
+    // SYSTEM & REPORTS IPC
+    // -------------------------------------------------------------
+    safeIpcHandle(ipcMain, 'data:get', async () => {
+      return dbManager.exportFullDataAsJson();
+    });
+
+    safeIpcHandle(ipcMain, 'data:save', async (_, data: { notifications?: any[] }) => {
+      if (!data || !Array.isArray(data.notifications)) return false;
+      return dbManager.replaceNotifications(data.notifications);
+    });
+
+    safeIpcHandle(ipcMain, 'preferences:get', async () => {
+      return dbManager.getUserPreferences();
+    });
+
+    safeIpcHandle(ipcMain, 'preferences:save', async (_, preferences: Record<string, unknown>) => {
+      return dbManager.updateUserPreferences(preferences);
+    });
+
+    safeIpcHandle(ipcMain, 'system:backup', async () => {
     return dbManager.backupDatabase('manual_user');
   });
 

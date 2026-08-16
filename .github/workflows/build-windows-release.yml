@@ -53,6 +53,7 @@ jobs:
         shell: pwsh
         env:
           GITHUB_PAGES: 'false'
+          ELECTRON_BUILD: 'true'
         run: npm run build
 
       - name: Build Electron files

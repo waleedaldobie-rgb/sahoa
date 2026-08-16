@@ -10,6 +10,12 @@ import {
 } from '../types';
 
 export const electronBridge = {
+  // Compatibility data facade used by the existing React state layer.
+  getData: () => ipcRenderer.invoke('data:get'),
+  saveData: (data: any) => ipcRenderer.invoke('data:save', data),
+  getPreferences: () => ipcRenderer.invoke('preferences:get'),
+  savePreferences: (preferences: Record<string, unknown>) => ipcRenderer.invoke('preferences:save', preferences),
+
   // Customers
   getCustomers: () => ipcRenderer.invoke('customers:list'),
   createCustomer: (customer: Partial<Customer>) => ipcRenderer.invoke('customers:create', customer),
