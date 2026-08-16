@@ -1,0 +1,94 @@
+name: Build and Release Windows Installer
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*.*.*'
+
+permissions:
+  contents: write
+
+env:
+  NODE_VERSION: '20'
+
+jobs:
+  build-windows:
+    name: Build and sign Windows x64 installer
+    runs-on: windows-latest
+    environment: production
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: TypeScript check
+        run: npm run lint
+
+      - name: Unit tests
+        run: npm test -- --run
+
+      - name: Build web production files
+        shell: pwsh
+        env:
+          GITHUB_PAGES: 'false'
+        run: npm run build
+
+      - name: Build Electron files
+        run: npm run build:electron
+
+      - name: Validate Windows signing secrets
+        shell: pwsh
+        env:
+          WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
+          WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:WIN_CSC_LINK)) {
+            throw 'WIN_CSC_LINK is missing. Add the Base64-encoded PFX certificate as a GitHub Secret.'
+          }
+          if ([string]::IsNullOrWhiteSpace($env:WIN_CSC_KEY_PASSWORD)) {
+            throw 'WIN_CSC_KEY_PASSWORD is missing. Add the certificate password as a GitHub Secret.'
+          }
+
+      - name: Build, sign, and publish GitHub Release
+        run: npx electron-builder --win --x64 --publish always
+        env:
+          WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
+          WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
+          CSC_IDENTITY_AUTO_DISCOVERY: 'true'
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Verify generated installer
+        shell: pwsh
+        run: |
+          $installer = Get-ChildItem -Path release -Filter '*.exe' | Select-Object -First 1
+          if ($null -eq $installer) {
+            throw 'No Windows installer was generated in release/.'
+          }
+          $signature = Get-AuthenticodeSignature $installer.FullName
+          Write-Host "Installer: $($installer.FullName)"
+          Write-Host "SHA256: $((Get-FileHash $installer.FullName -Algorithm SHA256).Hash)"
+          Write-Host "Signature status: $($signature.Status)"
+          if ($signature.Status -ne 'Valid') {
+            throw "Installer signature is not valid: $($signature.Status)"
+          }
+
+      - name: Upload installer artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sahwa-windows-installer-${{ github.ref_name }}
+          if-no-files-found: error
+          path: |
+            release/*.exe
+            release/*.blockmap
+            release/latest*.yml
