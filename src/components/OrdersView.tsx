@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Order, Invoice, Customer, FabricItem, AccessoryItem, ThobeType, OrderStatus, CustomerMeasurements, CustomerStyleDetails, UserPreferences, MeasurementHistoryRecord, OrderEvent } from '../types';
-import { EMPTY_MEASUREMENTS, EMPTY_STYLE_DETAILS } from '../services/electronMock';
+import { EMPTY_MEASUREMENTS, EMPTY_STYLE_DETAILS } from '../services/shared/measurementDefaults';
 import { Card, Button, Input, Select, Modal, EmptyState, Badge } from './ui';
 import { ConfirmModal } from './ConfirmModal';
 import { MeasurementsTableForm, draftKeyFor } from './MeasurementsTableForm';
