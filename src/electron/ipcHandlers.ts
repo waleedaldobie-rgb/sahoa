@@ -183,14 +183,7 @@ export function registerIpcHandlers(dbManager: SahwaDatabaseManager) {
   });
 
   safeIpcHandle(ipcMain, 'stock:adjust', async (_, itemType: InventoryItemType, itemId: string, quantity: number, reason: string, direction: 'adjustment' | 'return' = 'adjustment') => {
-    if (!reason || !reason.trim()) throw new Error('سبب التسوية مطلوب');
-    const numericQuantity = Number(quantity);
-    if (!Number.isFinite(numericQuantity) || numericQuantity === 0) throw new Error('كمية التسوية يجب أن تكون رقماً غير صفري');
-    const tx = db.transaction(() => {
-      const delta = direction === 'return' ? Math.abs(numericQuantity) : numericQuantity;
-      return inventoryService.recordMovement( itemType, itemId, delta, direction, reason.trim(), { type: 'stock_adjustment', id: itemId });
-    });
-    return tx();
+    return inventoryService.adjustStock(itemType, itemId, quantity, reason, direction);
   });
 
   safeIpcHandle(ipcMain, 'purchases:list', async () => {
