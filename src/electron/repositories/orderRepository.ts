@@ -78,6 +78,36 @@ export class OrderRepository {
     `).run(row.id, row.invoiceNumber, row.orderId, row.customerName, row.customerPhone, row.orderDate, row.totalAmount, row.paidAmount, row.remainingAmount, row.paymentStatus, row.paymentsJson);
   }
 
+  deleteMaterialUsages(orderId: string): void {
+    this.db.prepare('DELETE FROM order_material_usages WHERE order_id = ?').run(orderId);
+  }
+
+  updateOrder(row: {
+    id: string; customerName?: string; customerPhone?: string; thobeTypeId?: string | null; thobeTypeName: string;
+    fabricId?: string | null; fabricName: string; fabricColor: string; garmentCount: number; fabricConsumptionMeters: number;
+    deliveryDate: string; status: string; totalAmount: number; paidAmount: number; remainingAmount: number;
+    measurementsJson: string; styleDetailsJson: string; notes: string; updatedAt: string;
+  }): void {
+    this.db.prepare(`
+      UPDATE orders SET
+        customer_name = ?, customer_phone = ?, thobe_type_id = ?, thobe_type_name = ?,
+        fabric_id = ?, fabric_name = ?, fabric_color = ?, garment_count = ?,
+        fabric_consumption_meters = ?, delivery_date = ?, status = ?,
+        total_amount = ?, paid_amount = ?, remaining_amount = ?,
+        measurements_json = ?, style_details_json = ?, notes = ?, updated_at = ?
+      WHERE id = ?
+    `).run(
+      row.customerName, row.customerPhone, row.thobeTypeId || null, row.thobeTypeName,
+      row.fabricId || null, row.fabricName, row.fabricColor, row.garmentCount, row.fabricConsumptionMeters,
+      row.deliveryDate, row.status, row.totalAmount, row.paidAmount, row.remainingAmount,
+      row.measurementsJson, row.styleDetailsJson, row.notes, row.updatedAt, row.id
+    );
+  }
+
+  delete(id: string): void {
+    this.db.prepare('DELETE FROM orders WHERE id = ?').run(id);
+  }
+
   count(): number {
     return Number((this.db.prepare('SELECT COUNT(*) AS count FROM orders').get() as { count: number }).count || 0);
   }

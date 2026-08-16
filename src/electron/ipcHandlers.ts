@@ -147,7 +147,7 @@ export function registerIpcHandlers(dbManager: SahwaDatabaseManager) {
   const orderStatusService = new OrderStatusService(orderRepository, inventoryService, orderEventRepository, db);
   const notificationRepository = new NotificationRepository(db);
   const whatsappService = new WhatsAppService(notificationRepository, orderRepository, orderEventRepository);
-  const orderService = new OrderService(orderRepository, inventoryService, cashRepository, orderEventRepository, db);
+  const orderService = new OrderService(orderRepository, inventoryService, cashRepository, orderEventRepository, invoiceRepository, db);
   const fabricRepository = new FabricRepository(db);
   const accessoryRepository = new AccessoryRepository(db);
   const thobeTypeRepository = new ThobeTypeRepository(db);
@@ -355,156 +355,12 @@ export function registerIpcHandlers(dbManager: SahwaDatabaseManager) {
     };
   });
   safeIpcHandle(ipcMain, 'orders:update', async (_, updatedOrder: Order) => {
-    const updateTx = db.transaction(() => {
-      const existing = db.prepare('SELECT * FROM orders WHERE id = ?').get(updatedOrder.id) as any;
-      if (!existing) throw new Error('الطلب المطلوب غير موجود');
-
-      const settings = dbManager.getSettings();
-      const rate = settings.fabricConsumptionRatePerGarment || 3.5;
-      const newMeters = (updatedOrder.garmentCount || 1) * rate;
-
-      // Handle Fabric Exchange logic through auditable return/sale movements.
-      const fabricChanged = existing.fabric_id !== updatedOrder.fabricId;
-      const countChanged = existing.garment_count !== updatedOrder.garmentCount;
-      const materialRows = db.prepare('SELECT * FROM order_material_usages WHERE order_id = ? ORDER BY created_at ASC').all(updatedOrder.id) as any[];
-      const materialChanged = fabricChanged || countChanged || updatedOrder.materialUsages !== undefined;
-
-      if (materialChanged && existing.status !== 'cancelled') {
-        for (const oldMaterial of materialRows) {
-          if (oldMaterial.item_id) {
-            inventoryService.recordMovement( oldMaterial.item_type, oldMaterial.item_id, oldMaterial.quantity, 'return', 'إرجاع استهلاك مادة بعد تعديل الطلب', {
-              type: 'order_update', id: updatedOrder.id, number: existing.order_number
-            });
-          }
-        }
-
-        if (updatedOrder.fabricId) {
-          const newFab = db.prepare('SELECT * FROM fabrics WHERE id = ?').get(updatedOrder.fabricId) as any;
-          if (!newFab) throw new Error('القماش الجديد المختار غير موجود');
-          if (fabricChanged) updatedOrder.fabricBuyPriceAtOrder = newFab.purchase_price || 0;
-          else updatedOrder.fabricBuyPriceAtOrder = existing.fabric_buy_price_at_order || updatedOrder.fabricBuyPriceAtOrder || 0;
-          const newFabricMovement = inventoryService.recordMovement( 'fabric', updatedOrder.fabricId, -newMeters, 'sale', 'استهلاك قماش بعد تعديل الطلب', {
-            type: 'order_update', id: updatedOrder.id, number: existing.order_number
-          });
-          const fabricUsageCost = round2(newMeters * (updatedOrder.fabricBuyPriceAtOrder || 0));
-          db.prepare('DELETE FROM order_material_usages WHERE order_id = ?').run(updatedOrder.id);
-          db.prepare(`
-            INSERT INTO order_material_usages (id, order_id, item_type, item_id, item_name, quantity, unit, unit_cost_at_usage, total_cost, source_movement_id, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-          `).run(
-            `OMU-${Date.now()}-fabric-update`, updatedOrder.id, 'fabric', updatedOrder.fabricId,
-            updatedOrder.fabricName || 'قماش', newMeters, 'متر', updatedOrder.fabricBuyPriceAtOrder || 0,
-            fabricUsageCost, newFabricMovement.id, new Date().toISOString()
-          );
-          for (const material of (updatedOrder.materialUsages || materialRows.filter((row) => row.item_type !== 'fabric'))) {
-            if (!material.item_id && !material.itemId) continue;
-            const itemId = material.itemId || material.item_id;
-            if (material.itemType === 'fabric' && itemId === updatedOrder.fabricId) continue;
-            const quantity = Number(material.quantity);
-            if (!Number.isFinite(quantity) || quantity <= 0) throw new Error('كمية المادة المرتبطة بالطلب غير صحيحة');
-            const meta = inventoryService.getMeta( material.itemType || material.item_type, itemId);
-            const movement = inventoryService.recordMovement( material.itemType || material.item_type, itemId, -quantity, 'sale', 'استهلاك مادة بعد تعديل الطلب', {
-              type: 'order_update', id: updatedOrder.id, number: existing.order_number
-            });
-            const unitCost = Number(material.unitCostAtUsage ?? material.unit_cost_at_usage ?? meta.purchasePrice ?? 0);
-            db.prepare(`
-              INSERT INTO order_material_usages (id, order_id, item_type, item_id, item_name, quantity, unit, unit_cost_at_usage, total_cost, source_movement_id, created_at)
-              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            `).run(
-              `OMU-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, updatedOrder.id,
-              material.itemType || material.item_type, itemId, material.itemName || material.item_name || meta.name,
-              quantity, material.unit || meta.unit, unitCost, round2(quantity * unitCost), movement.id, new Date().toISOString()
-            );
-          }
-        }
-      }
-
-      // Financial Calculation
-      const totalAmount = updatedOrder.totalAmount || 0;
-      const paidAmount = updatedOrder.paidAmount || 0;
-      const remainingAmount = totalAmount - paidAmount;
-
-      db.prepare(`
-        UPDATE orders SET
-          customer_name = ?, customer_phone = ?, thobe_type_id = ?, thobe_type_name = ?,
-          fabric_id = ?, fabric_name = ?, fabric_color = ?, garment_count = ?,
-          fabric_consumption_meters = ?, delivery_date = ?, status = ?,
-          total_amount = ?, paid_amount = ?, remaining_amount = ?,
-          measurements_json = ?, style_details_json = ?, notes = ?, updated_at = ?
-        WHERE id = ?
-      `).run(
-        updatedOrder.customerName, updatedOrder.customerPhone,
-        updatedOrder.thobeTypeId, updatedOrder.thobeTypeName,
-        updatedOrder.fabricId, updatedOrder.fabricName, updatedOrder.fabricColor,
-        updatedOrder.garmentCount || 1, newMeters, updatedOrder.deliveryDate,
-        updatedOrder.status, totalAmount, paidAmount, remainingAmount,
-        JSON.stringify(normalizeMeasurements(updatedOrder.measurements)),
-        JSON.stringify(normalizeStyleDetails(updatedOrder.styleDetails)),
-        updatedOrder.notes || '', new Date().toISOString(),
-        updatedOrder.id
-      );
-
-      // Update invoice as well
-      const pStatus = remainingAmount <= 0 ? 'paid' : paidAmount > 0 ? 'partial' : 'unpaid';
-      db.prepare(`
-        UPDATE invoices SET
-          total_amount = ?, paid_amount = ?, remaining_amount = ?, payment_status = ?
-        WHERE order_id = ?
-      `).run(totalAmount, paidAmount, remainingAmount, pStatus, updatedOrder.id);
-    });
-
-    updateTx();
-    return true;
+    const settings = dbManager.getSettings();
+    return orderService.updateOrder(updatedOrder, settings.fabricConsumptionRatePerGarment || 3.5);
   });
 
-  /**
-   * TRANSACTION REQUIREMENT: Delete order + return fabric stock automatically
-   */
   safeIpcHandle(ipcMain, 'orders:delete', async (_, orderId: string) => {
-    const deleteTx = db.transaction(() => {
-      const order = db.prepare('SELECT * FROM orders WHERE id = ?').get(orderId) as any;
-      if (order && order.status !== 'cancelled') {
-        const materials = db.prepare('SELECT * FROM order_material_usages WHERE order_id = ?').all(orderId) as any[];
-        for (const material of materials) {
-          if (material.item_id) {
-            inventoryService.recordMovement( material.item_type, material.item_id, material.quantity, 'return', 'إرجاع مواد بسبب حذف الطلب', {
-              type: 'order_delete', id: orderId, number: order.order_number
-            });
-          }
-        }
-      }
-
-      // Keep money auditable: reverse existing receipts instead of silently erasing cash history.
-      const invoice = db.prepare('SELECT * FROM invoices WHERE order_id = ?').get(orderId) as any;
-      if (invoice) {
-        const payments: PaymentRecord[] = JSON.parse(invoice.payments_json || '[]');
-        for (const payment of payments) {
-          const reversalId = `CASH-REV-${payment.id}`;
-          const alreadyReversed = db.prepare('SELECT id FROM cash_transactions WHERE id = ?').get(reversalId) as any;
-          if (!alreadyReversed) {
-            cashRepository.insert({
-              id: reversalId,
-              direction: 'out',
-              sourceType: 'adjustment',
-              sourceId: payment.id,
-              referenceNumber: order.order_number,
-              amount: payment.amount,
-              paymentMethod: payment.method,
-              transactionDate: new Date().toISOString().slice(0, 10),
-              description: `عكس دفعة بسبب حذف الطلب #${order.order_number}`,
-              createdAt: new Date().toISOString()
-            });
-          }
-        }
-      }
-
-      db.prepare('DELETE FROM orders WHERE id = ?').run(orderId);
-      db.prepare('DELETE FROM invoices WHERE order_id = ?').run(orderId);
-      db.prepare('DELETE FROM order_material_usages WHERE order_id = ?').run(orderId);
-    });
-
-    deleteTx();
-    return true;
+    return orderService.deleteOrder(orderId);
   });
 
   /**

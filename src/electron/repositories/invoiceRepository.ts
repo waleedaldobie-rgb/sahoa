@@ -11,6 +11,14 @@ export class InvoiceRepository {
     return this.db.prepare('SELECT * FROM invoices WHERE id = ?').get(id);
   }
 
+  findByOrderId(orderId: string): any | undefined {
+    return this.db.prepare('SELECT * FROM invoices WHERE order_id = ?').get(orderId);
+  }
+
+  deleteByOrderId(orderId: string): void {
+    this.db.prepare('DELETE FROM invoices WHERE order_id = ?').run(orderId);
+  }
+
   updateAmounts(orderId: string, totalAmount: number, paidAmount: number, remainingAmount: number, paymentStatus: string): void {
     this.db.prepare(`
       UPDATE invoices SET total_amount = ?, paid_amount = ?, remaining_amount = ?, payment_status = ?
