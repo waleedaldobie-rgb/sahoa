@@ -39,9 +39,11 @@ export const electronBridge = {
   getThobeTypes: () => ipcRenderer.invoke('thobeTypes:list'),
   createThobeType: (type: Partial<ThobeType>) => ipcRenderer.invoke('thobeTypes:create', type),
   updateThobeType: (type: ThobeType) => ipcRenderer.invoke('thobeTypes:update', type),
+  deleteThobeType: (id: string) => ipcRenderer.invoke('thobeTypes:delete', id),
   getColors: () => ipcRenderer.invoke('colors:list'),
   createColor: (color: Partial<ColorItem>) => ipcRenderer.invoke('colors:create', color),
   updateColor: (color: ColorItem) => ipcRenderer.invoke('colors:update', color),
+  deleteColor: (id: string) => ipcRenderer.invoke('colors:delete', id),
 
   // Orders
   getOrders: () => ipcRenderer.invoke('orders:list'),

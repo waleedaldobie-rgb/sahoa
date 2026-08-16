@@ -261,10 +261,12 @@ export function registerIpcHandlers(dbManager: SahwaDatabaseManager) {
   safeIpcHandle(ipcMain, 'thobeTypes:list', async () => thobeTypeRepository.list());
   safeIpcHandle(ipcMain, 'thobeTypes:create', async (_, item: Partial<ThobeType>) => thobeTypeRepository.insert(item));
   safeIpcHandle(ipcMain, 'thobeTypes:update', async (_, item: ThobeType) => { thobeTypeRepository.update(item); return true; });
+  safeIpcHandle(ipcMain, 'thobeTypes:delete', async (_, id: string) => { thobeTypeRepository.delete(id); return true; });
 
   safeIpcHandle(ipcMain, 'colors:list', async () => colorRepository.list());
   safeIpcHandle(ipcMain, 'colors:create', async (_, item: Partial<ColorItem>) => colorRepository.insert(item));
   safeIpcHandle(ipcMain, 'colors:update', async (_, item: ColorItem) => { colorRepository.update(item); return true; });
+  safeIpcHandle(ipcMain, 'colors:delete', async (_, id: string) => { colorRepository.delete(id); return true; });
 
   // -------------------------------------------------------------
   // ORDERS & TRANSACTIONS IPC HANDLERS

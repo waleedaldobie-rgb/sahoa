@@ -22,4 +22,8 @@ export class ThobeTypeRepository {
   update(item: ThobeType): void {
     this.db.prepare('UPDATE dress_types SET name=?, default_price=?, description=? WHERE id=?').run(item.name, item.defaultPrice || 0, item.description || '', item.id);
   }
+
+  delete(id: string): void {
+    this.db.prepare('DELETE FROM dress_types WHERE id=?').run(id);
+  }
 }

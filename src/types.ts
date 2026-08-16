@@ -385,9 +385,11 @@ declare global {
       getThobeTypes?: () => Promise<ThobeType[]>;
       createThobeType?: (type: Partial<ThobeType>) => Promise<ThobeType>;
       updateThobeType?: (type: ThobeType) => Promise<boolean>;
+      deleteThobeType?: (id: string) => Promise<boolean>;
       getColors?: () => Promise<ColorItem[]>;
       createColor?: (color: Partial<ColorItem>) => Promise<ColorItem>;
       updateColor?: (color: ColorItem) => Promise<boolean>;
+      deleteColor?: (id: string) => Promise<boolean>;
 
       getOrders?: () => Promise<Order[]>;
       createOrder?: (order: Partial<Order>) => Promise<Order>;

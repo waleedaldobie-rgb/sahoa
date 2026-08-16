@@ -21,4 +21,8 @@ export class ColorRepository {
   update(item: ColorItem): void {
     this.db.prepare('UPDATE colors SET name=?, hex=? WHERE id=?').run(item.name, item.hex, item.id);
   }
+
+  delete(id: string): void {
+    this.db.prepare('DELETE FROM colors WHERE id=?').run(id);
+  }
 }

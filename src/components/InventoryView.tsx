@@ -9,7 +9,9 @@ import {
   Palette,
   Scissors,
   Database,
-  ClipboardList
+  ClipboardList,
+  Edit2,
+  Trash2
 } from 'lucide-react';
 
 export interface InventoryViewProps {
@@ -22,7 +24,9 @@ export interface InventoryViewProps {
   onSaveAccessory: (accessory: AccessoryItem) => void;
   onDeleteAccessory: (id: string) => void;
   onSaveThobeType: (thobeType: ThobeType) => void;
+  onDeleteThobeType: (id: string) => void;
   onSaveColor: (color: ColorItem) => void;
+  onDeleteColor: (id: string) => void;
   stockMovements?: StockMovement[];
   onAdjustStock?: (itemType: InventoryItemType, itemId: string, quantity: number, reason: string, direction: 'adjustment' | 'return') => Promise<void> | void;
   showToast: (msg: string, type: 'success' | 'danger' | 'warning' | 'info') => void;
@@ -38,7 +42,9 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
   onSaveAccessory,
   onDeleteAccessory,
   onSaveThobeType,
+  onDeleteThobeType,
   onSaveColor,
+  onDeleteColor,
   stockMovements = [],
   onAdjustStock,
   showToast
@@ -49,7 +55,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
   const [movementQuantity, setMovementQuantity] = useState('');
   const [movementDirection, setMovementDirection] = useState<'adjustment' | 'return'>('adjustment');
   const [movementReason, setMovementReason] = useState('');
-  const [deleteTarget, setDeleteTarget] = useState<{ type: 'fabric' | 'accessory'; id: string; name: string } | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<{ type: 'fabric' | 'accessory' | 'thobeType' | 'color'; id: string; name: string } | null>(null);
 
   // Fabric Modal State
   const [isFabricModalOpen, setIsFabricModalOpen] = useState(false);
@@ -122,6 +128,26 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
     setIsAccessoryModalOpen(true);
   };
 
+  const handleOpenAddThobeType = () => {
+    setThobeTypeForm({ id: '', name: '', defaultPrice: 220, description: '' });
+    setIsThobeTypeModalOpen(true);
+  };
+
+  const handleOpenEditThobeType = (t: ThobeType) => {
+    setThobeTypeForm({ ...t });
+    setIsThobeTypeModalOpen(true);
+  };
+
+  const handleOpenAddColor = () => {
+    setColorForm({ id: '', name: '', hex: '#ffffff' });
+    setIsColorModalOpen(true);
+  };
+
+  const handleOpenEditColor = (c: ColorItem) => {
+    setColorForm({ ...c });
+    setIsColorModalOpen(true);
+  };
+
   const handleSaveAccessorySubmit = () => {
     if (!accessoryForm.name.trim()) {
       showToast('يرجى كتابة اسم الصنف', 'danger');
@@ -145,7 +171,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
   const handleSaveColorSubmit = () => {
     if (!colorForm.name.trim()) return;
     onSaveColor({ ...colorForm, id: colorForm.id || 'COL-' + Date.now() });
-    showToast('تم إضافة اللون بنجاح', 'success');
+    showToast('تم حفظ اللون بنجاح', 'success');
     setIsColorModalOpen(false);
   };
 
@@ -302,27 +328,39 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
              <div className="space-y-4">
                 {thobeTypes.map(t => (
                   <div key={t.id} className="flex items-center justify-between p-4 bg-[#F9FAFB] rounded-xl border border-[#E5E7EB]">
-                    <div>
+                    <div className="flex-1">
                       <div className="font-black text-[#111111]">{t.name}</div>
                       <div className="text-[10px] text-[#6B7280] font-bold">{t.description || 'لا يوجد وصف'}</div>
                     </div>
-                    <div className="text-sm font-black font-mono text-emerald-600">{t.defaultPrice} ر.س</div>
+                    <div className="flex items-center gap-4">
+                      <div className="text-sm font-black font-mono text-emerald-600">{t.defaultPrice} ر.س</div>
+                      <div className="flex gap-1">
+                        <button onClick={() => handleOpenEditThobeType(t)} className="p-1.5 text-slate-400 hover:text-amber-600 hover:bg-amber-50 rounded-lg transition-colors"><Edit2 className="w-3.5 h-3.5" /></button>
+                        <button onClick={() => setDeleteTarget({ type: 'thobeType', id: t.id, name: t.name })} className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"><Trash2 className="w-3.5 h-3.5" /></button>
+                      </div>
+                    </div>
                   </div>
                 ))}
-                <Button variant="outline-dark" className="w-full border-dashed" onClick={() => setIsThobeTypeModalOpen(true)}>+ إضافة موديل جديد</Button>
+                <Button variant="outline-dark" className="w-full border-dashed" onClick={handleOpenAddThobeType}>+ إضافة موديل جديد</Button>
              </div>
           </Card>
 
           <Card title="الألوان المتاحة" headerIcon={<Palette className="w-5 h-5" />}>
-             <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 {colors.map(c => (
-                  <div key={c.id} className="flex items-center gap-3 p-3 bg-[#F9FAFB] rounded-xl border border-[#E5E7EB]">
-                    <div className="w-6 h-6 rounded-full border border-[#E5E7EB] shadow-sm" style={{ backgroundColor: c.hex }}></div>
-                    <span className="text-xs font-black text-[#111111]">{c.name}</span>
+                  <div key={c.id} className="flex items-center justify-between p-3 bg-[#F9FAFB] rounded-xl border border-[#E5E7EB]">
+                    <div className="flex items-center gap-3">
+                      <div className="w-6 h-6 rounded-full border border-[#E5E7EB] shadow-sm" style={{ backgroundColor: c.hex }}></div>
+                      <span className="text-xs font-black text-[#111111]">{c.name}</span>
+                    </div>
+                    <div className="flex gap-1">
+                      <button onClick={() => handleOpenEditColor(c)} className="p-1.5 text-slate-400 hover:text-amber-600 hover:bg-amber-50 rounded-lg transition-colors"><Edit2 className="w-3.5 h-3.5" /></button>
+                      <button onClick={() => setDeleteTarget({ type: 'color', id: c.id, name: c.name })} className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"><Trash2 className="w-3.5 h-3.5" /></button>
+                    </div>
                   </div>
                 ))}
                 <button 
-                  onClick={() => setIsColorModalOpen(true)}
+                  onClick={handleOpenAddColor}
                   className="flex items-center justify-center gap-2 p-3 bg-white border-2 border-dashed border-[#E5E7EB] rounded-xl text-xs font-black text-[#6B7280] hover:border-[#111111] hover:text-[#111111] transition-all"
                 >
                   + إضافة لون
@@ -356,7 +394,9 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
         onConfirm={() => {
           if (deleteTarget) {
             if (deleteTarget.type === 'fabric') onDeleteFabric(deleteTarget.id);
-            else onDeleteAccessory(deleteTarget.id);
+            else if (deleteTarget.type === 'accessory') onDeleteAccessory(deleteTarget.id);
+            else if (deleteTarget.type === 'thobeType') onDeleteThobeType(deleteTarget.id);
+            else if (deleteTarget.type === 'color') onDeleteColor(deleteTarget.id);
             setDeleteTarget(null);
             showToast('تم الحذف بنجاح', 'success');
           }
@@ -392,19 +432,20 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
         </div>
       </Modal>
 
-      <Modal isOpen={isThobeTypeModalOpen} onClose={() => setIsThobeTypeModalOpen(false)} title="إضافة موديل ثوب جديد">
+      <Modal isOpen={isThobeTypeModalOpen} onClose={() => setIsThobeTypeModalOpen(false)} title={thobeTypeForm.id ? "تعديل موديل ثوب" : "إضافة موديل ثوب جديد"}>
         <div className="space-y-4">
           <Input label="اسم الموديل *" value={thobeTypeForm.name} onChange={e => setThobeTypeForm({...thobeTypeForm, name: e.target.value})} />
           <Input label="السعر الافتراضي (ر.س)" type="number" value={thobeTypeForm.defaultPrice} onChange={e => setThobeTypeForm({...thobeTypeForm, defaultPrice: Number(e.target.value)})} />
-          <Button variant="primary" className="w-full mt-4" onClick={handleSaveThobeTypeSubmit}>إضافة الموديل</Button>
+          <Input label="الوصف" value={thobeTypeForm.description || ''} onChange={e => setThobeTypeForm({...thobeTypeForm, description: e.target.value})} />
+          <Button variant="primary" className="w-full mt-4" onClick={handleSaveThobeTypeSubmit}>{thobeTypeForm.id ? 'حفظ التغييرات' : 'إضافة الموديل'}</Button>
         </div>
       </Modal>
 
-      <Modal isOpen={isColorModalOpen} onClose={() => setIsColorModalOpen(false)} title="إضافة لون جديد">
+      <Modal isOpen={isColorModalOpen} onClose={() => setIsColorModalOpen(false)} title={colorForm.id ? "تعديل لون" : "إضافة لون جديد"}>
         <div className="space-y-4">
           <Input label="اسم اللون *" value={colorForm.name} onChange={e => setColorForm({...colorForm, name: e.target.value})} />
           <Input label="كود اللون (Hex)" value={colorForm.hex} onChange={e => setColorForm({...colorForm, hex: e.target.value})} />
-          <Button variant="primary" className="w-full mt-4" onClick={handleSaveColorSubmit}>إضافة اللون</Button>
+          <Button variant="primary" className="w-full mt-4" onClick={handleSaveColorSubmit}>{colorForm.id ? 'حفظ التغييرات' : 'إضافة اللون'}</Button>
         </div>
       </Modal>
     </div>

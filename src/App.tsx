@@ -727,15 +727,50 @@ await executeCrud('جاري حذف الإكسسوار...', async () => {
       return;
     }
 
-    await executeCrud('جاري إضافة اللون...', async () => {
+    await executeCrud('جاري حفظ اللون...', async () => {
       if (!data) return;
       if (window.electronAPI.createColor) {
-        await window.electronAPI.createColor(color);
+        const exists = data.colors.some((c) => c.id === color.id);
+        if (exists && window.electronAPI.updateColor) {
+          await window.electronAPI.updateColor(color);
+        } else {
+          await window.electronAPI.createColor(color);
+        }
         await loadAppData();
       } else {
-        await persistData({ ...data, colors: [...data.colors, color] });
+        const exists = data.colors.some((c) => c.id === color.id);
+        const updated = exists
+          ? data.colors.map((c) => (c.id === color.id ? color : c))
+          : [color, ...data.colors];
+        await persistData({ ...data, colors: updated });
       }
-      showToast('تم إضافة اللون بنجاح', 'success');
+      showToast('تم حفظ اللون بنجاح', 'success');
+    });
+  };
+
+  const handleDeleteThobeType = async (id: string) => {
+    await executeCrud('جاري حذف نوع الثوب...', async () => {
+      if (!data) return;
+      if (window.electronAPI.deleteThobeType) {
+        await window.electronAPI.deleteThobeType(id);
+        await loadAppData();
+      } else {
+        await persistData({ ...data, thobeTypes: data.thobeTypes.filter((t) => t.id !== id) });
+      }
+      showToast('تم حذف نوع الثوب بنجاح', 'success');
+    });
+  };
+
+  const handleDeleteColor = async (id: string) => {
+    await executeCrud('جاري حذف اللون...', async () => {
+      if (!data) return;
+      if (window.electronAPI.deleteColor) {
+        await window.electronAPI.deleteColor(id);
+        await loadAppData();
+      } else {
+        await persistData({ ...data, colors: data.colors.filter((c) => c.id !== id) });
+      }
+      showToast('تم حذف اللون بنجاح', 'success');
     });
   };
 
@@ -917,7 +952,9 @@ await executeCrud('جاري حذف الإكسسوار...', async () => {
               onSaveAccessory={handleSaveAccessory}
               onDeleteAccessory={handleDeleteAccessory}
               onSaveThobeType={handleSaveThobeType}
+              onDeleteThobeType={handleDeleteThobeType}
               onSaveColor={handleSaveColor}
+              onDeleteColor={handleDeleteColor}
               stockMovements={data.stockMovements || []}
               onAdjustStock={handleAdjustStock}
               showToast={showToast}
