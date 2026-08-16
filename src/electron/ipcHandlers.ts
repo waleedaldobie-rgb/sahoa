@@ -29,6 +29,7 @@ import { AccountingRepository } from './repositories/accountingRepository';
 import { AccountingService } from './services/accountingService';
 import { OrderRepository } from './repositories/orderRepository';
 import { InvoiceRepository } from './repositories/invoiceRepository';
+import { PaymentService } from './services/paymentService';
 
 const parseMeasurementsJson = (value?: string) => {
   try { return normalizeMeasurements(JSON.parse(value || '{}')); }
@@ -134,6 +135,7 @@ export function registerIpcHandlers(dbManager: SahwaDatabaseManager) {
   const accountingService = new AccountingService(accountingRepository, inventoryService, cashRepository, db);
   const orderRepository = new OrderRepository(db);
   const invoiceRepository = new InvoiceRepository(db);
+  const paymentService = new PaymentService(invoiceRepository, orderRepository, cashRepository, orderEventRepository, db);
 
   // -------------------------------------------------------------
   // CUSTOMERS IPC HANDLERS
@@ -851,75 +853,7 @@ export function registerIpcHandlers(dbManager: SahwaDatabaseManager) {
   });
 
   safeIpcHandle(ipcMain, 'invoices:addPayment', async (_, invoiceId: string, amount: number, method: string, note: string, paymentId?: string) => {
-    const paymentTx = db.transaction(() => {
-      const inv = db.prepare('SELECT * FROM invoices WHERE id = ?').get(invoiceId) as any;
-      if (!inv) throw new Error('الفاتورة غير موجودة');
-      const numericAmount = Number(amount);
-      if (!Number.isFinite(numericAmount) || numericAmount <= 0) throw new Error('مبلغ الدفعة يجب أن يكون أكبر من صفر');
-
-      const existingPayments: PaymentRecord[] = JSON.parse(inv.payments_json || '[]');
-      const id = paymentId || `PAY-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
-      if (existingPayments.some((payment) => payment.id === id) || db.prepare('SELECT id FROM cash_transactions WHERE source_id = ?').get(id)) {
-        return;
-      }
-      if (numericAmount > inv.remaining_amount) throw new Error('مبلغ الدفعة يتجاوز المتبقي على الفاتورة');
-      const newPayment: PaymentRecord = {
-        id,
-        invoiceId,
-        orderId: inv.order_id,
-        amount: numericAmount,
-        paymentDate: new Date().toISOString().slice(0, 10),
-        method: method as any,
-        note
-      };
-
-      existingPayments.push(newPayment);
-
-      const newPaid = inv.paid_amount + numericAmount;
-      const newRemaining = inv.total_amount - newPaid;
-      const newStatus = newRemaining <= 0 ? 'paid' : 'partial';
-
-      db.prepare(`
-        UPDATE invoices SET
-          paid_amount = ?, remaining_amount = ?, payment_status = ?, payments_json = ?
-        WHERE id = ?
-      `).run(newPaid, newRemaining, newStatus, JSON.stringify(existingPayments), invoiceId);
-
-      // Synchronize order record as well
-      db.prepare(`
-        UPDATE orders SET
-          paid_amount = ?, remaining_amount = ?
-        WHERE id = ?
-      `).run(newPaid, newRemaining, inv.order_id);
-
-      cashRepository.insert({
-        id: `CASH-PAY-${id}`,
-        direction: 'in',
-        sourceType: 'customer_payment',
-        sourceId: id,
-        orderId: inv.order_id,
-        referenceNumber: inv.invoice_number,
-        amount: numericAmount,
-        paymentMethod: method as any,
-        transactionDate: new Date().toISOString().slice(0, 10),
-        description: `دفعة عميل للفاتورة ${inv.invoice_number}`,
-        notes: note || undefined,
-        createdAt: new Date().toISOString()
-      });
-      orderEventRepository.insert( {
-        id: `EVT-PAYMENT-${id}`,
-        orderId: inv.order_id,
-        type: 'payment',
-        title: 'تم تسجيل دفعة',
-        description: `تم تسجيل دفعة بقيمة ${numericAmount} للفاتورة ${inv.invoice_number}.`,
-        actor: 'النظام',
-        metadata: { paymentId: id, amount: numericAmount, method, remainingAmount: newRemaining },
-        createdAt: new Date().toISOString()
-      });
-    });
-
-    paymentTx();
-    return true;
+    return paymentService.addPayment(invoiceId, amount, method, note, paymentId);
   });
 
   // -------------------------------------------------------------

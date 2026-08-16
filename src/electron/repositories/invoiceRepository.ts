@@ -17,4 +17,11 @@ export class InvoiceRepository {
       WHERE order_id = ?
     `).run(totalAmount, paidAmount, remainingAmount, paymentStatus, orderId);
   }
+
+  updatePayment(id: string, paidAmount: number, remainingAmount: number, paymentStatus: string, paymentsJson: string): void {
+    this.db.prepare(`
+      UPDATE invoices SET paid_amount = ?, remaining_amount = ?, payment_status = ?, payments_json = ?
+      WHERE id = ?
+    `).run(paidAmount, remainingAmount, paymentStatus, paymentsJson, id);
+  }
 }

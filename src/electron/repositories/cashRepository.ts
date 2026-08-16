@@ -33,4 +33,8 @@ export class CashRepository {
   findById(id: string): any | undefined {
     return this.db.prepare('SELECT * FROM cash_transactions WHERE id = ?').get(id);
   }
+
+  findBySourceId(sourceId: string): any | undefined {
+    return this.db.prepare('SELECT id FROM cash_transactions WHERE source_id = ?').get(sourceId);
+  }
 }
