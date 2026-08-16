@@ -27,7 +27,7 @@ export class SahwaDatabaseManager {
   private autoBackupTimer: NodeJS.Timeout | null = null;
 
   constructor(customDir?: string, legacyDir?: string, customBackupDir?: string) {
-    const baseDir = customDir || path.join(process.cwd(), 'data');
+    const baseDir = customDir || (process.env.NODE_ENV === 'development' ? path.join(process.cwd(), 'data') : path.join(process.env.APPDATA || process.env.HOME || process.cwd(), 'SahwaTailoring', 'database'));
     if (!fs.existsSync(baseDir)) {
       fs.mkdirSync(baseDir, { recursive: true });
     }
