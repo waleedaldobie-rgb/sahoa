@@ -106,7 +106,7 @@ export const PrintableInvoice: React.FC<PrintableInvoiceProps> = ({ invoice, ord
   const tailorNotes = valueOf(sd, 'tailorNotes', '');
 
   return (
-    <div className={`invoice-luxury-container ${showOnScreen ? 'invoice-screen-preview' : ''}`} dir="rtl">
+    <div className={`invoice-luxury-container printable-area-ticket ${showOnScreen ? 'invoice-screen-preview' : ''}`} dir="rtl">
       {/* Header Section */}
       <div className="invoice-luxury-header">
         <div className="header-brand">

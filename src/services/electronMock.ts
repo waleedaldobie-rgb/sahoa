@@ -484,7 +484,33 @@ export function initElectronMock() {
     async updateCustomer(customer: Customer): Promise<boolean> {
       if (isRealElectron && existing?.updateCustomer) return existing.updateCustomer(customer);
       const data = await window.electronAPI.getData();
-      data.customers = data.customers.map(c => c.id === customer.id ? customer : c);
+      const current = data.customers.find((item) => item.id === customer.id);
+      if (!current) throw new Error('العميل المطلوب غير موجود');
+
+      const nextMeasurements = normalizeMeasurements(customer.measurements);
+      const nextStyleDetails = normalizeStyleDetails(customer.styleDetails);
+      const measurementChanged = JSON.stringify(current.measurements) !== JSON.stringify(nextMeasurements)
+        || JSON.stringify(current.styleDetails) !== JSON.stringify(nextStyleDetails);
+      const now = new Date().toISOString();
+      const history = measurementChanged
+        ? [{
+            id: `HIST-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+            savedAt: now,
+            note: 'نسخة سابقة قبل إنشاء مقاس جديد',
+            measurements: { ...current.measurements },
+            styleDetails: { ...current.styleDetails }
+          }, ...(current.measurementHistory || [])]
+        : (current.measurementHistory || []);
+
+      data.customers = data.customers.map((item) => item.id === customer.id
+        ? {
+            ...customer,
+            updatedAt: measurementChanged ? now : customer.updatedAt || current.updatedAt,
+            measurements: nextMeasurements,
+            styleDetails: nextStyleDetails,
+            measurementHistory: history
+          }
+        : item);
       await window.electronAPI.saveData(data);
       return true;
     },
@@ -495,7 +521,7 @@ export function initElectronMock() {
       const customer = data.customers.find(c => c.id === id);
       if (!customer) throw new Error('العميل غير موجود في قاعدة البيانات');
       const newHistory = {
-        id: `HIST-${Date.now()}`,
+        id: `HIST-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
         savedAt: new Date().toISOString().slice(0, 10),
         note,
         measurements: { ...customer.measurements },

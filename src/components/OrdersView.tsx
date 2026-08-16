@@ -45,6 +45,8 @@ export interface OrdersViewProps {
   showToast: (msg: string, type: 'success' | 'danger' | 'warning' | 'info') => void;
   initialSelectedOrder?: Order | null;
   openNewOrderTrigger?: boolean;
+  initialCustomerForOrder?: Customer | null;
+  initialMeasurementForOrder?: MeasurementHistoryRecord | null;
 }
 
 export const OrdersView: React.FC<OrdersViewProps> = ({
@@ -61,7 +63,9 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
   onSendWhatsAppNotice,
   showToast,
   initialSelectedOrder,
-  openNewOrderTrigger
+  openNewOrderTrigger,
+  initialCustomerForOrder,
+  initialMeasurementForOrder
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
@@ -78,7 +82,7 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
   const [printableOrder, setPrintableOrder] = useState<Order | null>(null);
 
   // New Order Form State
-  const [selectedCustomerId, setSelectedCustomerId] = useState('');
+  const [selectedCustomerId, setSelectedCustomerId] = useState(initialCustomerForOrder?.id || '');
   const [isCreatingCustomerInline, setIsCreatingCustomerInline] = useState(false);
   const [isMeasurementHistoryOpen, setIsMeasurementHistoryOpen] = useState(false);
   const [newCustomerName, setNewCustomerName] = useState('');
@@ -124,10 +128,15 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
   });
 
   const [detailTab, setDetailTab] = useState<'info' | 'measurements' | 'events'>('info');
-  const [newOrderMeasurements, setNewOrderMeasurements] = useState<CustomerMeasurements>(EMPTY_MEASUREMENTS);
-  const [newOrderStyleDetails, setNewOrderStyleDetails] = useState<CustomerStyleDetails>(EMPTY_STYLE_DETAILS);
+  const [newOrderMeasurements, setNewOrderMeasurements] = useState<CustomerMeasurements>(
+    initialMeasurementForOrder?.measurements || initialCustomerForOrder?.measurements || EMPTY_MEASUREMENTS
+  );
+  const [newOrderStyleDetails, setNewOrderStyleDetails] = useState<CustomerStyleDetails>(
+    initialMeasurementForOrder?.styleDetails || initialCustomerForOrder?.styleDetails || EMPTY_STYLE_DETAILS
+  );
 
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+  const initialMeasurementAppliedRef = useRef(false);
 
   const loadOrderEvents = async (orderId: string) => {
     setIsEventsLoading(true);
@@ -179,14 +188,19 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
       const cust = customers.find((c) => c.id === selectedCustomerId);
       if (cust) {
         setInlineCustomer(cust);
-        setNewOrderMeasurements({ ...cust.measurements });
-        setNewOrderStyleDetails({ ...cust.styleDetails });
+        const preset = initialMeasurementForOrder && !initialMeasurementAppliedRef.current
+          ? initialMeasurementForOrder
+          : null;
+        setNewOrderMeasurements({ ...(preset?.measurements || cust.measurements) });
+        setNewOrderStyleDetails({ ...(preset?.styleDetails || cust.styleDetails) });
+        if (preset) initialMeasurementAppliedRef.current = true;
       }
     }
   }, [selectedCustomerId, customers]);
 
   const handleOpenNewOrder = () => {
     setIsSubmittingOrder(false);
+    initialMeasurementAppliedRef.current = true;
     setIsTotalAmountManuallyEdited(false);
     setGarmentCount(1);
     setSelectedCustomerId('');

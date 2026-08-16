@@ -65,9 +65,14 @@ async function main() {
     assert.equal(customer.id, customerId);
     const updated = { ...customer, measurements: { ...customer.measurements, frontLength: '152', sleeveLength: '63' } };
     assert.equal(await call('customers:update', updated), true);
+    const afterUpdate = (await call('customers:list')).find((item) => item.id === customerId);
+    assert.equal(afterUpdate.measurements.frontLength, '152');
+    assert.equal(afterUpdate.measurementHistory.length, 1);
+    assert.equal(afterUpdate.measurementHistory[0].measurements.frontLength, '150');
     const history = await call('customers:saveMeasurementHistory', customerId, 'قياس التكامل');
     assert.equal(history.note, 'قياس التكامل');
-    assert.equal((await call('customers:list')).find((item) => item.id === customerId).measurements.frontLength, '152');
+    const afterHistory = (await call('customers:list')).find((item) => item.id === customerId);
+    assert.equal(afterHistory.measurementHistory.length, 2);
   });
 
   await record('create fabric and accessory inventory', async () => {

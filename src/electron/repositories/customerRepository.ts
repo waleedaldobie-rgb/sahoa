@@ -47,13 +47,22 @@ export class CustomerRepository {
     name: string;
     phone: string;
     createdAt: string;
+    updatedAt?: string | null;
     measurementsJson: string;
     styleDetailsJson: string;
   }): void {
     this.db.prepare(`
-      INSERT INTO customers (id, name, phone, created_at, measurements_json, style_details_json)
-      VALUES (?, ?, ?, ?, ?, ?)
-    `).run(row.id, row.name, row.phone, row.createdAt, row.measurementsJson, row.styleDetailsJson);
+      INSERT INTO customers (id, name, phone, created_at, updated_at, measurements_json, style_details_json)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      row.id,
+      row.name,
+      row.phone,
+      row.createdAt,
+      row.updatedAt || row.createdAt,
+      row.measurementsJson,
+      row.styleDetailsJson
+    );
   }
 
   update(row: {

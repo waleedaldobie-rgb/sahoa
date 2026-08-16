@@ -102,6 +102,7 @@ export interface Customer {
   name: string;
   phone: string;
   createdAt: string;
+  updatedAt?: string;
   measurements: CustomerMeasurements;
   styleDetails: CustomerStyleDetails;
   measurementHistory: MeasurementHistoryRecord[];

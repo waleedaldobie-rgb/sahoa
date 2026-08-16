@@ -22,6 +22,7 @@ export interface CustomersViewProps {
   customers: Customer[];
   onSaveCustomer: (customer: Customer) => void;
   onDeleteCustomer: (id: string) => void;
+  onUseMeasurementForOrder?: (customer: Customer, snapshot: MeasurementHistoryRecord | null) => void;
   showToast: (msg: string, type: 'success' | 'danger' | 'warning' | 'info') => void;
 }
 
@@ -29,6 +30,7 @@ export const CustomersView: React.FC<CustomersViewProps> = ({
   customers,
   onSaveCustomer,
   onDeleteCustomer,
+  onUseMeasurementForOrder,
   showToast
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
@@ -51,11 +53,18 @@ export const CustomersView: React.FC<CustomersViewProps> = ({
     styleDetails: { ...EMPTY_STYLE_DETAILS }
   });
 
+  const normalizedSearch = searchTerm.trim().toLowerCase();
   const filteredCustomers = customers.filter(
     (c) =>
-      c.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      c.phone.includes(searchTerm)
+      c.name.toLowerCase().includes(normalizedSearch) ||
+      c.phone.includes(searchTerm.trim())
   );
+
+  const formatDate = (value?: string) => {
+    if (!value) return '--';
+    const parsed = new Date(value);
+    return Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleDateString('ar-SA');
+  };
 
   const handleOpenEditModal = (customer: Customer) => {
     setSelectedCustomer(customer);
@@ -83,32 +92,20 @@ export const CustomersView: React.FC<CustomersViewProps> = ({
       return;
     }
 
-    const nowStr = new Date().toISOString().split('T')[0];
-    let history: MeasurementHistoryRecord[] = selectedCustomer ? [...selectedCustomer.measurementHistory] : [];
-
-    if (selectedCustomer) {
-      const historySnapshot: MeasurementHistoryRecord = {
-        id: 'HIST-' + Date.now(),
-        savedAt: nowStr,
-        note: 'نسخة احتياطية سابقة قبل التحديث الأخير',
-        measurements: { ...selectedCustomer.measurements },
-        styleDetails: { ...selectedCustomer.styleDetails }
-      };
-      history = [historySnapshot, ...history];
-    }
-
+    const nowStr = new Date().toISOString();
     const newCust: Customer = {
       id: formData.id || 'CUST-' + Date.now(),
       name: formData.name.trim(),
       phone: formData.phone.trim(),
       createdAt: selectedCustomer ? selectedCustomer.createdAt : nowStr,
+      updatedAt: nowStr,
       measurements: formData.measurements,
       styleDetails: formData.styleDetails,
-      measurementHistory: history
+      measurementHistory: selectedCustomer?.measurementHistory || []
     };
 
     onSaveCustomer(newCust);
-    showToast('تم حفظ تعديلات العميل وتحديث مقاساته بنجاح', 'success');
+    showToast(selectedCustomer ? 'تم حفظ المقاس الجديد مع الاحتفاظ بالمقاس السابق' : 'تم حفظ بيانات العميل بنجاح', 'success');
     setIsFormOpen(false);
   };
 
@@ -198,15 +195,44 @@ export const CustomersView: React.FC<CustomersViewProps> = ({
             </div>
 
             {activeFormTab === 'measurements' ? (
-              <MeasurementsTableForm
+              <>
+                {selectedCustomer && (
+                  <Card className="border-[#E5E7EB] bg-[#FAFAF8]">
+                    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2 mb-1">
+                          <Ruler className="w-4 h-4 text-[#111111]" />
+                          <h3 className="text-sm font-black text-[#111111]">آخر مقاس محفوظ</h3>
+                        </div>
+                        <p className="text-[11px] font-bold text-[#6B7280]">
+                          آخر تحديث للمقاس: <span className="text-[#111111]">{formatDate(selectedCustomer.updatedAt || selectedCustomer.createdAt)}</span>
+                        </p>
+                        <p className="mt-2 text-xs font-bold text-[#4B5563]">
+                          طول أمام {selectedCustomer.measurements.frontLength || '--'} · الكتف {selectedCustomer.measurements.shoulderWidth || '--'} · الرقبة {selectedCustomer.measurements.neckSize || '--'}
+                        </p>
+                      </div>
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        size="sm"
+                        onClick={() => onUseMeasurementForOrder?.(selectedCustomer, null)}
+                        disabled={!onUseMeasurementForOrder}
+                      >
+                        استخدام آخر مقاس
+                      </Button>
+                    </div>
+                  </Card>
+                )}
+                <MeasurementsTableForm
                 measurements={formData.measurements}
                 styleDetails={formData.styleDetails}
-                onChange={(updated) => setFormData({ ...formData, measurements: updated })}
-                onStyleChange={(updated) => setFormData({ ...formData, styleDetails: updated })}
-                customerName={formData.name}
-                customerPhone={formData.phone}
-                draftScope={selectedCustomer?.id || 'customer'}
-              />
+                  onChange={(updated) => setFormData({ ...formData, measurements: updated })}
+                  onStyleChange={(updated) => setFormData({ ...formData, styleDetails: updated })}
+                  customerName={formData.name}
+                  customerPhone={formData.phone}
+                  draftScope={selectedCustomer?.id || 'customer'}
+                />
+              </>
             ) : (
               <div className="space-y-4">
                 {selectedCustomer?.measurementHistory.length === 0 ? (
@@ -230,19 +256,13 @@ export const CustomersView: React.FC<CustomersViewProps> = ({
                             </div>
                           </div>
                           <Button
+                            type="button"
                             variant="secondary"
                             size="sm"
-                            onClick={() => {
-                              setFormData({
-                                ...formData,
-                                measurements: { ...hist.measurements },
-                                styleDetails: { ...hist.styleDetails }
-                              });
-                              setActiveFormTab('measurements');
-                              showToast('تم استعادة قيم هذه النسخة إلى النموذج الحالي', 'info');
-                            }}
+                            onClick={() => onUseMeasurementForOrder?.(selectedCustomer, hist)}
+                            disabled={!onUseMeasurementForOrder}
                           >
-                            استعادة هذه النسخة
+                            استخدام لهذا الطلب فقط
                           </Button>
                         </div>
                         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
@@ -301,8 +321,8 @@ export const CustomersView: React.FC<CustomersViewProps> = ({
         {filteredCustomers.length === 0 ? (
           <EmptyState
             icon={<Users className="w-8 h-8" />}
-            title="لا يوجد عملاء"
-            description="يمكنك تسجيل عملاء جدد فقط من خلال شاشة تسجيل طلب جديد لضمان ترابط البيانات."
+            title={searchTerm.trim() ? 'لا يوجد عميل مطابق لبحثك' : 'لا يوجد عملاء'}
+            description={searchTerm.trim() ? 'جرّب البحث باسم العميل أو رقم الجوال بطريقة مختلفة.' : 'يتم إنشاء العميل تلقائياً من شاشة تسجيل طلب جديد عند حفظ الاسم والجوال والمقاسات.'}
           />
         ) : (
           <div className="overflow-x-auto">
@@ -347,7 +367,7 @@ export const CustomersView: React.FC<CustomersViewProps> = ({
                         onClick={() => handleOpenEditModal(cust)}
                         icon={<Eye className="w-3.5 h-3.5" />}
                       >
-                        عرض وتعديل
+                        عرض التفاصيل
                       </Button>
                     </td>
                   </tr>

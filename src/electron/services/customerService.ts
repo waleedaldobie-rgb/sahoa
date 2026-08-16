@@ -12,8 +12,13 @@ const parseStyleDetails = (value?: string) => {
   catch { return normalizeStyleDetails(); }
 };
 
+const createHistoryId = () => `HIST-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
 export class CustomerService {
-  constructor(private readonly repository: CustomerRepository) {}
+  constructor(
+    private readonly repository: CustomerRepository,
+    private readonly db: { transaction<T>(callback: () => T): () => T }
+  ) {}
 
   list(): Customer[] {
     const historyMap = new Map<string, any[]>();
@@ -49,20 +54,46 @@ export class CustomerService {
       measurementsJson: JSON.stringify(measurements),
       styleDetailsJson: JSON.stringify(styleDetails)
     });
-    return { id, name, phone, createdAt, measurements, styleDetails, measurementHistory: [] };
+    return { id, name, phone, createdAt, updatedAt: createdAt, measurements, styleDetails, measurementHistory: [] };
   }
 
   update(customer: Customer): boolean {
     const phone = (customer.phone || '').trim();
     if (this.repository.findByPhoneExcludingId(phone, customer.id)) throw new Error('رقم الجوال مسجل بالفعل لعميل آخر');
-    this.repository.update({
-      id: customer.id,
-      name: customer.name,
-      phone,
-      measurementsJson: JSON.stringify(normalizeMeasurements(customer.measurements)),
-      styleDetailsJson: JSON.stringify(normalizeStyleDetails(customer.styleDetails)),
-      updatedAt: new Date().toISOString()
+
+    const existing = this.repository.findById(customer.id);
+    if (!existing) throw new Error('العميل المطلوب غير موجود');
+
+    const measurements = normalizeMeasurements(customer.measurements);
+    const styleDetails = normalizeStyleDetails(customer.styleDetails);
+    const measurementsJson = JSON.stringify(measurements);
+    const styleDetailsJson = JSON.stringify(styleDetails);
+    const hasMeasurementChanges = existing.measurements_json !== measurementsJson
+      || existing.style_details_json !== styleDetailsJson;
+    const updatedAt = new Date().toISOString();
+
+    const updateTx = this.db.transaction(() => {
+      if (hasMeasurementChanges) {
+        this.repository.insertMeasurementHistory({
+          id: createHistoryId(),
+          customerId: customer.id,
+          savedAt: updatedAt,
+          note: 'نسخة سابقة قبل إنشاء مقاس جديد',
+          measurementsJson: existing.measurements_json,
+          styleDetailsJson: existing.style_details_json
+        });
+      }
+
+      this.repository.update({
+        id: customer.id,
+        name: customer.name,
+        phone,
+        measurementsJson,
+        styleDetailsJson,
+        updatedAt
+      });
     });
+    updateTx();
     return true;
   }
 
@@ -74,7 +105,7 @@ export class CustomerService {
   saveMeasurementHistory(customerId: string, note: string): any {
     const customer = this.repository.findById(customerId);
     if (!customer) throw new Error('العميل غير موجود في قاعدة البيانات');
-    const id = `HIST-${Date.now()}`;
+    const id = createHistoryId();
     const savedAt = new Date().toISOString().slice(0, 10);
     const safeNote = note || 'تحديث مقاسات';
     this.repository.insertMeasurementHistory({
@@ -100,6 +131,7 @@ export class CustomerService {
       name: row.name,
       phone: row.phone,
       createdAt: row.created_at,
+      updatedAt: row.updated_at || undefined,
       measurements: parseMeasurements(row.measurements_json),
       styleDetails: parseStyleDetails(row.style_details_json),
       measurementHistory

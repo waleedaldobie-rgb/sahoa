@@ -1,6 +1,6 @@
 import React, { Suspense, useEffect, useState } from 'react';
 import { Loader2 } from 'lucide-react';
-import { AppData, UserPreferences, Customer, Order, Invoice, FabricItem, AccessoryItem, ThobeType, ColorItem, PaymentRecord, OrderStatus, InventoryItemType } from './types';
+import { AppData, UserPreferences, Customer, Order, Invoice, FabricItem, AccessoryItem, ThobeType, ColorItem, PaymentRecord, OrderStatus, InventoryItemType, MeasurementHistoryRecord } from './types';
 import { initElectronMock } from './services/electronMock';
 import { formatIpcErrorMessage } from './utils/ipcError';
 import { checkAndSyncStockAlerts } from './utils/stockAlerts';
@@ -199,6 +199,8 @@ export default function App() {
   // Selected order for quick navigation
   const [selectedOrderForDetail, setSelectedOrderForDetail] = useState<Order | null>(null);
   const [triggerNewOrderModal, setTriggerNewOrderModal] = useState(false);
+  const [customerForNewOrder, setCustomerForNewOrder] = useState<Customer | null>(null);
+  const [measurementForNewOrder, setMeasurementForNewOrder] = useState<MeasurementHistoryRecord | null>(null);
 
   // Toast notification
   const [toast, setToast] = useState<ToastState>({ show: false, message: '', type: 'info' });
@@ -272,6 +274,23 @@ export default function App() {
     window.electronAPI.savePreferences({ activeTab: tabId });
     setSelectedOrderForDetail(null);
     setTriggerNewOrderModal(false);
+    setCustomerForNewOrder(null);
+    setMeasurementForNewOrder(null);
+  };
+
+  const handleUseMeasurementForOrder = (customer: Customer, snapshot: MeasurementHistoryRecord | null) => {
+    setCustomerForNewOrder(customer);
+    setMeasurementForNewOrder(snapshot);
+    setSelectedOrderForDetail(null);
+    setPrefs((prev) => ({ ...prev, activeTab: 'orders' }));
+    void window.electronAPI.savePreferences({ activeTab: 'orders' });
+    setTriggerNewOrderModal(true);
+    window.setTimeout(() => {
+      setTriggerNewOrderModal(false);
+      setCustomerForNewOrder(null);
+      setMeasurementForNewOrder(null);
+    }, 0);
+    showToast(snapshot ? 'تم تجهيز الطلب بالمقاس التاريخي المختار فقط' : 'تم تجهيز الطلب بآخر مقاس محفوظ فقط', 'info');
   };
 
   // Update Invoice Mode
@@ -906,6 +925,7 @@ await executeCrud('جاري حذف الإكسسوار...', async () => {
               customers={data.customers}
               onSaveCustomer={handleSaveCustomer}
               onDeleteCustomer={handleDeleteCustomer}
+              onUseMeasurementForOrder={handleUseMeasurementForOrder}
               showToast={showToast}
             />
           )}
@@ -926,6 +946,8 @@ await executeCrud('جاري حذف الإكسسوار...', async () => {
               showToast={showToast}
               initialSelectedOrder={selectedOrderForDetail}
               openNewOrderTrigger={triggerNewOrderModal}
+              initialCustomerForOrder={customerForNewOrder}
+              initialMeasurementForOrder={measurementForNewOrder}
             />
           )}
 

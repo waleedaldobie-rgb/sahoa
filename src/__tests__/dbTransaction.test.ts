@@ -329,6 +329,38 @@ describe('db.transaction - Atomic Operations & Rollback Tests', () => {
     expect(customer?.styleDetails.neckShape).toBe('مربع');
   });
 
+  it('creates a new measurement history record without overwriting the previous snapshot', async () => {
+    await window.electronAPI.createCustomer({
+      id: 'CUST-HISTORY',
+      name: 'عميل سجل المقاسات',
+      phone: '0555555556',
+      measurements: { ...DEFAULT_MEASUREMENTS, neckHeight: '4' },
+      styleDetails: { ...DEFAULT_STYLE_DETAILS, neckShape: 'مدور' }
+    });
+
+    const first = await window.electronAPI.getData();
+    const current = first.customers.find((item) => item.id === 'CUST-HISTORY');
+    expect(current?.measurementHistory).toHaveLength(0);
+
+    await window.electronAPI.updateCustomer({
+      ...current!,
+      measurements: { ...current!.measurements, neckHeight: '5.5' },
+      styleDetails: { ...current!.styleDetails, neckShape: 'فرنسي' }
+    });
+
+    const afterUpdate = await window.electronAPI.getData();
+    const updated = afterUpdate.customers.find((item) => item.id === 'CUST-HISTORY');
+    expect(updated?.measurements.neckHeight).toBe('5.5');
+    expect(updated?.styleDetails.neckShape).toBe('فرنسي');
+    expect(updated?.measurementHistory).toHaveLength(1);
+    expect(updated?.measurementHistory[0].measurements.neckHeight).toBe('4');
+    expect(updated?.measurementHistory[0].styleDetails.neckShape).toBe('مدور');
+
+    await window.electronAPI.updateCustomer({ ...updated! });
+    const afterSameUpdate = await window.electronAPI.getData();
+    expect(afterSameUpdate.customers.find((item) => item.id === 'CUST-HISTORY')?.measurementHistory).toHaveLength(1);
+  });
+
   it('8. Backfills missing measurement fields without changing legacy values', async () => {
     localStorage.setItem('sahwa_tailoring_app_data_v1', JSON.stringify({
       customers: [{

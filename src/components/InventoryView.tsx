@@ -335,8 +335,8 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
                     <div className="flex items-center gap-4">
                       <div className="text-sm font-black font-mono text-emerald-600">{t.defaultPrice} ر.س</div>
                       <div className="flex gap-1">
-                        <button onClick={() => handleOpenEditThobeType(t)} className="p-1.5 text-slate-400 hover:text-amber-600 hover:bg-amber-50 rounded-lg transition-colors"><Edit2 className="w-3.5 h-3.5" /></button>
-                        <button onClick={() => setDeleteTarget({ type: 'thobeType', id: t.id, name: t.name })} className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"><Trash2 className="w-3.5 h-3.5" /></button>
+                        <button type="button" title={`تعديل موديل ${t.name}`} aria-label={`تعديل موديل ${t.name}`} onClick={() => handleOpenEditThobeType(t)} className="p-1.5 text-slate-400 hover:text-amber-600 hover:bg-amber-50 rounded-lg transition-colors"><Edit2 className="w-3.5 h-3.5" /></button>
+                        <button type="button" title={`حذف موديل ${t.name}`} aria-label={`حذف موديل ${t.name}`} onClick={() => setDeleteTarget({ type: 'thobeType', id: t.id, name: t.name })} className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"><Trash2 className="w-3.5 h-3.5" /></button>
                       </div>
                     </div>
                   </div>
@@ -354,8 +354,8 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
                       <span className="text-xs font-black text-[#111111]">{c.name}</span>
                     </div>
                     <div className="flex gap-1">
-                      <button onClick={() => handleOpenEditColor(c)} className="p-1.5 text-slate-400 hover:text-amber-600 hover:bg-amber-50 rounded-lg transition-colors"><Edit2 className="w-3.5 h-3.5" /></button>
-                      <button onClick={() => setDeleteTarget({ type: 'color', id: c.id, name: c.name })} className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"><Trash2 className="w-3.5 h-3.5" /></button>
+                      <button type="button" title={`تعديل لون ${c.name}`} aria-label={`تعديل لون ${c.name}`} onClick={() => handleOpenEditColor(c)} className="p-1.5 text-slate-400 hover:text-amber-600 hover:bg-amber-50 rounded-lg transition-colors"><Edit2 className="w-3.5 h-3.5" /></button>
+                      <button type="button" title={`حذف لون ${c.name}`} aria-label={`حذف لون ${c.name}`} onClick={() => setDeleteTarget({ type: 'color', id: c.id, name: c.name })} className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"><Trash2 className="w-3.5 h-3.5" /></button>
                     </div>
                   </div>
                 ))}
@@ -390,7 +390,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
       {/* Modals */}
       <ConfirmModal
         isOpen={!!deleteTarget}
-        onClose={() => setDeleteTarget(null)}
+        onCancel={() => setDeleteTarget(null)}
         onConfirm={() => {
           if (deleteTarget) {
             if (deleteTarget.type === 'fabric') onDeleteFabric(deleteTarget.id);
@@ -403,7 +403,6 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
         }}
         title="تأكيد الحذف"
         message={`هل أنت متأكد من حذف "${deleteTarget?.name}"؟`}
-        variant="danger"
       />
       
       <Modal isOpen={isFabricModalOpen} onClose={() => setIsFabricModalOpen(false)} title={fabricForm.id ? 'تعديل قماش' : 'إضافة قماش جديد'}>

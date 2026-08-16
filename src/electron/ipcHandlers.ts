@@ -135,7 +135,7 @@ const mapExpense = (row: any): ExpenseRecord => ({
 export function registerIpcHandlers(dbManager: SahwaDatabaseManager) {
   const db = dbManager.getRawDb();
   const customerRepository = new CustomerRepository(db);
-  const customerService = new CustomerService(customerRepository);
+  const customerService = new CustomerService(customerRepository, db);
   const cashRepository = new CashRepository(db);
   const inventoryRepository = new InventoryRepository(db);
   const inventoryService = new InventoryService(inventoryRepository);
