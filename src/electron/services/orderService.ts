@@ -1,6 +1,7 @@
 import { Order, OrderMaterialUsage, PaymentRecord, StockMovement } from '../../types';
 import { normalizeMeasurements, normalizeStyleDetails } from '../../services/shared/measurementDefaults';
 import { round2 } from '../../services/shared/inventoryRules';
+import { calculateMaterialCost, calculateOrderAmounts, materialSignature } from '../../services/shared/orderRules';
 import { CashRepository } from '../repositories/cashRepository';
 import { OrderEventRepository } from '../repositories/orderEventRepository';
 import { OrderRepository } from '../repositories/orderRepository';
@@ -51,9 +52,8 @@ export class OrderService {
     const tx = this.db.transaction(() => {
       const orderId = orderData.id || `ORD-${Date.now()}`;
       const orderNumber = orderData.orderNumber || `${1001 + this.orderRepository.count()}`;
-      const totalAmount = orderData.totalAmount || 0;
-      const paidAmount = orderData.paidAmount || 0;
-      const remainingAmount = totalAmount - paidAmount;
+      const amounts = calculateOrderAmounts(orderData.totalAmount || 0, orderData.paidAmount || 0);
+      const { totalAmount, paidAmount, remainingAmount } = amounts;
       const orderDate = orderData.orderDate || new Date().toISOString().slice(0, 10);
       const createdAt = new Date().toISOString();
 
@@ -181,7 +181,7 @@ export class OrderService {
         });
       }
 
-      const materialCost = round2(materialUsages.reduce((sum, usage) => sum + usage.totalCost, 0));
+      const materialCost = calculateMaterialCost(materialUsages);
       this.eventRepository.insert({
         id: `EVT-CREATED-${orderId}`,
         orderId,
@@ -208,16 +208,8 @@ export class OrderService {
       const oldMaterials = this.orderRepository.listMaterialUsages(updatedOrder.id) as any[];
       const fabricChanged = existing.fabric_id !== updatedOrder.fabricId;
       const countChanged = existing.garment_count !== updatedOrder.garmentCount;
-      const oldAccessorySignature = oldMaterials
-        .filter((row) => row.item_type !== 'fabric')
-        .map((row) => `${row.item_type}:${row.item_id}:${row.quantity}:${row.unit}:${row.unit_cost_at_usage}`)
-        .sort()
-        .join('|');
-      const newAccessorySignature = (updatedOrder.materialUsages || [])
-        .filter((material) => material.itemType !== 'fabric' && Boolean(material.itemId))
-        .map((material) => `${material.itemType}:${material.itemId}:${material.quantity}:${material.unit || ''}:${material.unitCostAtUsage ?? ''}`)
-        .sort()
-        .join('|');
+      const oldAccessorySignature = materialSignature(oldMaterials);
+      const newAccessorySignature = materialSignature(updatedOrder.materialUsages || []);
       const materialPayloadChanged = updatedOrder.materialUsages !== undefined && oldAccessorySignature !== newAccessorySignature;
       const materialChanged = fabricChanged || countChanged || materialPayloadChanged;
 
@@ -267,7 +259,7 @@ export class OrderService {
 
       const totalAmount = updatedOrder.totalAmount || 0;
       const paidAmount = updatedOrder.paidAmount || 0;
-      const remainingAmount = totalAmount - paidAmount;
+      const remainingAmount = calculateOrderAmounts(totalAmount, paidAmount).remainingAmount;
       this.orderRepository.updateOrder({
         id: updatedOrder.id, customerName: updatedOrder.customerName, customerPhone: updatedOrder.customerPhone,
         thobeTypeId: updatedOrder.thobeTypeId, thobeTypeName: updatedOrder.thobeTypeName || 'ثوب',
@@ -277,7 +269,7 @@ export class OrderService {
         measurementsJson: JSON.stringify(normalizeMeasurements(updatedOrder.measurements)),
         styleDetailsJson: JSON.stringify(normalizeStyleDetails(updatedOrder.styleDetails)), notes: updatedOrder.notes || '', updatedAt: new Date().toISOString()
       });
-      this.invoiceRepository.updateAmounts(updatedOrder.id, totalAmount, paidAmount, remainingAmount, remainingAmount <= 0 ? 'paid' : paidAmount > 0 ? 'partial' : 'unpaid');
+      this.invoiceRepository.updateAmounts(updatedOrder.id, totalAmount, paidAmount, remainingAmount, calculateOrderAmounts(totalAmount, paidAmount).paymentStatus);
     });
 
     updateTx();

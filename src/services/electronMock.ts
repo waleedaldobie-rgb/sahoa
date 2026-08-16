@@ -1,6 +1,7 @@
 import { AppData, UserPreferences, Customer, CustomerMeasurements, CustomerStyleDetails, Order, Invoice, FabricItem, AccessoryItem, ThobeType, ColorItem, NotificationItem, PaymentRecord, StockMovement, PurchaseRecord, PurchaseLine, ExpenseRecord, CashTransaction, OrderMaterialUsage, OrderEvent, InventoryItemType } from '../types';
 import { checkAndSyncStockAlerts } from '../utils/stockAlerts';
 import { calculateStockBalance, round2 } from './shared/inventoryRules';
+import { calculateMaterialCost, calculateOrderAmounts } from './shared/orderRules';
 
 const STORAGE_KEY = 'sahwa_tailoring_app_data_v1';
 const PREFS_KEY = 'sahwa_tailoring_prefs_v1';
@@ -700,9 +701,8 @@ export function initElectronMock() {
         const requiredMeters = garmentCount * rate;
         const count = draft.orders.length;
         const orderNumber = orderData.orderNumber || `${1001 + count}`;
-        const totalAmount = orderData.totalAmount || 0;
-        const paidAmount = orderData.paidAmount || 0;
-        const remainingAmount = totalAmount - paidAmount;
+        const amounts = calculateOrderAmounts(orderData.totalAmount || 0, orderData.paidAmount || 0);
+        const { totalAmount, paidAmount, remainingAmount } = amounts;
         const orderId = orderData.id || `ORD-${Date.now()}`;
         let fabricMovement: StockMovement | undefined;
         let fabricBuyPrice = orderData.fabricBuyPriceAtOrder || 0;
@@ -742,7 +742,7 @@ export function initElectronMock() {
           mockWriteMaterial(draft, usage);
           materialUsages.push(usage);
         }
-        const materialCost = round2(materialUsages.reduce((sum, usage) => sum + usage.totalCost, 0));
+        const materialCost = calculateMaterialCost(materialUsages);
 
         const newOrder: Order = {
           id: orderId,
@@ -779,7 +779,7 @@ export function initElectronMock() {
 
         // Create invoice
         const invId = `INV-${orderNumber}`;
-        const pStatus = remainingAmount <= 0 ? 'paid' : paidAmount > 0 ? 'partial' : 'unpaid';
+        const pStatus = calculateOrderAmounts(totalAmount, paidAmount).paymentStatus;
         const initialPaymentId = paidAmount > 0 ? `PAY-${Date.now()}-${Math.random().toString(36).slice(2, 6)}` : undefined;
         const initialPayments: PaymentRecord[] = paidAmount > 0 ? [{
           id: initialPaymentId!,
@@ -862,13 +862,13 @@ export function initElectronMock() {
         updatedOrder.fabricConsumptionMeters = newMeters;
         const totalAmount = updatedOrder.totalAmount || 0;
         const paidAmount = updatedOrder.paidAmount || 0;
-        const remainingAmount = totalAmount - paidAmount;
+        const remainingAmount = calculateOrderAmounts(totalAmount, paidAmount).remainingAmount;
         updatedOrder.remainingAmount = remainingAmount;
 
         draft.orders = draft.orders.map(o => o.id === updatedOrder.id ? updatedOrder : o);
 
         // Update invoice
-        const pStatus = remainingAmount <= 0 ? 'paid' : paidAmount > 0 ? 'partial' : 'unpaid';
+        const pStatus = calculateOrderAmounts(totalAmount, paidAmount).paymentStatus;
         draft.invoices = draft.invoices.map(inv => {
           if (inv.orderId === updatedOrder.id) {
             return {
@@ -959,7 +959,7 @@ export function initElectronMock() {
         inv.payments = [...(inv.payments || []), payment];
         inv.paidAmount += numericAmount;
         inv.remainingAmount = Math.max(0, inv.totalAmount - inv.paidAmount);
-        inv.paymentStatus = inv.remainingAmount <= 0 ? 'paid' : 'partial';
+        inv.paymentStatus = calculateOrderAmounts(inv.totalAmount, inv.paidAmount).paymentStatus;
 
         const order = draft.orders.find(o => o.id === inv.orderId);
         if (order) {
