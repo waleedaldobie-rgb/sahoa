@@ -30,6 +30,9 @@ import { AccountingService } from './services/accountingService';
 import { OrderRepository } from './repositories/orderRepository';
 import { InvoiceRepository } from './repositories/invoiceRepository';
 import { PaymentService } from './services/paymentService';
+import { OrderStatusService } from './services/orderStatusService';
+import { NotificationRepository } from './repositories/notificationRepository';
+import { WhatsAppService } from './services/whatsappService';
 
 const parseMeasurementsJson = (value?: string) => {
   try { return normalizeMeasurements(JSON.parse(value || '{}')); }
@@ -136,6 +139,9 @@ export function registerIpcHandlers(dbManager: SahwaDatabaseManager) {
   const orderRepository = new OrderRepository(db);
   const invoiceRepository = new InvoiceRepository(db);
   const paymentService = new PaymentService(invoiceRepository, orderRepository, cashRepository, orderEventRepository, db);
+  const orderStatusService = new OrderStatusService(orderRepository, inventoryService, orderEventRepository, db);
+  const notificationRepository = new NotificationRepository(db);
+  const whatsappService = new WhatsAppService(notificationRepository, orderRepository, orderEventRepository);
 
   // -------------------------------------------------------------
   // CUSTOMERS IPC HANDLERS
@@ -788,48 +794,7 @@ export function registerIpcHandlers(dbManager: SahwaDatabaseManager) {
    * TRANSACTION REQUIREMENT: Status Change to Cancelled -> Restore fabric
    */
   safeIpcHandle(ipcMain, 'orders:updateStatus', async (_, orderId: string, status: string) => {
-    const statusTx = db.transaction(() => {
-      const order = db.prepare('SELECT * FROM orders WHERE id = ?').get(orderId) as any;
-      if (!order) return;
-
-      if (status === 'cancelled' && order.status !== 'cancelled') {
-        const materials = db.prepare('SELECT * FROM order_material_usages WHERE order_id = ?').all(orderId) as any[];
-        for (const material of materials) {
-          if (material.item_id) {
-            inventoryService.recordMovement( material.item_type, material.item_id, material.quantity, 'return', 'إرجاع مواد بسبب إلغاء الطلب', {
-              type: 'order_cancel', id: orderId, number: order.order_number
-            });
-          }
-        }
-      } else if (order.status === 'cancelled' && status !== 'cancelled') {
-        const materials = db.prepare('SELECT * FROM order_material_usages WHERE order_id = ?').all(orderId) as any[];
-        for (const material of materials) {
-          if (material.item_id) {
-            inventoryService.recordMovement( material.item_type, material.item_id, -material.quantity, 'sale', 'إعادة استهلاك مواد بعد إلغاء الإلغاء', {
-              type: 'order_reactivate', id: orderId, number: order.order_number
-            });
-          }
-        }
-      }
-
-      db.prepare('UPDATE orders SET status = ?, updated_at = ? WHERE id = ?').run(status, new Date().toISOString(), orderId);
-      if (order.status !== status) {
-        orderEventRepository.insert( {
-          id: `EVT-STATUS-${orderId}-${Date.now()}`,
-          orderId,
-          type: 'status_changed',
-          title: `تغيير الحالة إلى ${status}`,
-          description: `تم تغيير حالة الطلب من ${order.status} إلى ${status}${status === 'cancelled' ? ' مع إعادة المواد للمخزون' : order.status === 'cancelled' ? ' مع إعادة استهلاك المواد' : ''}.`,
-          fromStatus: order.status,
-          toStatus: status,
-          actor: 'النظام',
-          createdAt: new Date().toISOString()
-        });
-      }
-    });
-
-    statusTx();
-    return true;
+    return orderStatusService.updateStatus(orderId, status);
   });
 
   // -------------------------------------------------------------
@@ -882,51 +847,13 @@ export function registerIpcHandlers(dbManager: SahwaDatabaseManager) {
   });
 
   safeIpcHandle(ipcMain, 'whatsapp:send', async (_, phone: string, customerName: string, orderNumber: string, statusText: string) => {
-    const internationalPhone = phone.startsWith('0') ? '966' + phone.slice(1) : phone;
-    const message = `مرحباً بك أ/ ${customerName}، نفيدك بنتيجة متابعة طلبك رقم (#${orderNumber}) لدى صهوة للخياطة. حالياً: ${statusText}. يسعدنا تواصلكم دائماً!`;
-    const whatsappUrl = `https://wa.me/${internationalPhone}?text=${encodeURIComponent(message)}`;
-    
+    const whatsappUrl = whatsappService.logPreparedMessage(phone, customerName, orderNumber, statusText);
     try {
       const { shell } = require('electron');
       await shell.openExternal(whatsappUrl);
     } catch (e) {
       console.error('Failed to open external WhatsApp URL:', e);
     }
-
-    // Insert notification log into SQLite
-    try {
-      const notifId = `NOTIF-${Date.now()}`;
-      const dateStr = new Date().toLocaleString('ar-SA');
-      db.prepare(`
-        INSERT INTO notifications (id, type, title, message, date, read, customer_phone, order_id)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(
-        notifId,
-        'whatsapp',
-        `تذكير واتساب - طلب #${orderNumber}`,
-        `تم إرسال رسالة واتساب للعميل ${customerName} (${phone}) - الحالة: ${statusText}`,
-        dateStr,
-        1,
-        phone,
-        (db.prepare('SELECT id FROM orders WHERE order_number = ?').get(orderNumber) as any)?.id || null
-      );
-      const order = db.prepare('SELECT id FROM orders WHERE order_number = ?').get(orderNumber) as any;
-      if (order) {
-        orderEventRepository.insert( {
-          id: `EVT-WHATSAPP-${notifId}`,
-          orderId: order.id,
-          type: 'whatsapp',
-          title: 'فتح رسالة واتساب',
-          description: `تم تجهيز رسالة واتساب للعميل ${customerName} عن حالة الطلب: ${statusText}.`,
-          actor: 'النظام',
-          metadata: { phone, orderNumber, statusText },
-          createdAt: new Date().toISOString()
-        });
-      }
-    } catch (err) {
-      console.error('Failed to insert notification into database', err);
-    }
-
     return true;
   });
 }

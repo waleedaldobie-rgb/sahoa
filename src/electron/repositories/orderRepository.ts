@@ -28,6 +28,10 @@ export class OrderRepository {
     `).run(paidAmount, remainingAmount, orderId);
   }
 
+  updateStatus(orderId: string, status: string, updatedAt: string): void {
+    this.db.prepare('UPDATE orders SET status = ?, updated_at = ? WHERE id = ?').run(status, updatedAt, orderId);
+  }
+
   count(): number {
     return Number((this.db.prepare('SELECT COUNT(*) AS count FROM orders').get() as { count: number }).count || 0);
   }
