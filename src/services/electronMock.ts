@@ -2,6 +2,7 @@ import { AppData, UserPreferences, Customer, CustomerMeasurements, CustomerStyle
 import { checkAndSyncStockAlerts } from '../utils/stockAlerts';
 import { calculateStockBalance, round2 } from './shared/inventoryRules';
 import { calculateMaterialCost, calculateOrderAmounts } from './shared/orderRules';
+import { findById, hasIdOrSourceId } from './shared/idempotencyRules';
 
 const STORAGE_KEY = 'sahwa_tailoring_app_data_v1';
 const PREFS_KEY = 'sahwa_tailoring_prefs_v1';
@@ -194,13 +195,13 @@ const mockInsertMovement = (
 
 const mockInsertCash = (draft: AppData, transaction: CashTransaction) => {
   const cashTransactions = draft.cashTransactions || [];
-  if (cashTransactions.some((entry) => entry.id === transaction.id || (transaction.sourceId && entry.sourceId === transaction.sourceId))) return;
+  if (hasIdOrSourceId(cashTransactions, transaction.id, transaction.sourceId)) return;
   draft.cashTransactions = [transaction, ...cashTransactions];
 };
 
 const mockInsertEvent = (draft: AppData, event: OrderEvent) => {
   const orderEvents = draft.orderEvents || [];
-  if (orderEvents.some((entry) => entry.id === event.id)) return;
+  if (findById(orderEvents, event.id)) return;
   draft.orderEvents = [event, ...orderEvents];
 };
 
@@ -593,7 +594,7 @@ export function initElectronMock() {
       let purchase!: PurchaseRecord;
       await db.transaction((draft) => {
         const purchaseId = payload.id || `PUR-${Date.now()}`;
-        const duplicate = (draft.purchases || []).find((entry) => entry.id === purchaseId);
+        const duplicate = findById(draft.purchases, purchaseId);
         if (duplicate) { purchase = duplicate; return; }
         if (!payload.supplier?.trim()) throw new Error('اسم المورد مطلوب');
         if (!Array.isArray(payload.lines) || payload.lines.length === 0) throw new Error('أضف صنفاً واحداً على الأقل إلى المشتريات');
@@ -635,7 +636,7 @@ export function initElectronMock() {
       let expense!: ExpenseRecord;
       await db.transaction((draft) => {
         const id = payload.id || `EXP-${Date.now()}`;
-        const duplicate = (draft.expenses || []).find((entry) => entry.id === id);
+        const duplicate = findById(draft.expenses, id);
         if (duplicate) { expense = duplicate; return; }
         const amount = Number(payload.amount);
         if (!payload.category?.trim() || !payload.description?.trim()) throw new Error('تصنيف ووصف المصروف مطلوبان');
@@ -662,7 +663,7 @@ export function initElectronMock() {
         if (!Number.isFinite(amount) || amount <= 0) throw new Error('مبلغ الحركة يجب أن يكون أكبر من صفر');
         if (!payload.description?.trim()) throw new Error('وصف الحركة المالية مطلوب');
         const id = payload.id || `CASH-${Date.now()}`;
-        const duplicate = (draft.cashTransactions || []).find((entry) => entry.id === id);
+        const duplicate = findById(draft.cashTransactions, id);
         if (duplicate) { transaction = duplicate; return; }
         transaction = { id, direction: payload.direction === 'out' ? 'out' : 'in', sourceType: payload.sourceType || 'adjustment', sourceId: payload.sourceId, referenceNumber: payload.referenceNumber, amount: round2(amount), paymentMethod: payload.paymentMethod || 'cash', transactionDate: payload.transactionDate || new Date().toISOString().slice(0, 10), description: payload.description.trim(), notes: payload.notes, createdAt: new Date().toISOString() };
         mockInsertCash(draft, transaction);

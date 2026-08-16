@@ -2,11 +2,13 @@ import { OrderEvent } from '../../types';
 import { CashRepository } from '../repositories/cashRepository';
 import { OrderEventRepository } from '../repositories/orderEventRepository';
 import { OrderRepository } from '../repositories/orderRepository';
+import { OrderWriteRepository } from '../repositories/orderWriteRepository';
 import { InventoryService } from './inventoryService';
 
 export class OrderStatusService {
   constructor(
     private readonly orderRepository: OrderRepository,
+    private readonly orderWriteRepository: OrderWriteRepository,
     private readonly inventoryService: InventoryService,
     private readonly eventRepository: OrderEventRepository,
     private readonly db: { transaction<T>(callback: () => T): () => T }
@@ -36,7 +38,7 @@ export class OrderStatusService {
       }
 
       const updatedAt = new Date().toISOString();
-      this.orderRepository.updateStatus(orderId, status, updatedAt);
+      this.orderWriteRepository.updateStatus(orderId, status, updatedAt);
       if (order.status !== status) {
         const event: OrderEvent = {
           id: `EVT-STATUS-${orderId}-${Date.now()}`,

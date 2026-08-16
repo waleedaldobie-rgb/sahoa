@@ -5,6 +5,7 @@ import { calculateMaterialCost, calculateOrderAmounts, materialSignature } from 
 import { CashRepository } from '../repositories/cashRepository';
 import { OrderEventRepository } from '../repositories/orderEventRepository';
 import { OrderRepository } from '../repositories/orderRepository';
+import { OrderWriteRepository } from '../repositories/orderWriteRepository';
 import { InvoiceRepository } from '../repositories/invoiceRepository';
 import { InventoryService } from './inventoryService';
 
@@ -21,6 +22,7 @@ export interface CreateOrderResult {
 export class OrderService {
   constructor(
     private readonly orderRepository: OrderRepository,
+    private readonly orderWriteRepository: OrderWriteRepository,
     private readonly inventoryService: InventoryService,
     private readonly cashRepository: CashRepository,
     private readonly eventRepository: OrderEventRepository,
@@ -67,7 +69,7 @@ export class OrderService {
         });
       }
 
-      this.orderRepository.insertOrder({
+      this.orderWriteRepository.insertOrder({
         id: orderId,
         orderNumber,
         customerId: orderData.customerId,
@@ -109,7 +111,7 @@ export class OrderService {
           sourceMovementId: fabricMovement.id,
           createdAt
         };
-        this.orderRepository.insertMaterialUsage({ ...usage, itemId: usage.itemId || '', sourceMovementId: usage.sourceMovementId || '' });
+        this.orderWriteRepository.insertMaterialUsage({ ...usage, itemId: usage.itemId || '', sourceMovementId: usage.sourceMovementId || '' });
         materialUsages.push(usage);
       }
 
@@ -135,7 +137,7 @@ export class OrderService {
           sourceMovementId: movement.id,
           createdAt
         };
-        this.orderRepository.insertMaterialUsage({ ...usage, itemId: usage.itemId || '', sourceMovementId: usage.sourceMovementId || '' });
+        this.orderWriteRepository.insertMaterialUsage({ ...usage, itemId: usage.itemId || '', sourceMovementId: usage.sourceMovementId || '' });
         materialUsages.push(usage);
       }
 
@@ -151,7 +153,7 @@ export class OrderService {
         method: paymentMethod,
         note: 'دفعة أولى عند إنشاء الطلب'
       }] : [];
-      this.orderRepository.insertInvoice({
+      this.orderWriteRepository.insertInvoice({
         id: invId,
         invoiceNumber: `INV-${orderNumber}`,
         orderId,
@@ -222,7 +224,7 @@ export class OrderService {
           }
         }
 
-        this.orderRepository.deleteMaterialUsages(updatedOrder.id);
+        this.orderWriteRepository.deleteMaterialUsages(updatedOrder.id);
         if (updatedOrder.fabricId) {
           const newFabric = this.inventoryService.getMeta('fabric', updatedOrder.fabricId);
           const fabricBuyPrice = fabricChanged
@@ -231,7 +233,7 @@ export class OrderService {
           const newFabricMovement = this.inventoryService.recordMovement('fabric', updatedOrder.fabricId, -newMeters, 'sale', 'استهلاك قماش بعد تعديل الطلب', {
             type: 'order_update', id: updatedOrder.id, number: existing.order_number
           });
-          this.orderRepository.insertMaterialUsage({
+          this.orderWriteRepository.insertMaterialUsage({
             id: `OMU-${Date.now()}-fabric-update`, orderId: updatedOrder.id, itemType: 'fabric', itemId: updatedOrder.fabricId,
             itemName: updatedOrder.fabricName || 'قماش', quantity: newMeters, unit: 'متر', unitCostAtUsage: fabricBuyPrice,
             totalCost: round2(newMeters * fabricBuyPrice), sourceMovementId: newFabricMovement.id, createdAt: new Date().toISOString()
@@ -247,7 +249,7 @@ export class OrderService {
               type: 'order_update', id: updatedOrder.id, number: existing.order_number
             });
             const unitCost = Number(material.unitCostAtUsage ?? (material as any).unit_cost_at_usage ?? meta.purchasePrice ?? 0);
-            this.orderRepository.insertMaterialUsage({
+            this.orderWriteRepository.insertMaterialUsage({
               id: `OMU-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, orderId: updatedOrder.id,
               itemType, itemId, itemName: material.itemName || (material as any).item_name || meta.name,
               quantity, unit: material.unit || meta.unit, unitCostAtUsage: unitCost, totalCost: round2(quantity * unitCost),
@@ -260,7 +262,7 @@ export class OrderService {
       const totalAmount = updatedOrder.totalAmount || 0;
       const paidAmount = updatedOrder.paidAmount || 0;
       const remainingAmount = calculateOrderAmounts(totalAmount, paidAmount).remainingAmount;
-      this.orderRepository.updateOrder({
+      this.orderWriteRepository.updateOrder({
         id: updatedOrder.id, customerName: updatedOrder.customerName, customerPhone: updatedOrder.customerPhone,
         thobeTypeId: updatedOrder.thobeTypeId, thobeTypeName: updatedOrder.thobeTypeName || 'ثوب',
         fabricId: updatedOrder.fabricId, fabricName: updatedOrder.fabricName || 'قماش', fabricColor: updatedOrder.fabricColor || 'أبيض',
@@ -307,8 +309,8 @@ export class OrderService {
         }
       }
       this.invoiceRepository.deleteByOrderId(orderId);
-      this.orderRepository.deleteMaterialUsages(orderId);
-      this.orderRepository.delete(orderId);
+      this.orderWriteRepository.deleteMaterialUsages(orderId);
+      this.orderWriteRepository.delete(orderId);
     });
 
     deleteTx();

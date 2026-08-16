@@ -2,12 +2,13 @@ import { OrderEvent, PaymentRecord } from '../../types';
 import { CashRepository } from '../repositories/cashRepository';
 import { InvoiceRepository } from '../repositories/invoiceRepository';
 import { OrderEventRepository } from '../repositories/orderEventRepository';
-import { OrderRepository } from '../repositories/orderRepository';
+import { OrderWriteRepository } from '../repositories/orderWriteRepository';
+import { calculateOrderAmounts } from '../../services/shared/orderRules';
 
 export class PaymentService {
   constructor(
     private readonly invoiceRepository: InvoiceRepository,
-    private readonly orderRepository: OrderRepository,
+    private readonly orderWriteRepository: OrderWriteRepository,
     private readonly cashRepository: CashRepository,
     private readonly eventRepository: OrderEventRepository,
     private readonly db: { transaction<T>(callback: () => T): () => T }
@@ -38,11 +39,10 @@ export class PaymentService {
       };
       existingPayments.push(newPayment);
 
-      const newPaid = invoice.paid_amount + numericAmount;
-      const newRemaining = invoice.total_amount - newPaid;
-      const newStatus = newRemaining <= 0 ? 'paid' : 'partial';
+      const amounts = calculateOrderAmounts(invoice.total_amount, invoice.paid_amount + numericAmount);
+      const { paidAmount: newPaid, remainingAmount: newRemaining, paymentStatus: newStatus } = amounts;
       this.invoiceRepository.updatePayment(invoiceId, newPaid, newRemaining, newStatus, JSON.stringify(existingPayments));
-      this.orderRepository.updatePayment(invoice.order_id, newPaid, newRemaining);
+      this.orderWriteRepository.updatePayment(invoice.order_id, newPaid, newRemaining);
       this.cashRepository.insert({
         id: `CASH-PAY-${id}`,
         direction: 'in',

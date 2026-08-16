@@ -75,7 +75,30 @@ describe('db.transaction - Atomic Operations & Rollback Tests', () => {
     expect(fab?.quantityMeters).toBe(43);
   });
 
-  it('2. Rolls back transaction completely if fabric stock is insufficient', async () => {
+  it('2. Updates an order atomically when switching fabric and garment count', async () => {
+    const order = await window.electronAPI.createOrder({
+      id: 'ORD-UPDATE-001', customerId: 'CUST-001', customerName: 'أحمد علي',
+      fabricId: 'FAB-TEST-001', fabricName: 'قماش ياباني أبيض فاخر', garmentCount: 1, totalAmount: 300, paidAmount: 100
+    });
+    await db.transaction((draft) => {
+      draft.fabrics.push({
+        id: 'FAB-TEST-002', name: 'قماش كحلي للاختبار', color: 'كحلي', colorHex: '#111827',
+        purchasePrice: 55, sellingPrice: 80, quantityMeters: 20, minStockMeters: 2
+      });
+    });
+
+    await window.electronAPI.updateOrder({
+      ...order, fabricId: 'FAB-TEST-002', fabricName: 'قماش كحلي للاختبار', fabricColor: 'كحلي', garmentCount: 2
+    });
+    const updated = await window.electronAPI.getData();
+    expect(updated.fabrics.find((fabric) => fabric.id === 'FAB-TEST-001')?.quantityMeters).toBe(50);
+    expect(updated.fabrics.find((fabric) => fabric.id === 'FAB-TEST-002')?.quantityMeters).toBe(13);
+    expect(updated.orders[0].fabricId).toBe('FAB-TEST-002');
+    expect(updated.orders[0].fabricConsumptionMeters).toBe(7);
+    expect(updated.invoices[0].remainingAmount).toBe(200);
+  });
+
+  it('3. Rolls back transaction completely if fabric stock is insufficient', async () => {
     // Attempting to order 20 garments * 3.5m = 70m (only 50m available in inventory)
     const excessOrderData: Partial<Order> = {
       customerId: 'CUST-001',
@@ -102,7 +125,7 @@ describe('db.transaction - Atomic Operations & Rollback Tests', () => {
     expect(fab?.quantityMeters).toBe(50); // Unchanged 50m
   });
 
-  it('3. Rolls back completely if an unexpected error occurs during custom transaction callback', async () => {
+  it('4. Rolls back completely if an unexpected error occurs during custom transaction callback', async () => {
     await expect(
       db.transaction((draft) => {
         // Mutate draft state mid-way
@@ -124,7 +147,7 @@ describe('db.transaction - Atomic Operations & Rollback Tests', () => {
     expect(fab?.quantityMeters).toBe(50);
   });
 
-  it('4. Deleting an active order atomically restores fabric meters', async () => {
+  it('5. Deleting an active order atomically restores fabric meters', async () => {
     // First, create an order deducting 7 meters (leaving 43m)
     const order = await window.electronAPI.createOrder({
       customerId: 'CUST-001',
@@ -149,7 +172,7 @@ describe('db.transaction - Atomic Operations & Rollback Tests', () => {
     expect(data.fabrics[0].quantityMeters).toBe(50);
   });
 
-  it('5. Cancelling an order restores fabric stock, and deleting a cancelled order avoids double restoration', async () => {
+  it('6. Cancelling an order restores fabric stock, and deleting a cancelled order avoids double restoration', async () => {
     // 1. Create order (deducts 7m -> stock 43m)
     const order = await window.electronAPI.createOrder({
       customerId: 'CUST-001',
@@ -171,7 +194,7 @@ describe('db.transaction - Atomic Operations & Rollback Tests', () => {
     expect(data.fabrics[0].quantityMeters).toBe(50); // Remains 50m!
   });
 
-  it('6. Triggers stock alert notification automatically when stock falls below minStockMeters', async () => {
+  it('7. Triggers stock alert notification automatically when stock falls below minStockMeters', async () => {
     // Stock is 50m, minStockMeters is 10m.
     // Order 12 garments * 3.5m = 42 meters => Stock becomes 8 meters (<= 10m minStock)
     const { alertMessages } = await db.transaction(async (draft) => {
