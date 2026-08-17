@@ -458,7 +458,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ data, dataRevision, sh
           </div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full text-right text-xs">
+            <table className="sahwa-table w-full text-right text-xs">
               <thead className="bg-[#F0F0EE]/70 border-b border-[#DEDEDA] text-[#242424] font-bold">
                 <tr>
                   <th className="p-3.5 text-center w-20">رقم الطلب</th>
