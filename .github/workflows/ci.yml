@@ -48,4 +48,4 @@ jobs:
         run: npm run build:electron
 
       - name: Electron SQLite integration regression
-        run: npm run test:integration
+        run: xvfb-run -a npm run test:integration
