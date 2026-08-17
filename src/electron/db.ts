@@ -25,6 +25,7 @@ export class SahwaDatabaseManager {
   private legacyBackupDir?: string;
   private autoBackupTimer: NodeJS.Timeout | null = null;
   private closePromise: Promise<void> | null = null;
+  private backupQueue: Promise<void> = Promise.resolve();
 
   constructor(customDir?: string, legacyDir?: string, customBackupDir?: string) {
     const baseDir = customDir || path.join(process.cwd(), 'data');
@@ -287,7 +288,13 @@ export class SahwaDatabaseManager {
   /**
    * Rolling 14-backups Manager
    */
-  public async backupDatabase(reason: string = 'auto'): Promise<{ success: boolean; filePath?: string; error?: string }> {
+  public backupDatabase(reason: string = 'auto'): Promise<{ success: boolean; filePath?: string; error?: string }> {
+    const backupRun = this.backupQueue.then(() => this.performBackup(reason));
+    this.backupQueue = backupRun.then(() => undefined, () => undefined);
+    return backupRun;
+  }
+
+  private async performBackup(reason: string): Promise<{ success: boolean; filePath?: string; error?: string }> {
     try {
       const db = this.getRawDb();
       const settings = this.getSettings();
