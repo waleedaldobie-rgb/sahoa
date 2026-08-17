@@ -20,7 +20,7 @@ export const Button: React.FC<ButtonProps> = ({
   ...props
 }) => {
   const baseClasses =
-    'inline-flex items-center justify-center font-bold transition-all duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#b08a4a] focus-visible:ring-offset-2 focus-visible:ring-offset-white cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed select-none whitespace-nowrap rounded-xl tracking-tight active:scale-[0.97]';
+    'sahwa-button inline-flex items-center justify-center cursor-pointer select-none whitespace-nowrap tracking-tight';
 
   const sizeClasses = {
     sm: 'h-9 px-4 text-xs gap-1.5 min-w-[70px]',
@@ -29,20 +29,13 @@ export const Button: React.FC<ButtonProps> = ({
   };
 
   const variantClasses = {
-    primary:
-      'bg-[#111111] text-white hover:bg-[#2A2A2A] border border-transparent shadow-md hover:shadow-lg',
-    secondary:
-      'bg-white text-[#111111] border border-[#E5E7EB] hover:border-[#111111] hover:bg-[#F9FAFB] shadow-sm',
-    'outline-dark':
-      'bg-transparent text-[#111111] border-2 border-[#111111] hover:bg-[#111111] hover:text-white',
-    'outline-amber':
-      'bg-amber-50 text-amber-800 border border-amber-200 hover:bg-amber-100',
-    ghost:
-      'bg-transparent border-transparent text-[#6B7280] hover:bg-[#F3F4F6] hover:text-[#111111] active:scale-100',
-    danger:
-      'bg-rose-600 text-white hover:bg-rose-700 border border-transparent shadow-sm',
-    success:
-      'bg-emerald-600 text-white hover:bg-emerald-700 border border-transparent shadow-sm'
+    primary: 'sahwa-button--primary',
+    secondary: 'sahwa-button--secondary',
+    'outline-dark': 'sahwa-button--outline-dark',
+    'outline-amber': 'sahwa-button--outline-amber',
+    ghost: 'sahwa-button--ghost',
+    danger: 'sahwa-button--danger',
+    success: 'sahwa-button--success'
   };
 
   return (
@@ -90,26 +83,26 @@ export const Card: React.FC<CardProps> = ({
 
   return (
     <div
-      className={`ui-card bg-white border border-[#E5E7EB] rounded-2xl shadow-[0_1px_3px_0_rgba(0,0,0,0.05),0_1px_2px_0_rgba(0,0,0,0.06)] hover:shadow-[0_10px_15px_-3px_rgba(0,0,0,0.05),0_4px_6px_-2px_rgba(0,0,0,0.05)] transition-all duration-300 ${accentBorderMap[accentBorder]} ${className}`}
+      className={`ui-card sahwa-card transition-all duration-300 ${accentBorderMap[accentBorder]} ${className}`}
       {...props}
     >
       {(title || action || headerIcon) && (
-        <div className="ui-card-header flex items-center justify-between gap-3 px-6 py-5 border-b border-[#F3F4F6]">
+        <div className="ui-card-header sahwa-card-header flex items-center justify-between gap-3 px-6 py-5">
           <div className="flex items-center gap-3.5">
             {headerIcon && (
-              <div className="w-10 h-10 rounded-xl bg-[#F9FAFB] border border-[#E5E7EB] flex items-center justify-center text-[#111111] shrink-0">
+              <div className="sahwa-card-icon w-10 h-10 rounded-xl flex items-center justify-center shrink-0">
                 {headerIcon}
               </div>
             )}
             <div>
-              {title && <h3 className="text-[15px] font-black text-[#111111] tracking-tight">{title}</h3>}
-              {subtitle && <p className="text-[12px] text-[#374151] mt-0.5 font-black">{subtitle}</p>}
+              {title && <h3 className="sahwa-card-title text-[15px] font-black tracking-tight">{title}</h3>}
+              {subtitle && <p className="sahwa-card-subtitle text-[12px] mt-0.5 font-black">{subtitle}</p>}
             </div>
           </div>
           {action && <div className="flex items-center gap-2">{action}</div>}
         </div>
       )}
-      <div className="ui-card-body p-6">{children}</div>
+      <div className="ui-card-body sahwa-card-body p-6">{children}</div>
     </div>
   );
 };
@@ -234,7 +227,7 @@ export const Modal: React.FC<ModalProps> = ({
     <div className={`fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6 overflow-y-auto ${allowPrint ? 'modal-print-host' : 'no-print'}`}>
       {/* Dimmed Overlay */}
       <div
-        className={`fixed inset-0 bg-[#000000]/40 backdrop-blur-md transition-opacity duration-300 ${allowPrint ? 'no-print' : ''}`}
+        className={`sahwa-modal-overlay fixed inset-0 transition-opacity duration-300 ${allowPrint ? 'no-print' : ''}`}
         onClick={onClose}
         aria-hidden="true"
       />
@@ -246,15 +239,15 @@ export const Modal: React.FC<ModalProps> = ({
         aria-modal={allowPrint ? undefined : true}
         aria-labelledby={titleId}
         tabIndex={-1}
-        className={`relative w-full ${maxWidthClasses[maxWidth]} bg-white rounded-3xl shadow-[0_20px_50px_-12px_rgba(0,0,0,0.25)] overflow-hidden flex flex-col my-auto max-h-[92vh] z-10 text-[#111111] animate-in fade-in zoom-in duration-200 ${allowPrint ? 'modal-print-dialog' : ''}`}
+        className={`sahwa-modal relative w-full ${maxWidthClasses[maxWidth]} overflow-hidden flex flex-col my-auto max-h-[92vh] z-10 animate-in fade-in zoom-in duration-200 ${allowPrint ? 'modal-print-dialog' : ''}`}
       >
         {/* Header */}
-        <div className={`flex items-center justify-between px-8 py-6 bg-white border-b border-[#F3F4F6] ${allowPrint ? 'no-print' : ''}`}>
-          <h3 id={titleId} className="text-lg font-black text-[#111111] tracking-tight">{title}</h3>
+        <div className={`sahwa-modal-header flex items-center justify-between px-8 py-6 ${allowPrint ? 'no-print' : ''}`}>
+          <h3 id={titleId} className="text-lg font-black text-[var(--color-text-token)] tracking-tight">{title}</h3>
           <button
             type="button"
             onClick={onClose}
-            className="w-10 h-10 rounded-full bg-[#F9FAFB] flex items-center justify-center text-[#6B7280] hover:bg-[#111111] hover:text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-[#b08a4a] focus-visible:ring-offset-2 transition-all duration-200 cursor-pointer shadow-sm"
+            className="sahwa-modal-close sahwa-button w-10 h-10 rounded-full flex items-center justify-center focus:outline-none cursor-pointer"
             title="إغلاق"
             aria-label="إغلاق النافذة"
           >
@@ -263,11 +256,11 @@ export const Modal: React.FC<ModalProps> = ({
         </div>
 
         {/* Content Body */}
-        <div className={`p-8 overflow-y-auto flex-1 text-[#4B5563] bg-white ${allowPrint ? 'modal-print-body' : ''}`}>{children}</div>
+        <div className={`sahwa-modal-body p-8 overflow-y-auto flex-1 ${allowPrint ? 'modal-print-body' : ''}`}>{children}</div>
 
         {/* Footer */}
         {footer && (
-          <div className={`flex items-center justify-end gap-4 px-8 py-6 bg-[#F9FAFB] border-t border-[#F3F4F6] ${allowPrint ? 'no-print' : ''}`}>
+          <div className={`sahwa-modal-footer flex items-center justify-end gap-4 px-8 py-6 ${allowPrint ? 'no-print' : ''}`}>
             {footer}
           </div>
         )}
@@ -382,38 +375,39 @@ export interface InputProps extends React.InputHTMLAttributes<HTMLInputElement> 
   icon?: React.ReactNode;
 }
 
-export const Input: React.FC<InputProps> = ({
+export const Input = React.forwardRef<HTMLInputElement, InputProps>(({
   label,
   error,
   icon,
   className = '',
   ...props
-}) => {
+}, ref) => {
   const fieldId = React.useId();
   const errorId = `${fieldId}-error`;
   const describedBy = error ? [props['aria-describedby'], errorId].filter(Boolean).join(' ') : props['aria-describedby'];
 
   return (
     <div className="w-full">
-      {label && <label htmlFor={props.id || fieldId} className="block text-[13px] font-black text-[#111111] mb-2">{label}</label>}
+      {label && <label htmlFor={props.id || fieldId} className="sahwa-field-label block text-[13px] font-black mb-2">{label}</label>}
       <div className="relative flex items-center group">
-        {icon && <span className="absolute right-4 text-[#9CA3AF] group-focus-within:text-[#111111] transition-colors pointer-events-none">{icon}</span>}
+        {icon && <span className="sahwa-field-icon absolute right-4 pointer-events-none">{icon}</span>}
         <input
-          className={`w-full bg-white border-2 border-[#E5E7EB] text-[#111111] rounded-xl h-12 text-sm font-bold ${
-            icon ? 'pr-11 pl-4' : 'px-4'
-          } focus:outline-none focus:border-[#111111] focus:ring-4 focus:ring-[#111111]/5 placeholder:text-[#6B7280] transition-all duration-200 ${
-            error ? 'border-rose-500 focus:ring-rose-500/10' : ''
+          className={`sahwa-field w-full text-sm ${icon ? 'pr-11 pl-4' : 'px-4'} ${
+            error ? 'sahwa-field--error' : ''
           } ${className}`}
           {...props}
+          ref={ref}
           id={props.id || fieldId}
           aria-invalid={error ? true : props['aria-invalid']}
           aria-describedby={describedBy}
         />
       </div>
-      {error && <p id={errorId} role="alert" className="text-xs font-bold text-rose-500 mt-1.5">{error}</p>}
+      {error && <p id={errorId} role="alert" className="sahwa-field-error text-xs font-bold mt-1.5">{error}</p>}
     </div>
   );
-};
+});
+
+Input.displayName = 'Input';
 
 export interface SelectProps extends React.SelectHTMLAttributes<HTMLSelectElement> {
   label?: string;
@@ -433,11 +427,12 @@ export const Select: React.FC<SelectProps> = ({
 
   return (
     <div className="w-full">
-      {label && <label htmlFor={props.id || fieldId} className="block text-[13px] font-black text-[#111111] mb-2">{label}</label>}
+      {label && <label htmlFor={props.id || fieldId} className="sahwa-field-label block text-[13px] font-black mb-2">{label}</label>}
       <select
-        className={`w-full bg-white border-2 border-[#E5E7EB] text-[#111111] rounded-xl h-12 text-sm font-bold px-4 focus:outline-none focus:border-[#111111] focus:ring-4 focus:ring-[#111111]/5 transition-all duration-200 appearance-none bg-[url('data:image/svg+xml;charset=US-ASCII,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2224%22%20height%3D%2224%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22%236B7280%22%20stroke-width%3D%222%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpolyline%20points%3D%226%209%2012%2015%2018%209%22%3E%3C%2Fpolyline%3E%3C%2Fsvg%3E')] bg-[length:1.25rem] bg-[right_1rem_center] bg-no-repeat ${
-          error ? 'border-rose-500 focus:ring-rose-500/10' : ''
-        } ${className}`}
+        className={`sahwa-field w-full text-sm appearance-none bg-[url('data:image/svg+xml;charset=US-ASCII,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2224%22%20height%3D%2224%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22%23707070%22%20stroke-width%3D%222%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpolyline%20points%3D%226%209%2012%2015%2018%209%22%3E%3C%2Fpolyline%3E%3C%2Fsvg%3E')] bg-[length:1.25rem] bg-[right_1rem_center] bg-no-repeat ${
+            error ? 'sahwa-field--error' : ''
+          } ${className}`}
+
         {...props}
         id={props.id || fieldId}
         aria-invalid={error ? true : props['aria-invalid']}
@@ -445,7 +440,7 @@ export const Select: React.FC<SelectProps> = ({
       >
         {children}
       </select>
-      {error && <p id={errorId} role="alert" className="text-xs font-bold text-rose-500 mt-1.5">{error}</p>}
+      {error && <p id={errorId} role="alert" className="sahwa-field-error text-xs font-bold mt-1.5">{error}</p>}
     </div>
   );
 };

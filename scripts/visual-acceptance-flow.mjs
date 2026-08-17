@@ -73,6 +73,7 @@ async function clickText(text) {
 }
 
 const results = [];
+await clickText('لوحة التحكم');
 results.push(await capture('01-dashboard', 'initial dashboard'));
 for (const [index, item] of ['إدارة الطلبات', 'العملاء والمقاسات', 'الفواتير والحسابات', 'المخزون والأصناف', 'المحاسبة والمشتريات', 'التقارير والإحصائيات', 'الإعدادات'].entries()) {
   await clickText(item);
@@ -81,10 +82,18 @@ for (const [index, item] of ['إدارة الطلبات', 'العملاء وال
 await clickText('لوحة التحكم');
 await clickText('تسجيل طلب جديد');
 results.push(await capture('09-new-order-modal', 'open new order modal'));
+await evaluate(`(() => { const heading = Array.from(document.querySelectorAll('h3')).find((element) => element.innerText.includes('جدول القياسات والرسومات')); if (heading) heading.scrollIntoView({ block: 'start' }); })()`);
+await new Promise((resolve) => setTimeout(resolve, 500));
+results.push(await capture('09-order-measurements', 'new order measurements section'));
 await evaluate(`(() => { const element = Array.from(document.querySelectorAll('button')).find((button) => /إلغاء|إغلاق/.test(button.innerText)); if (element) element.click(); })()`);
 await new Promise((resolve) => setTimeout(resolve, 500));
 await clickText('نسخة احتياطية (استيراد/تصدير)');
 results.push(await capture('10-backup-modal', 'open backup modal'));
+await evaluate(`(() => { const element = Array.from(document.querySelectorAll('button')).find((button) => /إغلاق/.test(button.innerText)); if (element) element.click(); })()`);
+await new Promise((resolve) => setTimeout(resolve, 500));
+await clickText('العملاء والمقاسات');
+await clickText('إضافة عميل جديد');
+results.push(await capture('11-new-customer-form', 'open new customer form'));
 fs.writeFileSync(path.join(outputDir, 'summary.json'), JSON.stringify(results, null, 2));
 socket.close();
 console.log(JSON.stringify(results.map((result) => ({ action: result.action, visibleText: result.visibleText, buttons: result.buttons.length, dialogs: result.dialogs })), null, 2));

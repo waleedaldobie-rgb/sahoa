@@ -30,6 +30,46 @@ import {
   Send
 } from 'lucide-react';
 
+const ORDER_STATUS_STEPS: Array<{ id: OrderStatus; label: string; description: string; icon: React.ReactNode }> = [
+  { id: 'new', label: 'جديد', description: 'تم استلام الطلب', icon: <Scissors className="h-4 w-4" aria-hidden="true" /> },
+  { id: 'processing', label: 'تحت التنفيذ', description: 'قيد الخياطة', icon: <Play className="h-4 w-4" aria-hidden="true" /> },
+  { id: 'ready', label: 'جاهز', description: 'بانتظار التسليم', icon: <CheckCircle2 className="h-4 w-4" aria-hidden="true" /> },
+  { id: 'delivered', label: 'مُسلم', description: 'اكتمل الطلب', icon: <PackageCheck className="h-4 w-4" aria-hidden="true" /> }
+];
+
+const OrderStatusStepper: React.FC<{
+  currentStatus: OrderStatus;
+  onStatusSelect: (status: OrderStatus) => void;
+}> = ({ currentStatus, onStatusSelect }) => {
+  const currentIndex = ORDER_STATUS_STEPS.findIndex((step) => step.id === currentStatus);
+  return (
+    <div className="sahwa-status-stepper" role="group" aria-label="مسار حالة الطلب">
+      {ORDER_STATUS_STEPS.map((step, index) => {
+        const state = index < currentIndex ? 'complete' : index === currentIndex ? 'active' : 'upcoming';
+        return (
+          <button
+            key={step.id}
+            type="button"
+            className="sahwa-status-step"
+            data-state={state}
+            aria-current={state === 'active' ? 'step' : undefined}
+            aria-label={`${step.label}: ${step.description}`}
+            onClick={() => onStatusSelect(step.id)}
+          >
+            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-current/20" aria-hidden="true">
+              {step.icon}
+            </span>
+            <span className="min-w-0 text-right">
+              <span className="block text-xs font-black">{step.label}</span>
+              <span className="mt-0.5 block text-[10px] font-bold opacity-70">{step.description}</span>
+            </span>
+          </button>
+        );
+      })}
+    </div>
+  );
+};
+
 export interface OrdersViewProps {
   orders: Order[];
   customers: Customer[];
@@ -494,19 +534,25 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
       </div>
 
       {/* Filters Bar */}
-      <Card className="p-4 bg-[#F9FAFB]/50 border-dashed">
-        <div className="flex flex-col lg:flex-row gap-4 items-center justify-between">
-          <div className="relative w-full lg:w-96">
-            <Input
-              placeholder="بحث برقم الطلب، اسم العميل، أو الجوال..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              icon={<Search className="w-5 h-5" />}
-              className="h-11 border-dashed"
-            />
+      <Card className="p-4 orders-filter-card">
+        <div className="flex flex-col lg:flex-row gap-4 items-end justify-between">
+          <div className="orders-filter-toolbar">
+            <div className="relative w-full lg:max-w-lg">
+              <Input
+                aria-label="البحث في الطلبات برقم الطلب أو اسم العميل أو الجوال"
+                placeholder="بحث برقم الطلب، اسم العميل، أو الجوال..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                icon={<Search className="w-5 h-5" aria-hidden="true" />}
+                className="h-11"
+              />
+            </div>
+            <Button type="button" variant="ghost" size="sm" onClick={() => { setSearchTerm(''); setStatusFilter('all'); }} disabled={!searchTerm && statusFilter === 'all'}>
+              إعادة ضبط الفلاتر
+            </Button>
           </div>
 
-          <div className="flex items-center gap-1.5 p-1 bg-white border border-[#E5E7EB] rounded-xl overflow-x-auto w-full lg:w-auto">
+          <div className="flex items-center gap-1.5 p-1 bg-white border border-[#E5E7EB] rounded-xl overflow-x-auto w-full lg:w-auto" role="group" aria-label="تصفية حالة الطلب">
             {[
               { id: 'all', label: 'الكل' },
               { id: 'new', label: 'جديد' },
@@ -528,6 +574,7 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
             ))}
           </div>
         </div>
+        <div className="orders-filter-meta" aria-live="polite">عرض {filteredOrders.length} من أصل {orders.length} طلب</div>
       </Card>
 
       {/* Orders Table */}
@@ -1005,7 +1052,20 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
             </div>
 
             {detailTab === 'info' ? (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="space-y-6">
+                <section aria-labelledby="order-status-heading">
+                  <div className="mb-3 flex items-center justify-between gap-3">
+                    <div>
+                      <h3 id="order-status-heading" className="text-sm font-black text-[#111111]">مسار حالة الطلب</h3>
+                      <p className="mt-1 text-[11px] font-bold text-[#6B7280]">اختر مرحلة لتحديث حالة الطلب وتسجيلها في سجل الأحداث.</p>
+                    </div>
+                    <Badge variant={selectedOrder.status === 'delivered' ? 'emerald' : selectedOrder.status === 'ready' ? 'amber' : 'slate'}>
+                      {getStatusText(selectedOrder.status)}
+                    </Badge>
+                  </div>
+                  <OrderStatusStepper currentStatus={selectedOrder.status} onStatusSelect={(status) => handleQuickStatusChange(selectedOrder, status)} />
+                </section>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div className="space-y-4">
                   <div className="p-4 bg-[#F9FAFB] rounded-2xl border border-[#E5E7EB]">
                     <h4 className="text-[11px] font-black text-[#9CA3AF] uppercase mb-3 tracking-wider">بيانات العميل</h4>
@@ -1101,6 +1161,7 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
                       <p className="text-xs font-bold text-amber-900 leading-relaxed">{selectedOrder.notes}</p>
                     </div>
                   )}
+                </div>
                 </div>
               </div>
             ) : detailTab === 'measurements' ? (

@@ -35,6 +35,8 @@ export default function App() {
   const [prefs, setPrefs] = useState<UserPreferences>({ activeTab: 'dashboard', invoicePrintMode: 'detailed' });
   const [isLoading, setIsLoading] = useState(true);
   const [dataRevision, setDataRevision] = useState(INITIAL_DATA_REVISION);
+  const [lastUpdatedAt, setLastUpdatedAt] = useState<number | null>(null);
+  const [isDashboardRefreshing, setIsDashboardRefreshing] = useState(false);
 
   // CRUD Loading State for background operations
   const [crudProgress, setCrudProgress] = useState<{ isExecuting: boolean; label: string }>({
@@ -108,6 +110,7 @@ export default function App() {
 
       setData(updatedData);
       setDataRevision((current) => bumpDataRevision(current, ALL_DATA_SLICES));
+      setLastUpdatedAt(Date.now());
       setPrefs(appPrefs);
       setIsLoading(false);
       return alertMessages;
@@ -182,6 +185,7 @@ export default function App() {
     if (updatedData !== mergedData) await window.electronAPI.saveData(updatedData);
     setData(updatedData);
     setDataRevision((current) => bumpDataRevision(current, slices));
+    setLastUpdatedAt(Date.now());
     return alertMessages;
   };
 
@@ -226,10 +230,20 @@ export default function App() {
   }, []);
 
   // Save Shop Settings
-  const handleSaveShopSettings = React.useCallback((shopPrefs: Partial<UserPreferences>) => {
+  const handleSaveShopSettings = React.useCallback(async (shopPrefs: Partial<UserPreferences>) => {
+    const saved = await window.electronAPI.savePreferences(shopPrefs);
+    if (saved === false) throw new Error('تعذر حفظ إعدادات المحل');
     setPrefs((prev) => ({ ...prev, ...shopPrefs }));
-    void window.electronAPI.savePreferences(shopPrefs);
   }, []);
+
+  const handleRefreshDashboard = React.useCallback(async () => {
+    setIsDashboardRefreshing(true);
+    try {
+      await refreshSlices(['orders', 'invoices', 'fabrics', 'accessories', 'notifications']);
+    } finally {
+      setIsDashboardRefreshing(false);
+    }
+  }, [data]);
 
   const handleOpenBackupModal = React.useCallback(() => setIsBackupModalOpen(true), []);
   const handleOpenNotifications = React.useCallback(() => setIsNotificationsModalOpen(true), []);
@@ -808,7 +822,11 @@ await executeCrud('جاري حذف الإكسسوار...', async () => {
           {prefs.activeTab === 'dashboard' && (
             <DashboardView
               data={data}
+              dataRevision={dataRevision}
               onNavigateTab={handleTabChange}
+              onRefreshDashboard={handleRefreshDashboard}
+              isRefreshing={isDashboardRefreshing}
+              lastUpdatedAt={lastUpdatedAt}
               onSelectOrder={(ord) => {
                 setSelectedOrderForDetail(ord);
                 handleTabChange('orders');
