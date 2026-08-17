@@ -2,8 +2,8 @@ import { CashTransaction, ExpenseRecord, InventoryItemType, PurchaseRecord } fro
 import { AccountingRepository } from '../repositories/accountingRepository';
 import { CashRepository } from '../repositories/cashRepository';
 import { InventoryService } from './inventoryService';
-
-const round2 = (value: number) => Math.round((Number(value) + Number.EPSILON) * 100) / 100;
+import { normalizePositiveAmount } from '../../domain/amountRules';
+import { round2 } from '../../domain/inventoryRules';
 
 export class AccountingService {
   constructor(
@@ -104,9 +104,8 @@ export class AccountingService {
   createExpense(payload: any): string {
     const expenseId = payload.id || `EXP-${Date.now()}`;
     if (this.repository.findExpense(expenseId)) return expenseId;
-    const amount = Number(payload.amount);
     if (!payload.category?.trim() || !payload.description?.trim()) throw new Error('تصنيف ووصف المصروف مطلوبان');
-    if (!Number.isFinite(amount) || amount <= 0) throw new Error('مبلغ المصروف يجب أن يكون أكبر من صفر');
+    const amount = normalizePositiveAmount(payload.amount, 'مبلغ المصروف');
     const now = new Date().toISOString();
     const expenseDate = payload.expenseDate || now.slice(0, 10);
 

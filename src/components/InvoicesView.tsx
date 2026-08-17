@@ -19,6 +19,7 @@ export interface InvoicesViewProps {
   invoicePrintMode: 'detailed' | 'summary';
   userPreferences?: UserPreferences;
   onUpdateInvoiceMode: (mode: 'detailed' | 'summary') => void;
+  onNavigateTab?: (tabId: string) => void;
   onAddPayment: (invoiceId: string, payment: PaymentRecord) => Promise<void> | void;
   showToast: (msg: string, type: 'success' | 'danger' | 'warning' | 'info') => void;
 }
@@ -27,6 +28,7 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
   invoices,
   orders,
   userPreferences,
+  onNavigateTab,
   onAddPayment,
   showToast
 }) => {
@@ -154,8 +156,9 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
         {filteredInvoices.length === 0 ? (
           <EmptyState
             icon={<Receipt className="w-8 h-8" />}
-            title="لا توجد فواتير"
-            description="ستظهر الفواتير هنا تلقائياً عند تسجيل طلبات جديدة للعملاء."
+            title={searchTerm.trim() ? 'لا توجد فواتير مطابقة لبحثك' : 'لا توجد فواتير بعد'}
+            description={searchTerm.trim() ? 'جرّب رقم فاتورة أو اسم عميل مختلفًا، أو امسح البحث.' : 'ستظهر الفواتير هنا تلقائيًا عند تسجيل طلبات جديدة للعملاء.'}
+            action={searchTerm.trim() ? <Button size="sm" variant="secondary" onClick={() => setSearchTerm('')}>مسح البحث</Button> : onNavigateTab ? <Button size="sm" variant="primary" onClick={() => onNavigateTab('orders')} icon={<Receipt className="w-4 h-4" />}>الانتقال إلى الطلبات</Button> : undefined}
           />
         ) : (
           <div className="overflow-x-auto">
