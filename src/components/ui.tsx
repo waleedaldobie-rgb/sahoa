@@ -20,12 +20,12 @@ export const Button: React.FC<ButtonProps> = ({
   ...props
 }) => {
   const baseClasses =
-    'inline-flex items-center justify-center font-bold transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-black/5 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed select-none whitespace-nowrap rounded-xl tracking-tight active:scale-[0.97]';
+    'inline-flex items-center justify-center font-bold transition-all duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#b08a4a] focus-visible:ring-offset-2 focus-visible:ring-offset-white cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed select-none whitespace-nowrap rounded-xl tracking-tight active:scale-[0.97]';
 
   const sizeClasses = {
     sm: 'h-9 px-4 text-xs gap-1.5 min-w-[70px]',
-    md: 'h-11 px-6 text-sm gap-2 min-w-[90px]',
-    lg: 'h-13 px-8 text-base gap-2.5 min-w-[110px]'
+    md: 'h-11 px-5 text-sm gap-2 min-w-[90px]',
+    lg: 'h-12 px-6 text-base gap-2.5 min-w-[110px]'
   };
 
   const variantClasses = {
@@ -54,7 +54,7 @@ export const Button: React.FC<ButtonProps> = ({
       {isLoading ? (
         <Loader2 className="w-4 h-4 animate-spin text-current" />
       ) : (
-        icon && <span className="inline-flex shrink-0">{icon}</span>
+        icon && <span className="inline-flex shrink-0" aria-hidden={Boolean(children)}>{icon}</span>
       )}
       <span>{children}</span>
     </button>
@@ -90,11 +90,11 @@ export const Card: React.FC<CardProps> = ({
 
   return (
     <div
-      className={`bg-white border border-[#E5E7EB] rounded-2xl shadow-[0_1px_3px_0_rgba(0,0,0,0.05),0_1px_2px_0_rgba(0,0,0,0.06)] hover:shadow-[0_10px_15px_-3px_rgba(0,0,0,0.05),0_4px_6px_-2px_rgba(0,0,0,0.05)] transition-all duration-300 ${accentBorderMap[accentBorder]} ${className}`}
+      className={`ui-card bg-white border border-[#E5E7EB] rounded-2xl shadow-[0_1px_3px_0_rgba(0,0,0,0.05),0_1px_2px_0_rgba(0,0,0,0.06)] hover:shadow-[0_10px_15px_-3px_rgba(0,0,0,0.05),0_4px_6px_-2px_rgba(0,0,0,0.05)] transition-all duration-300 ${accentBorderMap[accentBorder]} ${className}`}
       {...props}
     >
       {(title || action || headerIcon) && (
-        <div className="flex items-center justify-between gap-3 px-6 py-5 border-b border-[#F3F4F6]">
+        <div className="ui-card-header flex items-center justify-between gap-3 px-6 py-5 border-b border-[#F3F4F6]">
           <div className="flex items-center gap-3.5">
             {headerIcon && (
               <div className="w-10 h-10 rounded-xl bg-[#F9FAFB] border border-[#E5E7EB] flex items-center justify-center text-[#111111] shrink-0">
@@ -109,7 +109,7 @@ export const Card: React.FC<CardProps> = ({
           {action && <div className="flex items-center gap-2">{action}</div>}
         </div>
       )}
-      <div className="p-6">{children}</div>
+      <div className="ui-card-body p-6">{children}</div>
     </div>
   );
 };
@@ -162,6 +162,62 @@ export const Modal: React.FC<ModalProps> = ({
   maxWidth = 'lg',
   allowPrint = false
 }) => {
+  const dialogRef = React.useRef<HTMLDivElement>(null);
+  const previousActiveElement = React.useRef<HTMLElement | null>(null);
+  const onCloseRef = React.useRef(onClose);
+  const modalId = React.useId();
+
+  React.useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
+  const titleId = `modal-title-${modalId}`;
+
+  React.useEffect(() => {
+    if (!isOpen || allowPrint) return;
+
+    previousActiveElement.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const dialog = dialogRef.current;
+    const focusableSelector = 'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+    const focusFirstControl = () => {
+      const firstFocusable = dialog?.querySelector<HTMLElement>('[autofocus], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), button:not([disabled]), [tabindex]:not([tabindex="-1"])');
+      (firstFocusable || dialog)?.focus();
+    };
+
+    const frame = window.requestAnimationFrame(focusFirstControl);
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        onCloseRef.current();
+        return;
+      }
+      if (event.key !== 'Tab' || !dialog) return;
+      const focusable = Array.from(dialog.querySelectorAll(focusableSelector)) as HTMLElement[];
+      if (focusable.length === 0) {
+        event.preventDefault();
+        dialog.focus();
+        return;
+      }
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      document.removeEventListener('keydown', handleKeyDown);
+      if (previousActiveElement.current && document.body.contains(previousActiveElement.current)) {
+        previousActiveElement.current.focus();
+      }
+    };
+  }, [isOpen, allowPrint]);
+
   if (!isOpen) return null;
 
   const maxWidthClasses = {
@@ -180,19 +236,27 @@ export const Modal: React.FC<ModalProps> = ({
       <div
         className={`fixed inset-0 bg-[#000000]/40 backdrop-blur-md transition-opacity duration-300 ${allowPrint ? 'no-print' : ''}`}
         onClick={onClose}
+        aria-hidden="true"
       />
 
       {/* Modal Dialog Box */}
       <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal={allowPrint ? undefined : true}
+        aria-labelledby={titleId}
+        tabIndex={-1}
         className={`relative w-full ${maxWidthClasses[maxWidth]} bg-white rounded-3xl shadow-[0_20px_50px_-12px_rgba(0,0,0,0.25)] overflow-hidden flex flex-col my-auto max-h-[92vh] z-10 text-[#111111] animate-in fade-in zoom-in duration-200 ${allowPrint ? 'modal-print-dialog' : ''}`}
       >
         {/* Header */}
         <div className={`flex items-center justify-between px-8 py-6 bg-white border-b border-[#F3F4F6] ${allowPrint ? 'no-print' : ''}`}>
-          <h3 className="text-lg font-black text-[#111111] tracking-tight">{title}</h3>
+          <h3 id={titleId} className="text-lg font-black text-[#111111] tracking-tight">{title}</h3>
           <button
+            type="button"
             onClick={onClose}
-            className="w-10 h-10 rounded-full bg-[#F9FAFB] flex items-center justify-center text-[#6B7280] hover:bg-[#111111] hover:text-white transition-all duration-200 cursor-pointer shadow-sm"
+            className="w-10 h-10 rounded-full bg-[#F9FAFB] flex items-center justify-center text-[#6B7280] hover:bg-[#111111] hover:text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-[#b08a4a] focus-visible:ring-offset-2 transition-all duration-200 cursor-pointer shadow-sm"
             title="إغلاق"
+            aria-label="إغلاق النافذة"
           >
             <X className="w-5 h-5" />
           </button>
@@ -242,24 +306,29 @@ export const Toast: React.FC<{ toast: ToastState; onClose: () => void }> = ({
   };
 
   return (
-    <div className="fixed top-8 left-1/2 -translate-x-1/2 z-[100] no-print animate-in slide-in-from-top duration-300">
+    <div className="fixed top-8 left-1/2 -translate-x-1/2 z-[100] no-print animate-in slide-in-from-top duration-300 w-[calc(100vw-2rem)] max-w-lg">
       <div
-        className={`flex items-center gap-4 px-6 py-4 border min-w-[360px] max-w-lg rounded-2xl ${bgBorderMap[toast.type]}`}
+        role={toast.type === 'danger' ? 'alert' : 'status'}
+        aria-live={toast.type === 'danger' ? 'assertive' : 'polite'}
+        className={`flex items-center gap-4 px-6 py-4 border min-w-0 w-full rounded-2xl ${bgBorderMap[toast.type]}`}
       >
-        {iconMap[toast.type]}
-        <span className="text-sm font-black flex-1">{toast.message}</span>
+        <span aria-hidden="true">{iconMap[toast.type]}</span>
+        <span className="text-sm font-black flex-1 break-words whitespace-pre-line">{toast.message}</span>
         {toast.actionLabel && toast.onAction && (
-            <button
+              <button
               type="button"
               onClick={() => { toast.onAction?.(); onClose(); }}
+              aria-label={toast.actionLabel}
               className="mr-2 px-4 py-2 rounded-xl bg-[#111111] text-white text-xs font-black hover:bg-[#2A2A2A] transition-all"
             >
               {toast.actionLabel}
             </button>
           )}
           <button
+          type="button"
           onClick={onClose}
-          className="text-[#9CA3AF] hover:text-[#111111] transition-colors p-2 rounded-full hover:bg-[#F3F4F6]"
+          aria-label="إغلاق الإشعار"
+          className="text-[#9CA3AF] hover:text-[#111111] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#b08a4a] focus-visible:ring-offset-2 transition-colors p-2 rounded-full hover:bg-[#F3F4F6]"
         >
           <X className="w-5 h-5" />
         </button>
@@ -320,9 +389,13 @@ export const Input: React.FC<InputProps> = ({
   className = '',
   ...props
 }) => {
+  const fieldId = React.useId();
+  const errorId = `${fieldId}-error`;
+  const describedBy = error ? [props['aria-describedby'], errorId].filter(Boolean).join(' ') : props['aria-describedby'];
+
   return (
     <div className="w-full">
-      {label && <label className="block text-[13px] font-black text-[#111111] mb-2">{label}</label>}
+      {label && <label htmlFor={props.id || fieldId} className="block text-[13px] font-black text-[#111111] mb-2">{label}</label>}
       <div className="relative flex items-center group">
         {icon && <span className="absolute right-4 text-[#9CA3AF] group-focus-within:text-[#111111] transition-colors pointer-events-none">{icon}</span>}
         <input
@@ -332,9 +405,12 @@ export const Input: React.FC<InputProps> = ({
             error ? 'border-rose-500 focus:ring-rose-500/10' : ''
           } ${className}`}
           {...props}
+          id={props.id || fieldId}
+          aria-invalid={error ? true : props['aria-invalid']}
+          aria-describedby={describedBy}
         />
       </div>
-      {error && <p className="text-xs font-bold text-rose-500 mt-1.5">{error}</p>}
+      {error && <p id={errorId} role="alert" className="text-xs font-bold text-rose-500 mt-1.5">{error}</p>}
     </div>
   );
 };
@@ -351,18 +427,25 @@ export const Select: React.FC<SelectProps> = ({
   className = '',
   ...props
 }) => {
+  const fieldId = React.useId();
+  const errorId = `${fieldId}-error`;
+  const describedBy = error ? [props['aria-describedby'], errorId].filter(Boolean).join(' ') : props['aria-describedby'];
+
   return (
     <div className="w-full">
-      {label && <label className="block text-[13px] font-black text-[#111111] mb-2">{label}</label>}
+      {label && <label htmlFor={props.id || fieldId} className="block text-[13px] font-black text-[#111111] mb-2">{label}</label>}
       <select
         className={`w-full bg-white border-2 border-[#E5E7EB] text-[#111111] rounded-xl h-12 text-sm font-bold px-4 focus:outline-none focus:border-[#111111] focus:ring-4 focus:ring-[#111111]/5 transition-all duration-200 appearance-none bg-[url('data:image/svg+xml;charset=US-ASCII,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2224%22%20height%3D%2224%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22%236B7280%22%20stroke-width%3D%222%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpolyline%20points%3D%226%209%2012%2015%2018%209%22%3E%3C%2Fpolyline%3E%3C%2Fsvg%3E')] bg-[length:1.25rem] bg-[right_1rem_center] bg-no-repeat ${
           error ? 'border-rose-500 focus:ring-rose-500/10' : ''
         } ${className}`}
         {...props}
+        id={props.id || fieldId}
+        aria-invalid={error ? true : props['aria-invalid']}
+        aria-describedby={describedBy}
       >
         {children}
       </select>
-      {error && <p className="text-xs font-bold text-rose-500 mt-1.5">{error}</p>}
+      {error && <p id={errorId} role="alert" className="text-xs font-bold text-rose-500 mt-1.5">{error}</p>}
     </div>
   );
 };

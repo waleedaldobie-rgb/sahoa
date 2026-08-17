@@ -1,7 +1,6 @@
 import Database from 'better-sqlite3';
 import fs from 'fs';
 import path from 'path';
-import * as XLSX from 'xlsx';
 import { CREATE_TABLES_SQL, CURRENT_SCHEMA_VERSION, DatabaseSettings } from './schema';
 import { Customer, Order, OrderEvent, FabricItem, AccessoryItem, ThobeType, ColorItem, NotificationItem, Invoice, UserPreferences } from '../types';
 import { DEFAULT_MEASUREMENTS, DEFAULT_STYLE_DETAILS, normalizeMeasurements, normalizeStyleDetails } from '../services/shared/measurementDefaults';
@@ -25,9 +24,10 @@ export class SahwaDatabaseManager {
   private legacyDbPath?: string;
   private legacyBackupDir?: string;
   private autoBackupTimer: NodeJS.Timeout | null = null;
+  private closePromise: Promise<void> | null = null;
 
   constructor(customDir?: string, legacyDir?: string, customBackupDir?: string) {
-    const baseDir = customDir || (process.env.NODE_ENV === 'development' ? path.join(process.cwd(), 'data') : path.join(process.env.APPDATA || process.env.HOME || process.cwd(), 'SahwaTailoring', 'database'));
+    const baseDir = customDir || path.join(process.cwd(), 'data');
     if (!fs.existsSync(baseDir)) {
       fs.mkdirSync(baseDir, { recursive: true });
     }
@@ -129,10 +129,14 @@ export class SahwaDatabaseManager {
       // Mandatory Pragmas for stability & relations
       this.db.pragma('journal_mode = WAL');
       this.db.pragma('foreign_keys = ON');
+      this.db.pragma('busy_timeout = 5000');
+      this.db.pragma('synchronous = NORMAL');
+      this.db.pragma('temp_store = MEMORY');
 
       // Create Tables & Indexes
       this.db.exec(CREATE_TABLES_SQL);
       this.ensureCompatibilityMigrations();
+      this.db.pragma('optimize');
 
       // Initialize default system settings
       this.initSystemSettings();
@@ -645,6 +649,13 @@ export class SahwaDatabaseManager {
     const rawOrderMaterialUsages = db.prepare('SELECT * FROM order_material_usages').all() as any[];
     const rawOrderEvents = db.prepare('SELECT * FROM order_events ORDER BY created_at DESC').all() as any[];
 
+    const purchaseLinesMap = new Map<string, any[]>();
+    for (const line of rawPurchaseLines) {
+      const lines = purchaseLinesMap.get(line.purchase_id) || [];
+      lines.push(line);
+      purchaseLinesMap.set(line.purchase_id, lines);
+    }
+
     // Map history to customers
     const historyMap = new Map<string, any[]>();
     for (const h of rawHistory) {
@@ -763,7 +774,7 @@ export class SahwaDatabaseManager {
     const purchases = rawPurchases.map(p => ({
       id: p.id, supplier: p.supplier, invoiceNumber: p.invoice_number, purchaseDate: p.purchase_date,
       totalAmount: p.total_amount, paymentMethod: p.payment_method, notes: p.notes, status: p.status,
-      lines: rawPurchaseLines.filter(l => l.purchase_id === p.id).map(l => ({
+      lines: (purchaseLinesMap.get(p.id) || []).map(l => ({
         id: l.id, purchaseId: l.purchase_id, itemType: l.item_type, itemId: l.item_id, itemName: l.item_name,
         quantity: l.quantity, unit: l.unit, unitPrice: l.unit_price, totalAmount: l.total_amount, createdAt: l.created_at
       })),
@@ -795,7 +806,8 @@ export class SahwaDatabaseManager {
   /**
    * Excel Reports Generator (.xlsx)
    */
-  public generateExcelReport(startDate?: string, endDate?: string): Buffer {
+  public async generateExcelReport(startDate?: string, endDate?: string): Promise<Buffer> {
+    const XLSX = await import('xlsx');
     const db = this.getRawDb();
 
     let query = 'SELECT * FROM orders';
@@ -953,18 +965,30 @@ export class SahwaDatabaseManager {
   }
 
   public async close(): Promise<void> {
-    if (this.autoBackupTimer) clearInterval(this.autoBackupTimer);
-    if (this.db) {
+    if (this.closePromise) return this.closePromise;
+
+    this.closePromise = (async () => {
+      if (this.autoBackupTimer) {
+        clearInterval(this.autoBackupTimer);
+        this.autoBackupTimer = null;
+      }
+
+      const db = this.db;
+      if (!db) return;
+
       try {
         await this.backupDatabase('app_exit');
       } catch (e) {
         console.error('Error during app_exit backup:', e);
       }
       try {
-        this.db.close();
+        db.close();
+        this.db = null;
       } catch (e) {
         console.error('Error closing database:', e);
       }
-    }
+    })();
+
+    return this.closePromise;
   }
 }

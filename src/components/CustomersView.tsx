@@ -38,6 +38,7 @@ export const CustomersView: React.FC<CustomersViewProps> = ({
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
   const [activeFormTab, setActiveFormTab] = useState<'measurements' | 'history'>('measurements');
+  const [formErrors, setFormErrors] = useState<{ name?: string; phone?: string }>({});
 
   // Form State
   const [formData, setFormData] = useState<{
@@ -66,6 +67,14 @@ export const CustomersView: React.FC<CustomersViewProps> = ({
     return Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleDateString('ar-SA');
   };
 
+  const handleOpenNewCustomer = () => {
+    setSelectedCustomer(null);
+    setFormData({ name: '', phone: '', measurements: { ...EMPTY_MEASUREMENTS }, styleDetails: { ...EMPTY_STYLE_DETAILS } });
+    setFormErrors({});
+    setActiveFormTab('measurements');
+    setIsFormOpen(true);
+  };
+
   const handleOpenEditModal = (customer: Customer) => {
     setSelectedCustomer(customer);
     setFormData({
@@ -76,21 +85,25 @@ export const CustomersView: React.FC<CustomersViewProps> = ({
       styleDetails: { ...customer.styleDetails }
     });
     setActiveFormTab('measurements');
+    setFormErrors({});
     setIsFormOpen(true);
   };
 
   const handleSave = () => {
-    if (!formData.name.trim() || !formData.phone.trim()) {
-      showToast('يرجى تعبئة اسم العميل ورقم الجوال', 'danger');
-      return;
-    }
+    const nextErrors: { name?: string; phone?: string } = {};
+    if (!formData.name.trim()) nextErrors.name = 'يرجى إدخال اسم العميل بشكل صحيح';
+    if (!formData.phone.trim()) nextErrors.phone = 'يرجى إدخال رقم الجوال بشكل صحيح';
 
     const phoneTrim = formData.phone.trim();
-    const isDuplicatePhone = customers.some((c) => c.phone === phoneTrim && c.id !== formData.id);
-    if (isDuplicatePhone) {
-      showToast('عذراً، رقم الجوال هذا مسجل بالفعل لعميل آخر', 'danger');
+    const isDuplicatePhone = phoneTrim && customers.some((c) => c.phone === phoneTrim && c.id !== formData.id);
+    if (isDuplicatePhone) nextErrors.phone = 'رقم الجوال هذا مسجل بالفعل لعميل آخر';
+
+    if (Object.keys(nextErrors).length > 0) {
+      setFormErrors(nextErrors);
+      showToast('يرجى مراجعة الحقول المحددة قبل الحفظ', 'danger');
       return;
     }
+    setFormErrors({});
 
     const nowStr = new Date().toISOString();
     const newCust: Customer = {
@@ -150,16 +163,18 @@ export const CustomersView: React.FC<CustomersViewProps> = ({
               <Input
                 label="اسم العميل الكامل *"
                 value={formData.name}
-                onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                onChange={(e) => { setFormData({ ...formData, name: e.target.value }); setFormErrors((prev) => ({ ...prev, name: undefined })); }}
                 placeholder="مثال: محمد عبدالله"
                 icon={<User className="w-4 h-4" />}
+                error={formErrors.name}
               />
               <Input
                 label="رقم الجوال *"
                 value={formData.phone}
-                onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+                onChange={(e) => { setFormData({ ...formData, phone: e.target.value }); setFormErrors((prev) => ({ ...prev, phone: undefined })); }}
                 placeholder="05xxxxxxxx"
                 icon={<Phone className="w-4 h-4" />}
+                error={formErrors.phone}
               />
               {selectedCustomer && (
                 <div className="pt-4 mt-4 border-t border-[#F3F4F6] flex items-center justify-between text-[11px] font-bold text-[#9CA3AF]">
@@ -173,8 +188,10 @@ export const CustomersView: React.FC<CustomersViewProps> = ({
           <div className="lg:col-span-2 space-y-6">
             <div className="flex items-center gap-1 p-1 bg-[#F3F4F6] rounded-xl w-fit">
               <button
+                type="button"
                 onClick={() => setActiveFormTab('measurements')}
-                className={`px-6 py-2.5 rounded-lg text-xs font-black transition-all duration-200 flex items-center gap-2 ${
+                aria-pressed={activeFormTab === 'measurements'}
+                className={`px-6 py-2.5 rounded-lg text-xs font-black transition-all duration-200 flex items-center gap-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#b08a4a] focus-visible:ring-offset-2 ${
                   activeFormTab === 'measurements' ? 'bg-white text-[#111111] shadow-sm' : 'text-[#6B7280] hover:text-[#111111]'
                 }`}
               >
@@ -182,9 +199,11 @@ export const CustomersView: React.FC<CustomersViewProps> = ({
                 المقاسات الحالية
               </button>
               {selectedCustomer && (
-                <button
-                  onClick={() => setActiveFormTab('history')}
-                  className={`px-6 py-2.5 rounded-lg text-xs font-black transition-all duration-200 flex items-center gap-2 ${
+              <button
+                type="button"
+                onClick={() => setActiveFormTab('history')}
+                aria-pressed={activeFormTab === 'history'}
+                className={`px-6 py-2.5 rounded-lg text-xs font-black transition-all duration-200 flex items-center gap-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#b08a4a] focus-visible:ring-offset-2 ${
                     activeFormTab === 'history' ? 'bg-white text-[#111111] shadow-sm' : 'text-[#6B7280] hover:text-[#111111]'
                   }`}
                 >
@@ -322,7 +341,8 @@ export const CustomersView: React.FC<CustomersViewProps> = ({
           <EmptyState
             icon={<Users className="w-8 h-8" />}
             title={searchTerm.trim() ? 'لا يوجد عميل مطابق لبحثك' : 'لا يوجد عملاء'}
-            description={searchTerm.trim() ? 'جرّب البحث باسم العميل أو رقم الجوال بطريقة مختلفة.' : 'يتم إنشاء العميل تلقائياً من شاشة تسجيل طلب جديد عند حفظ الاسم والجوال والمقاسات.'}
+            description={searchTerm.trim() ? 'جرّب البحث باسم العميل أو رقم الجوال بطريقة مختلفة.' : 'ابدأ بإضافة عميل جديد لتسجيل بياناته ومقاساته والرجوع إليها عند إنشاء الطلب.'}
+            action={searchTerm.trim() ? <Button size="sm" variant="secondary" onClick={() => setSearchTerm('')}>مسح البحث</Button> : <Button size="sm" variant="primary" onClick={handleOpenNewCustomer} icon={<User className="w-4 h-4" />}>إضافة أول عميل</Button>}
           />
         ) : (
           <div className="overflow-x-auto">

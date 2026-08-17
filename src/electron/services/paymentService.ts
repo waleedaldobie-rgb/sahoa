@@ -3,7 +3,7 @@ import { CashRepository } from '../repositories/cashRepository';
 import { InvoiceRepository } from '../repositories/invoiceRepository';
 import { OrderEventRepository } from '../repositories/orderEventRepository';
 import { OrderWriteRepository } from '../repositories/orderWriteRepository';
-import { calculateOrderAmounts } from '../../services/shared/orderRules';
+import { calculatePaymentUpdate } from '../../domain/paymentRules';
 
 export class PaymentService {
   constructor(
@@ -18,13 +18,17 @@ export class PaymentService {
     const tx = this.db.transaction(() => {
       const invoice = this.invoiceRepository.findById(invoiceId);
       if (!invoice) throw new Error('الفاتورة غير موجودة');
-      const numericAmount = Number(amount);
-      if (!Number.isFinite(numericAmount) || numericAmount <= 0) throw new Error('مبلغ الدفعة يجب أن يكون أكبر من صفر');
+      const paymentCalculation = calculatePaymentUpdate(
+        invoice.total_amount,
+        invoice.paid_amount,
+        invoice.remaining_amount,
+        amount
+      );
+      const { numericAmount, paidAmount: newPaid, remainingAmount: newRemaining, paymentStatus: newStatus } = paymentCalculation;
 
       const existingPayments: PaymentRecord[] = JSON.parse(invoice.payments_json || '[]');
       const id = paymentId || `PAY-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
       if (existingPayments.some((payment) => payment.id === id) || this.cashRepository.findBySourceId(id)) return false;
-      if (numericAmount > invoice.remaining_amount) throw new Error('مبلغ الدفعة يتجاوز المتبقي على الفاتورة');
 
       const paymentDate = new Date().toISOString().slice(0, 10);
       const createdAt = new Date().toISOString();
@@ -39,8 +43,6 @@ export class PaymentService {
       };
       existingPayments.push(newPayment);
 
-      const amounts = calculateOrderAmounts(invoice.total_amount, invoice.paid_amount + numericAmount);
-      const { paidAmount: newPaid, remainingAmount: newRemaining, paymentStatus: newStatus } = amounts;
       this.invoiceRepository.updatePayment(invoiceId, newPaid, newRemaining, newStatus, JSON.stringify(existingPayments));
       this.orderWriteRepository.updatePayment(invoice.order_id, newPaid, newRemaining);
       this.cashRepository.insert({

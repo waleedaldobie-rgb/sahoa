@@ -63,11 +63,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
               <SahwaLogo className="w-full h-full text-[#d8bd86]" />
             </div>
             <div className="min-w-0">
-              <h1 className="text-sm font-extrabold text-white tracking-wide flex items-center gap-2">
+              <div className="text-sm font-extrabold text-white tracking-wide flex items-center gap-2">
                 <span className="text-[#c9a35f] text-[9px] leading-none">◆</span>
                 <span className="truncate">صهوة للخياطة</span>
                 <span className="text-[#c9a35f] text-[9px] leading-none">◆</span>
-              </h1>
+              </div>
               <p className="text-[10px] text-slate-400 font-semibold flex items-center gap-1.5 mt-1">
                 <span className="h-px w-5 bg-gradient-to-l from-[#c9a35f] to-transparent shrink-0" />
                 <span className="truncate">الخياطة الرجالية الراقية</span>
@@ -90,9 +90,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
             const isActive = activeTab === item.id;
             return (
               <button
+                type="button"
                 key={item.id}
                 onClick={() => onTabChange(item.id)}
-                className={`w-full min-h-[44px] px-4 py-2.5 flex items-center gap-3 text-xs font-bold transition-all duration-200 cursor-pointer rounded-xl ${
+                aria-current={isActive ? 'page' : undefined}
+                className={`w-full min-h-[44px] px-4 py-2.5 flex items-center gap-3 text-xs font-bold transition-all duration-200 cursor-pointer rounded-xl focus:outline-none focus-visible:ring-2 focus-visible:ring-[#d8bd86] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--ui-charcoal)] ${
                   isActive
                     ? 'bg-[rgba(176,138,74,.13)] text-[#d8bd86] font-extrabold shadow-sm'
                     : 'text-slate-400 hover:bg-white/5 hover:text-white'
@@ -119,8 +121,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
         {/* Backup Modal Trigger */}
         <button
+          type="button"
           onClick={onOpenBackupModal}
-          className="w-full min-h-[40px] px-3.5 py-2.5 bg-white/5 hover:bg-white/10 text-slate-200 hover:text-white border border-white/10 rounded-xl flex items-center justify-center gap-2 text-[11px] font-bold transition-all duration-200 cursor-pointer active:scale-[0.98]"
+          aria-label="فتح النسخ الاحتياطي للاستيراد أو التصدير"
+          className="w-full min-h-[40px] px-3.5 py-2.5 bg-white/5 hover:bg-white/10 text-slate-200 hover:text-white border border-white/10 rounded-xl flex items-center justify-center gap-2 text-[11px] font-bold transition-all duration-200 cursor-pointer active:scale-[0.98] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#d8bd86] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--ui-charcoal)]"
         >
           <DatabaseBackup className="w-4 h-4 text-slate-400" />
           <span>نسخة احتياطية (استيراد/تصدير)</span>

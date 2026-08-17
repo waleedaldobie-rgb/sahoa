@@ -45,11 +45,11 @@ export const Header: React.FC<HeaderProps> = ({
           </div>
 
           <div className="min-w-0">
-            <h2 className="text-sm sm:text-base font-extrabold text-[var(--ui-charcoal)] tracking-tight flex items-center gap-2">
+            <h1 className="text-sm sm:text-base font-extrabold text-[var(--ui-charcoal)] tracking-tight flex items-center gap-2">
               <span className="text-[var(--ui-brass)] text-[10px] leading-none">◆</span>
               <span className="truncate">{title}</span>
               <span className="text-[var(--ui-brass)] text-[10px] leading-none">◆</span>
-            </h2>
+            </h1>
             <div className="flex items-center gap-2 mt-1">
               <span className="hidden sm:block h-px w-6 bg-gradient-to-l from-[var(--ui-brass)] to-transparent shrink-0" />
               <p className="text-[10px] sm:text-[11px] text-[var(--ui-muted)] font-semibold truncate">{description}</p>
@@ -87,6 +87,8 @@ export const Header: React.FC<HeaderProps> = ({
           onClick={onOpenNotifications}
           className="relative w-10 h-10 border border-slate-200 rounded-xl bg-white hover:bg-slate-50 flex items-center justify-center text-slate-600 hover:text-slate-900 transition-all cursor-pointer shadow-2xs"
           title="الإشعارات والتنبيهات"
+          aria-label={`الإشعارات والتنبيهات${unreadNotifCount > 0 ? `، ${unreadNotifCount} غير مقروءة` : ''}`}
+          aria-haspopup="dialog"
         >
           <Bell className="w-4.5 h-4.5" />
           {unreadNotifCount > 0 && (

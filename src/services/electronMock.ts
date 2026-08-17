@@ -1,7 +1,16 @@
-import { AppData, UserPreferences, Customer, CustomerMeasurements, CustomerStyleDetails, Order, Invoice, FabricItem, AccessoryItem, ThobeType, ColorItem, NotificationItem, PaymentRecord, StockMovement, PurchaseRecord, PurchaseLine, ExpenseRecord, CashTransaction, OrderMaterialUsage, OrderEvent, InventoryItemType } from '../types';
+import { AppData, UserPreferences, Customer, CustomerMeasurements, CustomerStyleDetails, Order, Invoice, FabricItem, AccessoryItem, ThobeType, ColorItem, NotificationItem, PaymentRecord, StockMovement, PurchaseRecord, PurchaseLine, ExpenseRecord, CashTransaction, OrderMaterialUsage, OrderEvent, MeasurementHistoryRecord, InventoryItemType } from '../types';
 import { checkAndSyncStockAlerts } from '../utils/stockAlerts';
 import { calculateStockBalance, round2 } from './shared/inventoryRules';
 import { calculateMaterialCost, calculateOrderAmounts } from './shared/orderRules';
+import { calculatePaymentUpdate } from '../domain/paymentRules';
+import { normalizePositiveAmount } from '../domain/amountRules';
+import { applyPaymentToDraft } from './adapters/paymentDraftAdapter';
+import { applyExpenseToDraft, applyCashAdjustmentToDraft } from './adapters/accountingDraftAdapter';
+import { createCustomerInDraft, updateCustomerInDraft, saveCustomerMeasurementHistoryInDraft } from './adapters/customerDraftAdapter';
+import { createFabricInDraft, updateFabricInDraft, createAccessoryInDraft, updateAccessoryInDraft } from './adapters/inventoryCatalogDraftAdapter';
+import { createPurchaseInDraft, getInventoryMeta, insertStockMovementInDraft } from './adapters/inventoryMovementDraftAdapter';
+import { appendMaterialUsage, buildFabricMaterialUsage, buildInitialInvoiceDraft, buildMaterialUsage, buildOrderDraft, calculateOrderMaterialCost } from './adapters/orderDraftAdapter';
+import { updateOrderFabricStockInDraft, updateOrderInvoiceInDraft } from './adapters/orderUpdateAdapter';
 import { findById, hasIdOrSourceId } from './shared/idempotencyRules';
 
 const STORAGE_KEY = 'sahwa_tailoring_app_data_v1';
@@ -145,54 +154,6 @@ export const db = {
   }
 };
 
-const mockInventoryMeta = (draft: AppData, itemType: InventoryItemType, itemId: string) => {
-  if (itemType === 'fabric') {
-    const item = draft.fabrics.find((fabric) => fabric.id === itemId);
-    if (!item) throw new Error('صنف القماش غير موجود');
-    return { item, name: item.name, quantity: item.quantityMeters, unit: 'متر', purchasePrice: item.purchasePrice || 0 };
-  }
-  const item = draft.accessories.find((accessory) => accessory.id === itemId);
-  if (!item) throw new Error('صنف الإكسسوار غير موجود');
-  return { item, name: item.name, quantity: item.quantity, unit: item.unit, purchasePrice: item.purchasePrice || 0 };
-};
-
-const mockWriteQuantity = (itemType: InventoryItemType, meta: any, value: number) => {
-  if (itemType === 'fabric') meta.item.quantityMeters = round2(value);
-  else meta.item.quantity = round2(value);
-};
-
-const mockInsertMovement = (
-  draft: AppData,
-  itemType: InventoryItemType,
-  itemId: string,
-  delta: number,
-  direction: StockMovement['direction'],
-  reason: string,
-  reference?: { type?: string; id?: string; number?: string }
-): StockMovement => {
-  const meta = mockInventoryMeta(draft, itemType, itemId);
-  const { before, after } = calculateStockBalance(meta.quantity, delta, meta.name);
-  mockWriteQuantity(itemType, meta, after);
-  const movement: StockMovement = {
-    id: `MOV-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-    itemType,
-    itemId,
-    itemName: meta.name,
-    direction,
-    quantity: Math.abs(delta),
-    quantityBefore: before,
-    quantityAfter: after,
-    unit: meta.unit,
-    reason,
-    referenceType: reference?.type,
-    referenceId: reference?.id,
-    referenceNumber: reference?.number,
-    createdAt: new Date().toISOString()
-  };
-  draft.stockMovements = [movement, ...(draft.stockMovements || [])];
-  return movement;
-};
-
 const mockInsertCash = (draft: AppData, transaction: CashTransaction) => {
   const cashTransactions = draft.cashTransactions || [];
   if (hasIdOrSourceId(cashTransactions, transaction.id, transaction.sourceId)) return;
@@ -203,10 +164,6 @@ const mockInsertEvent = (draft: AppData, event: OrderEvent) => {
   const orderEvents = draft.orderEvents || [];
   if (findById(orderEvents, event.id)) return;
   draft.orderEvents = [event, ...orderEvents];
-};
-
-const mockWriteMaterial = (draft: AppData, usage: OrderMaterialUsage) => {
-  draft.orderMaterialUsages = [...(draft.orderMaterialUsages || []), usage];
 };
 
 // Setup window.electronAPI mock
@@ -462,74 +419,27 @@ export function initElectronMock() {
 
     async createCustomer(customer: Partial<Customer>): Promise<Customer> {
       if (isRealElectron && existing?.createCustomer) return existing.createCustomer(customer);
-      const data = await window.electronAPI.getData();
-      const newCustomer: Customer = {
-        id: customer.id || `CUST-${Date.now()}`,
-        name: customer.name || 'عميل جديد',
-        phone: customer.phone || '',
-        createdAt: customer.createdAt || new Date().toISOString().slice(0, 10),
-        measurements: normalizeMeasurements(customer.measurements),
-        styleDetails: normalizeStyleDetails(customer.styleDetails),
-        measurementHistory: (customer.measurementHistory || []).map((history) => ({
-          ...history,
-          measurements: normalizeMeasurements(history.measurements),
-          styleDetails: normalizeStyleDetails(history.styleDetails),
-        }))
-      };
-      data.customers = [newCustomer, ...data.customers];
-      await window.electronAPI.saveData(data);
+      let newCustomer!: Customer;
+      await db.transaction((draft) => {
+        newCustomer = createCustomerInDraft(draft, customer);
+      });
       return newCustomer;
     },
 
     async updateCustomer(customer: Customer): Promise<boolean> {
       if (isRealElectron && existing?.updateCustomer) return existing.updateCustomer(customer);
-      const data = await window.electronAPI.getData();
-      const current = data.customers.find((item) => item.id === customer.id);
-      if (!current) throw new Error('العميل المطلوب غير موجود');
-
-      const nextMeasurements = normalizeMeasurements(customer.measurements);
-      const nextStyleDetails = normalizeStyleDetails(customer.styleDetails);
-      const measurementChanged = JSON.stringify(current.measurements) !== JSON.stringify(nextMeasurements)
-        || JSON.stringify(current.styleDetails) !== JSON.stringify(nextStyleDetails);
-      const now = new Date().toISOString();
-      const history = measurementChanged
-        ? [{
-            id: `HIST-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-            savedAt: now,
-            note: 'نسخة سابقة قبل إنشاء مقاس جديد',
-            measurements: { ...current.measurements },
-            styleDetails: { ...current.styleDetails }
-          }, ...(current.measurementHistory || [])]
-        : (current.measurementHistory || []);
-
-      data.customers = data.customers.map((item) => item.id === customer.id
-        ? {
-            ...customer,
-            updatedAt: measurementChanged ? now : customer.updatedAt || current.updatedAt,
-            measurements: nextMeasurements,
-            styleDetails: nextStyleDetails,
-            measurementHistory: history
-          }
-        : item);
-      await window.electronAPI.saveData(data);
+      await db.transaction((draft) => {
+        updateCustomerInDraft(draft, customer);
+      });
       return true;
     },
 
-    async saveCustomerMeasurementHistory(id: string, note: string): Promise<any> {
+    async saveCustomerMeasurementHistory(id: string, note: string): Promise<MeasurementHistoryRecord> {
       if (isRealElectron && existing?.saveCustomerMeasurementHistory) return existing.saveCustomerMeasurementHistory(id, note);
-      const data = await window.electronAPI.getData();
-      const customer = data.customers.find(c => c.id === id);
-      if (!customer) throw new Error('العميل غير موجود في قاعدة البيانات');
-      const newHistory = {
-        id: `HIST-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-        savedAt: new Date().toISOString().slice(0, 10),
-        note,
-        measurements: { ...customer.measurements },
-        styleDetails: { ...customer.styleDetails }
-      };
-      customer.measurementHistory = [newHistory, ...(customer.measurementHistory || [])];
-      data.customers = data.customers.map(c => c.id === id ? customer : c);
-      await window.electronAPI.saveData(data);
+      let newHistory!: MeasurementHistoryRecord;
+      await db.transaction((draft) => {
+        newHistory = saveCustomerMeasurementHistoryInDraft(draft, id, note);
+      });
       return newHistory;
     },
 
@@ -541,27 +451,18 @@ export function initElectronMock() {
 
     async createFabric(fabric: Partial<FabricItem>): Promise<FabricItem> {
       if (isRealElectron && existing?.createFabric) return existing.createFabric(fabric);
-      const data = await window.electronAPI.getData();
-      const newFabric: FabricItem = {
-        id: fabric.id || `FAB-${Date.now()}`,
-        name: fabric.name || '',
-        color: fabric.color || '',
-        colorHex: fabric.colorHex || '#ffffff',
-        purchasePrice: fabric.purchasePrice || 0,
-        sellingPrice: fabric.sellingPrice || 0,
-        quantityMeters: fabric.quantityMeters || 0,
-        minStockMeters: fabric.minStockMeters || 0
-      };
-      data.fabrics = [newFabric, ...data.fabrics];
-      await window.electronAPI.saveData(data);
+      let newFabric!: FabricItem;
+      await db.transaction((draft) => {
+        newFabric = createFabricInDraft(draft, fabric);
+      });
       return newFabric;
     },
 
     async updateFabric(fabric: FabricItem): Promise<boolean> {
       if (isRealElectron && existing?.updateFabric) return existing.updateFabric(fabric);
-      const data = await window.electronAPI.getData();
-      data.fabrics = data.fabrics.map(f => f.id === fabric.id ? fabric : f);
-      await window.electronAPI.saveData(data);
+      await db.transaction((draft) => {
+        updateFabricInDraft(draft, fabric);
+      });
       return true;
     },
 
@@ -573,25 +474,18 @@ export function initElectronMock() {
 
     async createAccessory(acc: Partial<AccessoryItem>): Promise<AccessoryItem> {
       if (isRealElectron && existing?.createAccessory) return existing.createAccessory(acc);
-      const data = await window.electronAPI.getData();
-      const newAcc: AccessoryItem = {
-        id: acc.id || `ACC-${Date.now()}`,
-        name: acc.name || '',
-        category: acc.category || '',
-        quantity: acc.quantity || 0,
-        minStock: acc.minStock || 0,
-        unit: acc.unit || 'حبة'
-      };
-      data.accessories = [newAcc, ...data.accessories];
-      await window.electronAPI.saveData(data);
-      return newAcc;
+      let newAccessory!: AccessoryItem;
+      await db.transaction((draft) => {
+        newAccessory = createAccessoryInDraft(draft, acc);
+      });
+      return newAccessory;
     },
 
     async updateAccessory(acc: AccessoryItem): Promise<boolean> {
       if (isRealElectron && existing?.updateAccessory) return existing.updateAccessory(acc);
-      const data = await window.electronAPI.getData();
-      data.accessories = data.accessories.map(a => a.id === acc.id ? acc : a);
-      await window.electronAPI.saveData(data);
+      await db.transaction((draft) => {
+        updateAccessoryInDraft(draft, acc);
+      });
       return true;
     },
 
@@ -608,7 +502,7 @@ export function initElectronMock() {
         if (!reason?.trim()) throw new Error('سبب التسوية مطلوب');
         const numericQuantity = Number(quantity);
         if (!Number.isFinite(numericQuantity) || numericQuantity === 0) throw new Error('كمية التسوية يجب أن تكون رقماً غير صفري');
-        movement = mockInsertMovement(draft, itemType, itemId, direction === 'return' ? Math.abs(numericQuantity) : numericQuantity, direction, reason.trim(), { type: 'stock_adjustment', id: itemId });
+        movement = insertStockMovementInDraft(draft, itemType, itemId, direction === 'return' ? Math.abs(numericQuantity) : numericQuantity, direction, reason.trim(), { type: 'stock_adjustment', id: itemId });
       });
       return movement;
     },
@@ -623,34 +517,7 @@ export function initElectronMock() {
       if (isRealElectron && existing?.createPurchase) return existing.createPurchase(payload);
       let purchase!: PurchaseRecord;
       await db.transaction((draft) => {
-        const purchaseId = payload.id || `PUR-${Date.now()}`;
-        const duplicate = findById(draft.purchases, purchaseId);
-        if (duplicate) { purchase = duplicate; return; }
-        if (!payload.supplier?.trim()) throw new Error('اسم المورد مطلوب');
-        if (!Array.isArray(payload.lines) || payload.lines.length === 0) throw new Error('أضف صنفاً واحداً على الأقل إلى المشتريات');
-        const now = new Date().toISOString();
-        const purchaseDate = payload.purchaseDate || now.slice(0, 10);
-        const preparedLines: PurchaseLine[] = [];
-        let totalAmount = 0;
-        for (const input of payload.lines) {
-          const quantity = Number(input.quantity);
-          const unitPrice = Number(input.unitPrice);
-          if (!input.itemType || !input.itemId || !Number.isFinite(quantity) || quantity <= 0) throw new Error('بيانات كمية المشتريات غير صحيحة');
-          if (!Number.isFinite(unitPrice) || unitPrice < 0) throw new Error('سعر الشراء لا يمكن أن يكون سالباً');
-          const meta = mockInventoryMeta(draft, input.itemType, input.itemId);
-          const movement = mockInsertMovement(draft, input.itemType, input.itemId, quantity, 'purchase', `شراء من المورد ${payload.supplier.trim()}`, { type: 'purchase', id: purchaseId, number: payload.invoiceNumber || purchaseId });
-          if (input.itemType === 'fabric') meta.item.purchasePrice = unitPrice;
-          else meta.item.purchasePrice = unitPrice;
-          const lineTotal = round2(quantity * unitPrice);
-          totalAmount += lineTotal;
-          preparedLines.push({ id: `PURL-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, purchaseId, itemType: input.itemType, itemId: input.itemId, itemName: input.itemName || meta.name, quantity, unit: input.unit || meta.unit, unitPrice, totalAmount: lineTotal, createdAt: now });
-          void movement;
-        }
-        purchase = { id: purchaseId, supplier: payload.supplier.trim(), invoiceNumber: payload.invoiceNumber || undefined, purchaseDate, totalAmount: round2(totalAmount), paymentMethod: payload.paymentMethod || 'cash', notes: payload.notes || undefined, status: 'approved', lines: preparedLines, createdAt: now };
-        draft.purchases = [purchase, ...(draft.purchases || [])];
-        if (totalAmount > 0) {
-          mockInsertCash(draft, { id: `CASH-PUR-${purchaseId}`, direction: 'out', sourceType: 'purchase', sourceId: purchaseId, referenceNumber: payload.invoiceNumber || purchaseId, amount: round2(totalAmount), paymentMethod: payload.paymentMethod || 'cash', transactionDate: purchaseDate, description: `شراء مخزون من ${payload.supplier.trim()}`, notes: payload.notes || undefined, createdAt: now });
-        }
+        purchase = createPurchaseInDraft(draft, payload);
       });
       return purchase;
     },
@@ -665,16 +532,7 @@ export function initElectronMock() {
       if (isRealElectron && existing?.createExpense) return existing.createExpense(payload);
       let expense!: ExpenseRecord;
       await db.transaction((draft) => {
-        const id = payload.id || `EXP-${Date.now()}`;
-        const duplicate = findById(draft.expenses, id);
-        if (duplicate) { expense = duplicate; return; }
-        const amount = Number(payload.amount);
-        if (!payload.category?.trim() || !payload.description?.trim()) throw new Error('تصنيف ووصف المصروف مطلوبان');
-        if (!Number.isFinite(amount) || amount <= 0) throw new Error('مبلغ المصروف يجب أن يكون أكبر من صفر');
-        const now = new Date().toISOString();
-        expense = { id, category: payload.category.trim(), amount: round2(amount), expenseDate: payload.expenseDate || now.slice(0, 10), paymentMethod: payload.paymentMethod || 'cash', description: payload.description.trim(), notes: payload.notes || undefined, createdAt: now };
-        draft.expenses = [expense, ...(draft.expenses || [])];
-        mockInsertCash(draft, { id: `CASH-EXP-${id}`, direction: 'out', sourceType: 'expense', sourceId: id, referenceNumber: id, amount: expense.amount, paymentMethod: expense.paymentMethod, transactionDate: expense.expenseDate, description: expense.description, notes: expense.notes, createdAt: now });
+        expense = applyExpenseToDraft(draft, payload);
       });
       return expense;
     },
@@ -689,14 +547,7 @@ export function initElectronMock() {
       if (isRealElectron && existing?.createCashAdjustment) return existing.createCashAdjustment(payload);
       let transaction!: CashTransaction;
       await db.transaction((draft) => {
-        const amount = Number(payload.amount);
-        if (!Number.isFinite(amount) || amount <= 0) throw new Error('مبلغ الحركة يجب أن يكون أكبر من صفر');
-        if (!payload.description?.trim()) throw new Error('وصف الحركة المالية مطلوب');
-        const id = payload.id || `CASH-${Date.now()}`;
-        const duplicate = findById(draft.cashTransactions, id);
-        if (duplicate) { transaction = duplicate; return; }
-        transaction = { id, direction: payload.direction === 'out' ? 'out' : 'in', sourceType: payload.sourceType || 'adjustment', sourceId: payload.sourceId, referenceNumber: payload.referenceNumber, amount: round2(amount), paymentMethod: payload.paymentMethod || 'cash', transactionDate: payload.transactionDate || new Date().toISOString().slice(0, 10), description: payload.description.trim(), notes: payload.notes, createdAt: new Date().toISOString() };
-        mockInsertCash(draft, transaction);
+        transaction = applyCashAdjustmentToDraft(draft, payload);
       });
       return transaction;
     },
@@ -743,101 +594,49 @@ export function initElectronMock() {
           const fab = draft.fabrics.find(f => f.id === orderData.fabricId);
           if (!fab) throw new Error('القماش المختار غير موجود في المخزون');
           fabricBuyPrice = fab.purchasePrice || fabricBuyPrice;
-          fabricMovement = mockInsertMovement(draft, 'fabric', orderData.fabricId, -requiredMeters, 'sale', 'استهلاك قماش للطلب', { type: 'order', id: orderId, number: orderNumber });
+          fabricMovement = insertStockMovementInDraft(draft, 'fabric', orderData.fabricId, -requiredMeters, 'sale', 'استهلاك قماش للطلب', { type: 'order', id: orderId, number: orderNumber });
         }
 
         const materialUsages: OrderMaterialUsage[] = [];
         if (orderData.fabricId && fabricMovement) {
-          const fabricUsage: OrderMaterialUsage = {
-            id: `OMU-${Date.now()}-fabric`, orderId, itemType: 'fabric', itemId: orderData.fabricId,
-            itemName: orderData.fabricName || 'قماش', quantity: requiredMeters, unit: 'متر',
-            unitCostAtUsage: fabricBuyPrice, totalCost: round2(requiredMeters * fabricBuyPrice),
-            sourceMovementId: fabricMovement.id, createdAt: new Date().toISOString()
-          };
-          mockWriteMaterial(draft, fabricUsage);
+          const fabricUsage = buildFabricMaterialUsage(orderId, orderData.fabricId, orderData.fabricName || 'قماش', requiredMeters, fabricBuyPrice, fabricMovement, new Date().toISOString());
+          appendMaterialUsage(draft, fabricUsage);
           materialUsages.push(fabricUsage);
         }
         for (const material of (orderData.materialUsages || [])) {
           if (!material.itemId || (material.itemType === 'fabric' && material.itemId === orderData.fabricId)) continue;
           const quantity = Number(material.quantity);
           if (!Number.isFinite(quantity) || quantity <= 0) throw new Error('كمية المادة المرتبطة بالطلب غير صحيحة');
-          const meta = mockInventoryMeta(draft, material.itemType, material.itemId);
-          const movement = mockInsertMovement(draft, material.itemType, material.itemId, -quantity, 'sale', 'استهلاك مادة للطلب', { type: 'order', id: orderId, number: orderNumber });
-          const unitCost = Number(material.unitCostAtUsage ?? meta.purchasePrice ?? 0);
-          const usage: OrderMaterialUsage = {
-            id: `OMU-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, orderId,
-            itemType: material.itemType, itemId: material.itemId, itemName: material.itemName || meta.name,
-            quantity, unit: material.unit || meta.unit, unitCostAtUsage: unitCost,
-            totalCost: round2(quantity * unitCost), sourceMovementId: movement.id, createdAt: new Date().toISOString()
-          };
-          mockWriteMaterial(draft, usage);
+          const meta = getInventoryMeta(draft, material.itemType, material.itemId);
+          const movement = insertStockMovementInDraft(draft, material.itemType, material.itemId, -quantity, 'sale', 'استهلاك مادة للطلب', { type: 'order', id: orderId, number: orderNumber });
+          const usage = buildMaterialUsage(orderId, material, meta, movement, new Date().toISOString());
+          appendMaterialUsage(draft, usage);
           materialUsages.push(usage);
         }
-        const materialCost = calculateMaterialCost(materialUsages);
+        const materialCost = calculateOrderMaterialCost(materialUsages);
 
-        const newOrder: Order = {
-          id: orderId,
+        const createdAt = new Date().toISOString();
+        const newOrder = buildOrderDraft(orderData, {
+          orderId,
           orderNumber,
-          customerId: orderData.customerId || '',
-          customerName: orderData.customerName || '',
-          customerPhone: orderData.customerPhone || '',
-          thobeTypeId: orderData.thobeTypeId || '',
-          thobeTypeName: orderData.thobeTypeName || 'ثوب',
-          fabricId: orderData.fabricId || '',
-          fabricName: orderData.fabricName || '',
-          fabricColor: orderData.fabricColor || '',
-          fabricConsumptionMeters: requiredMeters,
-          fabricBuyPriceAtOrder: fabricBuyPrice,
+          requiredMeters,
+          fabricBuyPrice,
           garmentCount,
-          initialPaymentMethod: orderData.initialPaymentMethod || 'cash',
-          materialUsages,
-          materialCost,
-          profit: round2(totalAmount - materialCost),
-          orderDate: orderData.orderDate || new Date().toISOString().slice(0, 10),
-          deliveryDate: orderData.deliveryDate || new Date().toISOString().slice(0, 10),
-          status: orderData.status || 'new',
           totalAmount,
           paidAmount,
-          remainingAmount,
-          isCustomMeasurement: Boolean(orderData.isCustomMeasurement),
-          measurements: normalizeMeasurements(orderData.measurements),
-          styleDetails: normalizeStyleDetails(orderData.styleDetails),
-          notes: orderData.notes || '',
-          createdAt: new Date().toISOString()
-        };
+          materialUsages,
+          materialCost,
+          createdAt
+        });
 
         draft.orders = [newOrder, ...draft.orders];
 
-        // Create invoice
-        const invId = `INV-${orderNumber}`;
-        const pStatus = calculateOrderAmounts(totalAmount, paidAmount).paymentStatus;
-        const initialPaymentId = paidAmount > 0 ? `PAY-${Date.now()}-${Math.random().toString(36).slice(2, 6)}` : undefined;
-        const initialPayments: PaymentRecord[] = paidAmount > 0 ? [{
-          id: initialPaymentId!,
-          invoiceId: invId,
-          orderId: orderId,
-          amount: paidAmount,
-          paymentDate: orderData.orderDate || new Date().toISOString().slice(0, 10),
-          method: orderData.initialPaymentMethod || 'cash',
-          note: 'دفعة أولى عند إنشاء الطلب'
-        }] : [];
-
-        const newInvoice: Invoice = {
-          id: invId,
-          invoiceNumber: invId,
-          orderId: orderId,
-          customerName: orderData.customerName || '',
-          customerPhone: orderData.customerPhone || '',
-          orderDate: orderData.orderDate || new Date().toISOString().slice(0, 10),
-          totalAmount,
-          paidAmount,
-          remainingAmount,
-          paymentStatus: pStatus,
-          payments: initialPayments
-        };
+        // Create invoice and initial payment through the isolated order adapter.
+        const { invoice: newInvoice, payment: initialPayment } = buildInitialInvoiceDraft(orderData, orderId, orderNumber, totalAmount, paidAmount);
+        const initialPaymentId = initialPayment?.id;
 
         draft.invoices = [newInvoice, ...draft.invoices];
-        if (paidAmount > 0 && initialPaymentId) {
+        if (initialPaymentId) {
           mockInsertCash(draft, { id: `CASH-PAY-${initialPaymentId}`, direction: 'in', sourceType: 'customer_payment', sourceId: initialPaymentId, orderId, referenceNumber: orderNumber, amount: paidAmount, paymentMethod: orderData.initialPaymentMethod || 'cash', transactionDate: orderData.orderDate || new Date().toISOString().slice(0, 10), description: `دفعة أولى للطلب #${orderNumber}`, createdAt: new Date().toISOString() });
         }
         mockInsertEvent(draft, {
@@ -866,54 +665,14 @@ export function initElectronMock() {
         const rate = settings.fabricConsumptionRatePerGarment || 3.5;
         const newMeters = (updatedOrder.garmentCount || 1) * rate;
 
-        const fabricChanged = existingOrder.fabricId !== updatedOrder.fabricId;
-        const countChanged = existingOrder.garmentCount !== updatedOrder.garmentCount;
-
-        if ((fabricChanged || countChanged) && (existingOrder.status as string) !== 'cancelled') {
-          // Restore old fabric
-          if (existingOrder.fabricId) {
-            const oldFab = draft.fabrics.find(f => f.id === existingOrder.fabricId);
-            if (oldFab) {
-              oldFab.quantityMeters = Number((oldFab.quantityMeters + existingOrder.fabricConsumptionMeters).toFixed(2));
-            }
-          }
-
-          // Deduct new fabric
-          if (updatedOrder.fabricId) {
-            const newFab = draft.fabrics.find(f => f.id === updatedOrder.fabricId);
-            if (!newFab) throw new Error('القماش الجديد المختار غير موجود');
-            if (newFab.quantityMeters < newMeters) {
-              throw new Error(`الكمية المتاحة من القماش الجديدة (${newFab.quantityMeters} متر) غير كافية للطلب (${newMeters} متر).`);
-            }
-            newFab.quantityMeters = Number((newFab.quantityMeters - newMeters).toFixed(2));
-            updatedOrder.fabricBuyPriceAtOrder = newFab.purchasePrice || 0;
-          }
-        }
+        updateOrderFabricStockInDraft(draft, existingOrder, updatedOrder, newMeters);
 
         updatedOrder.fabricConsumptionMeters = newMeters;
         const totalAmount = updatedOrder.totalAmount || 0;
         const paidAmount = updatedOrder.paidAmount || 0;
-        const remainingAmount = calculateOrderAmounts(totalAmount, paidAmount).remainingAmount;
-        updatedOrder.remainingAmount = remainingAmount;
+        updateOrderInvoiceInDraft(draft, updatedOrder, totalAmount, paidAmount);
 
-        draft.orders = draft.orders.map(o => o.id === updatedOrder.id ? updatedOrder : o);
-
-        // Update invoice
-        const pStatus = calculateOrderAmounts(totalAmount, paidAmount).paymentStatus;
-        draft.invoices = draft.invoices.map(inv => {
-          if (inv.orderId === updatedOrder.id) {
-            return {
-              ...inv,
-              customerName: updatedOrder.customerName,
-              customerPhone: updatedOrder.customerPhone,
-              totalAmount,
-              paidAmount,
-              remainingAmount,
-              paymentStatus: pStatus
-            };
-          }
-          return inv;
-        });
+        draft.orders = draft.orders.map((order) => order.id === updatedOrder.id ? updatedOrder : order);
       });
       return true;
     },
@@ -969,45 +728,7 @@ export function initElectronMock() {
     async addPayment(invoiceId: string, amount: number, method: string, note: string, paymentId?: string): Promise<boolean> {
       if (isRealElectron && existing?.addPayment) return existing.addPayment(invoiceId, amount, method, note, paymentId);
       await db.transaction((draft) => {
-        const inv = draft.invoices.find(i => i.id === invoiceId);
-        if (!inv) throw new Error('الفاتورة غير موجودة');
-        const numericAmount = Number(amount);
-        if (!Number.isFinite(numericAmount) || numericAmount <= 0) throw new Error('مبلغ الدفعة يجب أن يكون أكبر من صفر');
-        const id = paymentId || `PAY-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
-        if ((inv.payments || []).some((payment) => payment.id === id) || (draft.cashTransactions || []).some((transaction) => transaction.sourceId === id)) return;
-        if (numericAmount > inv.remainingAmount) throw new Error('مبلغ الدفعة يتجاوز المتبقي على الفاتورة');
-
-        const payment: PaymentRecord = {
-          id,
-          invoiceId,
-          orderId: inv.orderId,
-          amount: numericAmount,
-          paymentDate: new Date().toISOString().slice(0, 10),
-          method: method as any,
-          note
-        };
-
-        inv.payments = [...(inv.payments || []), payment];
-        inv.paidAmount += numericAmount;
-        inv.remainingAmount = Math.max(0, inv.totalAmount - inv.paidAmount);
-        inv.paymentStatus = calculateOrderAmounts(inv.totalAmount, inv.paidAmount).paymentStatus;
-
-        const order = draft.orders.find(o => o.id === inv.orderId);
-        if (order) {
-          order.paidAmount = inv.paidAmount;
-          order.remainingAmount = inv.remainingAmount;
-        }
-        mockInsertCash(draft, { id: `CASH-PAY-${id}`, direction: 'in', sourceType: 'customer_payment', sourceId: id, orderId: inv.orderId, referenceNumber: inv.invoiceNumber, amount: numericAmount, paymentMethod: method as any, transactionDate: payment.paymentDate, description: `دفعة عميل للفاتورة ${inv.invoiceNumber}`, notes: note || undefined, createdAt: new Date().toISOString() });
-        mockInsertEvent(draft, {
-          id: `EVT-PAYMENT-${id}`,
-          orderId: inv.orderId,
-          type: 'payment',
-          title: 'تم تسجيل دفعة',
-          description: `تم تسجيل دفعة بقيمة ${numericAmount} للفاتورة ${inv.invoiceNumber}.`,
-          actor: 'النظام',
-          metadata: { paymentId: id, amount: numericAmount, method, remainingAmount: inv.remainingAmount },
-          createdAt: new Date().toISOString()
-        });
+        applyPaymentToDraft(draft, invoiceId, amount, method, note, paymentId);
       });
       return true;
     },

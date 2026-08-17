@@ -5,6 +5,19 @@ import { registerIpcHandlers } from './ipcHandlers';
 
 let mainWindow: BrowserWindow | null = null;
 let dbManager: SahwaDatabaseManager | null = null;
+let isClosing = false;
+
+async function closeResourcesOnce(): Promise<void> {
+  if (isClosing) return;
+  isClosing = true;
+  if (dbManager) {
+    try {
+      await dbManager.close();
+    } catch (error) {
+      console.error('Error during database close:', error);
+    }
+  }
+}
 
 function createWindow() {
   app.setAppUserModelId('com.sahwa.tailoring');
@@ -51,26 +64,15 @@ function createWindow() {
 app.on('ready', createWindow);
 
 app.on('window-all-closed', async () => {
-  if (dbManager) {
-    try {
-      await dbManager.close();
-    } catch (e) {
-      console.error('Error during database close:', e);
-    }
-  }
+  await closeResourcesOnce();
   if (process.platform !== 'darwin') {
     app.quit();
   }
 });
 
 app.on('before-quit', async (event) => {
-  if (dbManager) {
-    event.preventDefault();
-    try {
-      await dbManager.close();
-    } catch (e) {
-      console.error('Error during database close on quit:', e);
-    }
-    app.exit(0);
-  }
+  if (isClosing) return;
+  event.preventDefault();
+  await closeResourcesOnce();
+  app.exit(0);
 });

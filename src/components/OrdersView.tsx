@@ -630,6 +630,7 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
                           onClick={() => handleQuickWhatsApp(ord)}
                           icon={<MessageCircle className="w-3.5 h-3.5" />}
                           title="إرسال رسالة واتساب بالحالة الحالية"
+                          aria-label={`إرسال رسالة واتساب للطلب ${ord.orderNumber}`}
                         />
                         <Button
                           variant="secondary"
@@ -637,6 +638,7 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
                           onClick={() => handlePrintOrderSheet(ord)}
                           icon={<Printer className="w-3.5 h-3.5" />}
                           title="طباعة"
+                          aria-label={`طباعة الطلب ${ord.orderNumber}`}
                         />
                       </div>
                     </td>

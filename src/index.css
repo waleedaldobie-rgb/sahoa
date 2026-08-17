@@ -58,11 +58,11 @@
   .view-wrapper {
     display: flex;
     flex-direction: column;
-    gap: 2rem;
+    gap: 1.5rem;
     width: 100%;
     min-height: 100%;
     box-sizing: border-box;
-    padding-bottom: 3rem;
+    padding-bottom: 2rem;
   }
 
   /* Premium Heading */
@@ -76,14 +76,14 @@
   .page-title {
     font-size: 1.5rem;
     font-weight: 900;
-    color: #111111;
+    color: var(--desktop-text, #242424);
     letter-spacing: -0.025em;
   }
 
   .page-subtitle {
     font-size: 0.875rem;
-    font-weight: 800;
-    color: #374151;
+    font-weight: 700;
+    color: var(--desktop-muted, #707070);
   }
 
   /* Glass Effect for Sidebar/Header if needed */
@@ -2286,5 +2286,114 @@ input:focus, select:focus, textarea:focus {
   .printable-area-summary,
   .hidden-on-screen {
     display: none !important;
+  }
+}
+
+
+/* ========================================================================
+   FINAL DESKTOP UX TOKENS
+   Keep the desktop brand identity while centralizing interaction states.
+   ======================================================================== */
+@layer base {
+  :root {
+    --desktop-canvas: #f3f3f1;
+    --desktop-surface: #ffffff;
+    --desktop-surface-soft: #fafaf8;
+    --desktop-text: #242424;
+    --desktop-muted: #707070;
+    --desktop-border: #dededa;
+    --desktop-accent: #b08a4a;
+    --desktop-accent-strong: #8f6d38;
+    --desktop-focus: #8f6d38;
+  }
+
+  :where(button, a, input, select, textarea, [tabindex]:not([tabindex="-1"])):focus-visible {
+    outline: 3px solid color-mix(in srgb, var(--desktop-focus) 78%, white);
+    outline-offset: 2px;
+  }
+}
+
+@layer utilities {
+  /* Keep decorative SVGs from creating duplicate announcements when nearby text names them. */
+  button > svg[aria-hidden="true"],
+  a > svg[aria-hidden="true"] {
+    pointer-events: none;
+  }
+
+  /* Long operational messages should remain readable in desktop toasts and banners. */
+  [role="alert"],
+  [role="status"] {
+    overflow-wrap: anywhere;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+
+/* Shared desktop density and alignment rules */
+.ui-card-header,
+.ui-card-body {
+  min-width: 0;
+}
+
+.ui-card-header > div:last-child {
+  flex-shrink: 0;
+}
+
+.premium-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background-color: var(--desktop-surface-soft, #fafaf8);
+  padding: 0.9rem 1.25rem;
+  border-bottom: 2px solid var(--desktop-accent, #b08a4a);
+  vertical-align: middle;
+}
+
+.premium-table tbody td {
+  padding: 0.9rem 1.25rem;
+  vertical-align: middle;
+  line-height: 1.45;
+  font-variant-numeric: tabular-nums;
+}
+
+.premium-table th.text-center,
+.premium-table td.text-center {
+  text-align: center;
+}
+
+.premium-table tbody tr {
+  min-height: 3.5rem;
+}
+
+.premium-table tbody tr:hover td {
+  background-color: color-mix(in srgb, var(--desktop-accent, #b08a4b) 5%, white);
+}
+
+.page-header {
+  min-width: 0;
+}
+
+.page-header .page-title,
+.page-header .page-subtitle {
+  overflow-wrap: anywhere;
+}
+
+@media (min-width: 1024px) {
+  .view-wrapper {
+    gap: 1.5rem;
+  }
+
+  .view-wrapper > .page-header {
+    margin-bottom: 0.25rem;
   }
 }

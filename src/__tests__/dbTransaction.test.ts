@@ -98,7 +98,23 @@ describe('db.transaction - Atomic Operations & Rollback Tests', () => {
     expect(updated.invoices[0].remainingAmount).toBe(200);
   });
 
-  it('3. Rolls back transaction completely if fabric stock is insufficient', async () => {
+  it('3. Rolls back updateOrder completely if the replacement fabric quantity is insufficient', async () => {
+    const order = await window.electronAPI.createOrder({
+      id: 'ORD-UPDATE-ROLLBACK', customerId: 'CUST-001', customerName: 'أحمد علي',
+      fabricId: 'FAB-TEST-001', fabricName: 'قماش ياباني أبيض فاخر', garmentCount: 1, totalAmount: 300, paidAmount: 100
+    });
+    await expect(window.electronAPI.updateOrder({
+      ...order,
+      garmentCount: 20
+    })).rejects.toThrow(/غير كافية/);
+
+    const currentData = await window.electronAPI.getData();
+    expect(currentData.orders[0].garmentCount).toBe(1);
+    expect(currentData.orders[0].fabricConsumptionMeters).toBe(3.5);
+    expect(currentData.fabrics.find((fabric) => fabric.id === 'FAB-TEST-001')?.quantityMeters).toBe(46.5);
+  });
+
+  it('4. Rolls back transaction completely if fabric stock is insufficient', async () => {
     // Attempting to order 20 garments * 3.5m = 70m (only 50m available in inventory)
     const excessOrderData: Partial<Order> = {
       customerId: 'CUST-001',
@@ -125,7 +141,25 @@ describe('db.transaction - Atomic Operations & Rollback Tests', () => {
     expect(fab?.quantityMeters).toBe(50); // Unchanged 50m
   });
 
-  it('4. Rolls back completely if an unexpected error occurs during custom transaction callback', async () => {
+  it('5. Does not change fabric stock when updating a cancelled order', async () => {
+    const order = await window.electronAPI.createOrder({
+      id: 'ORD-CANCELLED-UPDATE', customerId: 'CUST-001', customerName: 'أحمد علي',
+      fabricId: 'FAB-TEST-001', fabricName: 'قماش ياباني أبيض فاخر', garmentCount: 1, totalAmount: 300, paidAmount: 100
+    });
+    await window.electronAPI.updateOrderStatus(order.id, 'cancelled');
+    const beforeUpdate = await window.electronAPI.getData();
+    expect(beforeUpdate.fabrics.find((fabric) => fabric.id === 'FAB-TEST-001')?.quantityMeters).toBe(50);
+
+    await window.electronAPI.updateOrder({
+      ...order,
+      garmentCount: 2
+    });
+    const afterUpdate = await window.electronAPI.getData();
+    expect(afterUpdate.fabrics.find((fabric) => fabric.id === 'FAB-TEST-001')?.quantityMeters).toBe(50);
+    expect(afterUpdate.orders[0].fabricConsumptionMeters).toBe(7);
+  });
+
+  it('6. Rolls back completely if an unexpected error occurs during custom transaction callback', async () => {
     await expect(
       db.transaction((draft) => {
         // Mutate draft state mid-way

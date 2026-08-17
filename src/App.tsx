@@ -4,6 +4,10 @@ import { AppData, UserPreferences, Customer, Order, Invoice, FabricItem, Accesso
 import { initElectronMock } from './services/electronMock';
 import { formatIpcErrorMessage } from './utils/ipcError';
 import { checkAndSyncStockAlerts } from './utils/stockAlerts';
+import { VALIDATION_SCHEMAS, validateEntity, validateEntityErrors } from './domain/validation';
+import { ALL_DATA_SLICES, DataSliceName, INITIAL_DATA_REVISION, bumpDataRevision, mergeDataSlices } from './state/appDataStore';
+
+export { VALIDATION_SCHEMAS, validateEntity, validateEntityErrors } from './domain/validation';
 
 // Layout & UI Components
 import { Sidebar } from './components/Sidebar';
@@ -14,6 +18,7 @@ import { ornamentPatternSoft } from './components/Ornaments';
 // Modals
 import { BackupModal } from './components/BackupModal';
 import { NotificationsModal } from './components/NotificationsModal';
+import { AppErrorBoundary } from './components/AppErrorBoundary';
 
 // Views — code-split to keep the initial bundle small
 const DashboardView = React.lazy(() => import('./components/DashboardView').then((m) => ({ default: m.DashboardView })));
@@ -25,166 +30,11 @@ const ReportsView = React.lazy(() => import('./components/ReportsView').then((m)
 const AccountingView = React.lazy(() => import('./components/AccountingView').then((m) => ({ default: m.AccountingView })));
 const SettingsView = React.lazy(() => import('./components/SettingsView').then((m) => ({ default: m.SettingsView })));
 
-// ==========================================
-// UNIFIED VALIDATION SCHEMA MATRIX
-// ==========================================
-export interface ValidationRule {
-  field: string;
-  label: string;
-  type: 'required_string' | 'positive_number' | 'non_negative_number' | 'custom';
-  customCheck?: (val: any, record: any, extraCtx?: any) => string | null;
-}
-
-export interface EntityValidationSchema {
-  entityType: 'customer' | 'order' | 'fabric' | 'accessory' | 'thobeType' | 'color' | 'payment';
-  rules: ValidationRule[];
-}
-
-export const VALIDATION_SCHEMAS: EntityValidationSchema[] = [
-  {
-    entityType: 'customer',
-    rules: [
-      { field: 'name', label: 'اسم العميل', type: 'required_string' },
-      { field: 'phone', label: 'رقم هاتف العميل', type: 'required_string' }
-    ]
-  },
-  {
-    entityType: 'order',
-    rules: [
-      { field: 'customerName', label: 'اختيار العميل للطلب', type: 'required_string' },
-      { field: 'totalAmount', label: 'إجمالي المبلغ', type: 'positive_number' },
-      { field: 'paidAmount', label: 'المبلغ المدفوع', type: 'non_negative_number' },
-      {
-        field: 'paidAmount',
-        label: 'المبلغ المدفوع',
-        type: 'custom',
-        customCheck: (val, order) => {
-          if (typeof val === 'number' && typeof order.totalAmount === 'number' && val > order.totalAmount) {
-            return 'المبلغ المدفوع لا يمكن أن يتجاوز إجمالي المبلغ';
-          }
-          return null;
-        }
-      },
-      {
-        field: 'garmentCount',
-        label: 'عدد الثياب',
-        type: 'custom',
-        customCheck: (val) => {
-          if (typeof val === 'number' && (isNaN(val) || val <= 0)) {
-            return 'عدد الثياب يجب أن يكون 1 على الأقل';
-          }
-          return null;
-        }
-      },
-      {
-        field: 'fabricConsumptionMeters',
-        label: 'أمتار القماش المستخدمة',
-        type: 'custom',
-        customCheck: (val) => {
-          if (typeof val === 'number' && (isNaN(val) || val < 0)) {
-            return 'أمتار القماش المستخدمة لا يمكن أن تكون بالسالب';
-          }
-          return null;
-        }
-      }
-    ]
-  },
-  {
-    entityType: 'payment',
-    rules: [
-      { field: 'amount', label: 'مبلغ الدفعة', type: 'positive_number' },
-      {
-        field: 'amount',
-        label: 'مبلغ الدفعة',
-        type: 'custom',
-        customCheck: (val, _payment, extraCtx) => {
-          const targetInvoice = extraCtx?.targetInvoice as Invoice | undefined;
-          if (targetInvoice && typeof val === 'number' && val > targetInvoice.remainingAmount) {
-            return `مبلغ الدفعة (${val}) يتجاوز المبلغ المتبقي للفاتورة (${targetInvoice.remainingAmount})`;
-          }
-          return null;
-        }
-      }
-    ]
-  },
-  {
-    entityType: 'fabric',
-    rules: [
-      { field: 'name', label: 'اسم صنف القماش', type: 'required_string' },
-      { field: 'quantityMeters', label: 'الأمتار المتاحة', type: 'non_negative_number' },
-      { field: 'sellingPrice', label: 'سعر البيع', type: 'non_negative_number' },
-      {
-        field: 'purchasePrice',
-        label: 'سعر الشراء',
-        type: 'custom',
-        customCheck: (val) => {
-          if (typeof val === 'number' && (isNaN(val) || val < 0)) {
-            return 'سعر الشراء لا يمكن أن يكون بالسالب';
-          }
-          return null;
-        }
-      }
-    ]
-  },
-  {
-    entityType: 'accessory',
-    rules: [
-      { field: 'name', label: 'اسم صنف الإكسسوار', type: 'required_string' },
-      { field: 'quantity', label: 'الكمية المتاحة', type: 'non_negative_number' }
-    ]
-  },
-  {
-    entityType: 'thobeType',
-    rules: [
-      { field: 'name', label: 'اسم نوع الثوب', type: 'required_string' },
-      { field: 'defaultPrice', label: 'السعر الأساسي لنوع الثوب', type: 'non_negative_number' }
-    ]
-  },
-  {
-    entityType: 'color',
-    rules: [
-      { field: 'name', label: 'اسم اللون', type: 'required_string' },
-      { field: 'hex', label: 'كود اللون', type: 'required_string' }
-    ]
-  }
-];
-
-export function validateEntity<T extends Record<string, any>>(
-  entityType: 'customer' | 'order' | 'fabric' | 'accessory' | 'thobeType' | 'color' | 'payment',
-  record: T,
-  extraCtx?: any
-): string | null {
-  const schema = VALIDATION_SCHEMAS.find((s) => s.entityType === entityType);
-  if (!schema) return null;
-
-  for (const rule of schema.rules) {
-    const val = record[rule.field];
-
-    if (rule.type === 'required_string') {
-      if (!val || typeof val !== 'string' || val.trim() === '') {
-        return `يرجى إدخال ${rule.label} بشكل صحيح`;
-      }
-    } else if (rule.type === 'positive_number') {
-      if (typeof val !== 'number' || isNaN(val) || val <= 0) {
-        return `${rule.label} يجب أن يكون رقمًا موجبًا أكبر من الصفر`;
-      }
-    } else if (rule.type === 'non_negative_number') {
-      if (typeof val !== 'number' || isNaN(val) || val < 0) {
-        return `${rule.label} لا يمكن أن يكون بالسالب`;
-      }
-    } else if (rule.type === 'custom' && rule.customCheck) {
-      const err = rule.customCheck(val, record, extraCtx);
-      if (err) return err;
-    }
-  }
-
-  return null;
-}
-
 export default function App() {
   const [data, setData] = useState<AppData | null>(null);
   const [prefs, setPrefs] = useState<UserPreferences>({ activeTab: 'dashboard', invoicePrintMode: 'detailed' });
   const [isLoading, setIsLoading] = useState(true);
+  const [dataRevision, setDataRevision] = useState(INITIAL_DATA_REVISION);
 
   // CRUD Loading State for background operations
   const [crudProgress, setCrudProgress] = useState<{ isExecuting: boolean; label: string }>({
@@ -205,6 +55,7 @@ export default function App() {
   // Toast notification
   const [toast, setToast] = useState<ToastState>({ show: false, message: '', type: 'info' });
   const undoTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const loadInFlightRef = React.useRef<Promise<string[]> | null>(null);
 
   const showToast = (
     message: string,
@@ -240,43 +91,118 @@ export default function App() {
 
   // Load Data on Mount
   const loadAppData = async (): Promise<string[]> => {
-    setIsLoading(true);
-    initElectronMock();
-    const appData = await window.electronAPI.getData();
-    const appPrefs = await window.electronAPI.getPreferences();
+    if (loadInFlightRef.current) return loadInFlightRef.current;
 
-    const { updatedData, alertMessages } = checkAndSyncStockAlerts(appData);
-    if (updatedData !== appData) {
-      await window.electronAPI.saveData(updatedData);
+    const request = (async () => {
+      setIsLoading(true);
+      initElectronMock();
+      const [appData, appPrefs] = await Promise.all([
+        window.electronAPI.getData(),
+        window.electronAPI.getPreferences()
+      ]);
+
+      const { updatedData, alertMessages } = checkAndSyncStockAlerts(appData);
+      if (updatedData !== appData) {
+        await window.electronAPI.saveData(updatedData);
+      }
+
+      setData(updatedData);
+      setDataRevision((current) => bumpDataRevision(current, ALL_DATA_SLICES));
+      setPrefs(appPrefs);
+      setIsLoading(false);
+      return alertMessages;
+    })();
+
+    loadInFlightRef.current = request;
+    try {
+      return await request;
+    } finally {
+      if (loadInFlightRef.current === request) loadInFlightRef.current = null;
     }
-
-    setData(updatedData);
-    setPrefs(appPrefs);
-    setIsLoading(false);
-    return alertMessages;
   };
 
   useEffect(() => {
-    loadAppData();
+    void loadAppData();
+    return () => {
+      if (undoTimerRef.current) {
+        clearTimeout(undoTimerRef.current);
+        undoTimerRef.current = null;
+      }
+    };
   }, []);
+
+  const refreshSlices = async (slices: readonly DataSliceName[]): Promise<string[]> => {
+    if (!data) return [];
+    const patch: Partial<AppData> = {};
+    await Promise.all(slices.map(async (slice) => {
+      switch (slice) {
+        case 'customers':
+          if (window.electronAPI.getCustomers) patch.customers = await window.electronAPI.getCustomers();
+          break;
+        case 'orders':
+          if (window.electronAPI.getOrders) patch.orders = await window.electronAPI.getOrders();
+          break;
+        case 'invoices':
+          if (window.electronAPI.getInvoices) patch.invoices = await window.electronAPI.getInvoices();
+          break;
+        case 'fabrics':
+          if (window.electronAPI.getFabrics) patch.fabrics = await window.electronAPI.getFabrics();
+          break;
+        case 'accessories':
+          if (window.electronAPI.getAccessories) patch.accessories = await window.electronAPI.getAccessories();
+          break;
+        case 'purchases':
+          if (window.electronAPI.getPurchases) patch.purchases = await window.electronAPI.getPurchases();
+          break;
+        case 'expenses':
+          if (window.electronAPI.getExpenses) patch.expenses = await window.electronAPI.getExpenses();
+          break;
+        case 'cashTransactions':
+          if (window.electronAPI.getCashTransactions) patch.cashTransactions = await window.electronAPI.getCashTransactions();
+          break;
+        case 'stockMovements':
+          if (window.electronAPI.getStockMovements) patch.stockMovements = await window.electronAPI.getStockMovements();
+          break;
+        case 'orderMaterialUsages':
+          if (window.electronAPI.getOrderMaterialUsages) patch.orderMaterialUsages = await window.electronAPI.getOrderMaterialUsages();
+          break;
+        case 'orderEvents':
+          if (window.electronAPI.getOrderEvents) patch.orderEvents = await window.electronAPI.getOrderEvents();
+          break;
+        case 'notifications': {
+          const snapshot = await window.electronAPI.getData();
+          patch.notifications = snapshot.notifications;
+          break;
+        }
+      }
+    }));
+
+    const mergedData = mergeDataSlices(data, patch);
+    const { updatedData, alertMessages } = checkAndSyncStockAlerts(mergedData);
+    if (updatedData !== mergedData) await window.electronAPI.saveData(updatedData);
+    setData(updatedData);
+    setDataRevision((current) => bumpDataRevision(current, slices));
+    return alertMessages;
+  };
 
   // Save Data Helper
   const persistData = async (updatedData: AppData): Promise<string[]> => {
     const { updatedData: syncedData, alertMessages } = checkAndSyncStockAlerts(updatedData);
     setData(syncedData);
+    setDataRevision((current) => bumpDataRevision(current, ALL_DATA_SLICES));
     await window.electronAPI.saveData(syncedData);
     return alertMessages;
   };
 
   // Navigation Handler
-  const handleTabChange = (tabId: string) => {
+  const handleTabChange = React.useCallback((tabId: string) => {
     setPrefs((prev) => ({ ...prev, activeTab: tabId }));
-    window.electronAPI.savePreferences({ activeTab: tabId });
+    void window.electronAPI.savePreferences({ activeTab: tabId });
     setSelectedOrderForDetail(null);
     setTriggerNewOrderModal(false);
     setCustomerForNewOrder(null);
     setMeasurementForNewOrder(null);
-  };
+  }, []);
 
   const handleUseMeasurementForOrder = (customer: Customer, snapshot: MeasurementHistoryRecord | null) => {
     setCustomerForNewOrder(customer);
@@ -294,16 +220,21 @@ export default function App() {
   };
 
   // Update Invoice Mode
-  const handleUpdateInvoiceMode = (mode: 'detailed' | 'summary') => {
+  const handleUpdateInvoiceMode = React.useCallback((mode: 'detailed' | 'summary') => {
     setPrefs((prev) => ({ ...prev, invoicePrintMode: mode }));
-    window.electronAPI.savePreferences({ invoicePrintMode: mode });
-  };
+    void window.electronAPI.savePreferences({ invoicePrintMode: mode });
+  }, []);
 
   // Save Shop Settings
-  const handleSaveShopSettings = (shopPrefs: Partial<UserPreferences>) => {
+  const handleSaveShopSettings = React.useCallback((shopPrefs: Partial<UserPreferences>) => {
     setPrefs((prev) => ({ ...prev, ...shopPrefs }));
-    window.electronAPI.savePreferences(shopPrefs);
-  };
+    void window.electronAPI.savePreferences(shopPrefs);
+  }, []);
+
+  const handleOpenBackupModal = React.useCallback(() => setIsBackupModalOpen(true), []);
+  const handleOpenNotifications = React.useCallback(() => setIsNotificationsModalOpen(true), []);
+  const handlePrintScreen = React.useCallback(() => window.print(), []);
+  const handleCloseToast = React.useCallback(() => setToast((prev) => ({ ...prev, show: false })), []);
 
   
   // Temporary undo support for destructive actions.
@@ -394,9 +325,9 @@ export default function App() {
 
   // 2. Orders
   const handleSaveOrder = async (order: Order) => {
-    const err = validateEntity('order', order);
-    if (err) {
-      showToast(err, 'danger');
+    const validationErrors = validateEntityErrors('order', order);
+    if (validationErrors.length > 0) {
+      showToast(validationErrors.join('\n'), 'danger');
       return;
     }
 
@@ -535,7 +466,7 @@ export default function App() {
     await executeCrud('جاري تسجيل الدفعة المالية...', async () => {
       if (window.electronAPI.addPayment) {
         await window.electronAPI.addPayment(invoiceId, payment.amount, payment.method, payment.note || '', payment.id);
-        await loadAppData();
+        await refreshSlices(['orders', 'invoices', 'cashTransactions', 'orderEvents']);
         showToast('تم إضافة الدفعة بنجاح', 'success');
       } else {
         if (!data) return;
@@ -577,7 +508,7 @@ export default function App() {
     await executeCrud('جاري اعتماد المشتريات وتحديث المخزون والصندوق...', async () => {
       if (!window.electronAPI.createPurchase) throw new Error('وظيفة المشتريات غير متاحة في هذه النسخة');
       await window.electronAPI.createPurchase(payload);
-      await loadAppData();
+      await refreshSlices(['purchases', 'stockMovements', 'cashTransactions', 'fabrics', 'accessories', 'notifications']);
       showToast('تم اعتماد المشتريات وتحديث المخزون والصندوق بنجاح', 'success');
     });
   };
@@ -586,7 +517,7 @@ export default function App() {
     await executeCrud('جاري تسجيل المصروف...', async () => {
       if (!window.electronAPI.createExpense) throw new Error('وظيفة المصروفات غير متاحة في هذه النسخة');
       await window.electronAPI.createExpense(payload);
-      await loadAppData();
+      await refreshSlices(['expenses', 'cashTransactions']);
       showToast('تم تسجيل المصروف في الصندوق بنجاح', 'success');
     });
   };
@@ -595,7 +526,7 @@ export default function App() {
     await executeCrud('جاري تسجيل الحركة المالية...', async () => {
       if (!window.electronAPI.createCashAdjustment) throw new Error('وظيفة الصندوق غير متاحة في هذه النسخة');
       await window.electronAPI.createCashAdjustment(payload);
-      await loadAppData();
+      await refreshSlices(['cashTransactions']);
       showToast('تم تسجيل الحركة المالية بنجاح', 'success');
     });
   };
@@ -617,7 +548,7 @@ export default function App() {
         } else {
           await window.electronAPI.createFabric(fabric);
         }
-        alerts = await loadAppData();
+        alerts = await refreshSlices(['fabrics', 'notifications']);
       } else {
         if (!data) return;
         const exists = data.fabrics.some((f) => f.id === fabric.id);
@@ -640,7 +571,7 @@ export default function App() {
 await executeCrud('جاري حذف القماش من المخزون...', async () => {
       if (window.electronAPI.deleteFabric) {
         await window.electronAPI.deleteFabric(id);
-        await loadAppData();
+        await refreshSlices(['fabrics', 'notifications']);
         showToast('تم حذف القماش بنجاح', 'success');
       } else {
         if (!data) return;
@@ -670,7 +601,7 @@ await executeCrud('جاري حذف القماش من المخزون...', async (
         } else {
           await window.electronAPI.createAccessory(accessory);
         }
-        alerts = await loadAppData();
+        alerts = await refreshSlices(['accessories', 'notifications']);
       } else {
         if (!data) return;
         const exists = data.accessories.some((a) => a.id === accessory.id);
@@ -693,7 +624,7 @@ await executeCrud('جاري حذف القماش من المخزون...', async (
 await executeCrud('جاري حذف الإكسسوار...', async () => {
       if (window.electronAPI.deleteAccessory) {
         await window.electronAPI.deleteAccessory(id);
-        await loadAppData();
+        await refreshSlices(['accessories', 'notifications']);
         showToast('تم حذف الإكسسوار بنجاح', 'success');
       } else {
         if (!data) return;
@@ -817,6 +748,25 @@ await executeCrud('جاري حذف الإكسسوار...', async () => {
     });
   };
 
+  const unreadNotifCount = React.useMemo(
+    () => data?.notifications.reduce((count, notification) => count + (notification.read ? 0 : 1), 0) ?? 0,
+    [data?.notifications]
+  );
+
+  const headerInfo = React.useMemo(() => {
+    switch (prefs.activeTab) {
+      case 'dashboard': return { title: 'لوحة التحكم والمتابعة', description: 'نظرة عامة على الطلبات، التنبيهات، ونواقص المخزون' };
+      case 'customers': return { title: 'إدارة العملاء والمقاسات', description: 'سجل كامل لمقاسات وتفاصيل موديلات خياطة كل عميل' };
+      case 'orders': return { title: 'إدارة طلبات الخياطة', description: 'متابعة مراحل التنفيذ، التسليم، وطباعة الكروت' };
+      case 'invoices': return { title: 'الفواتير وسجل الحسابات', description: 'تسديد الدفعات، متابعة المتبقي، ومعاينة الفواتير' };
+      case 'inventory': return { title: 'إدارة المخزون والأصناف', description: 'أصول الأقمشة، الإكسسوارات، موديلات الثياب، والألوان' };
+      case 'accounting': return { title: 'المحاسبة والمشتريات والصندوق', description: 'ربط المشتريات والمصروفات والدفعات بالرصيد والتقارير' };
+      case 'reports': return { title: 'التقارير والإحصائيات المالية', description: 'متابعة المبيعات، الإيرادات، وتصدير التقارير لـ Excel' };
+      case 'settings': return { title: 'إعدادات المحل والطباعة', description: 'بيانات المحل التي تظهر في ترويسة الفواتير وكروت الطباعة' };
+      default: return { title: 'صهوة للخياطة', description: 'نظام إدارة الخياطة الرجالية' };
+    }
+  }, [prefs.activeTab]);
+
   if (isLoading || !data) {
     return (
       <div className="h-screen bg-[var(--ui-charcoal)] flex items-center justify-center">
@@ -825,67 +775,16 @@ await executeCrud('جاري حذف الإكسسوار...', async () => {
     );
   }
 
-  const unreadNotifCount = data.notifications.filter((n) => !n.read).length;
-
-  const getHeaderInfo = () => {
-    switch (prefs.activeTab) {
-      case 'dashboard':
-        return {
-          title: 'لوحة التحكم والمتابعة',
-          description: 'نظرة عامة على الطلبات، التنبيهات، ونواقص المخزون'
-        };
-      case 'customers':
-        return {
-          title: 'إدارة العملاء والمقاسات',
-          description: 'سجل كامل لمقاسات وتفاصيل موديلات خياطة كل عميل'
-        };
-      case 'orders':
-        return {
-          title: 'إدارة طلبات الخياطة',
-          description: 'متابعة مراحل التنفيذ، التسليم، وطباعة الكروت'
-        };
-      case 'invoices':
-        return {
-          title: 'الفواتير وسجل الحسابات',
-          description: 'تسديد الدفعات، متابعة المتبقي، ومعاينة الفواتير'
-        };
-      case 'inventory':
-        return {
-          title: 'إدارة المخزون والأصناف',
-          description: 'أصول الأقمشة، الإكسسوارات، موديلات الثياب، والألوان'
-        };
-      case 'accounting':
-        return {
-          title: 'المحاسبة والمشتريات والصندوق',
-          description: 'ربط المشتريات والمصروفات والدفعات بالرصيد والتقارير'
-        };
-      case 'reports':
-        return {
-          title: 'التقارير والإحصائيات المالية',
-          description: 'متابعة المبيعات، الإيرادات، وتصدير التقارير لـ Excel'
-        };
-      case 'settings':
-        return {
-          title: 'إعدادات المحل والطباعة',
-          description: 'بيانات المحل التي تظهر في ترويسة الفواتير وكروت الطباعة'
-        };
-      default:
-        return { title: 'صهوة للخياطة', description: 'نظام إدارة الخياطة الرجالية' };
-    }
-  };
-
-  const headerInfo = getHeaderInfo();
-
   return (
     <div className="h-screen overflow-hidden bg-[var(--ui-ivory)] text-slate-900 flex flex-row dir-rtl font-['Tajawal']">
       {/* Toast Notification Banner */}
-      <Toast toast={toast} onClose={() => setToast((prev) => ({ ...prev, show: false }))} />
+      <Toast toast={toast} onClose={handleCloseToast} />
 
       {/* Sidebar Navigation */}
       <Sidebar
         activeTab={prefs.activeTab}
         onTabChange={handleTabChange}
-        onOpenBackupModal={() => setIsBackupModalOpen(true)}
+        onOpenBackupModal={handleOpenBackupModal}
         unreadNotifCount={unreadNotifCount}
         managerName={prefs.managerName}
       />
@@ -899,12 +798,13 @@ await executeCrud('جاري حذف الإكسسوار...', async () => {
           title={headerInfo.title}
           description={headerInfo.description}
           unreadNotifCount={unreadNotifCount}
-          onOpenNotifications={() => setIsNotificationsModalOpen(true)}
-          onPrintScreen={() => window.print()}
+          onOpenNotifications={handleOpenNotifications}
+          onPrintScreen={handlePrintScreen}
         />
 
         <div className="p-6">
-          <Suspense fallback={<div className="flex items-center justify-center py-20"><LoadingSpinner label="جاري تحميل الصفحة..." /></div>}>
+          <AppErrorBoundary>
+            <Suspense fallback={<div className="flex items-center justify-center py-20"><LoadingSpinner label="جاري تحميل الصفحة..." /></div>}>
           {prefs.activeTab === 'dashboard' && (
             <DashboardView
               data={data}
@@ -914,8 +814,8 @@ await executeCrud('جاري حذف الإكسسوار...', async () => {
                 handleTabChange('orders');
               }}
               onOpenNewOrderModal={() => {
-                setTriggerNewOrderModal(true);
                 handleTabChange('orders');
+                setTriggerNewOrderModal(true);
               }}
             />
           )}
@@ -958,6 +858,7 @@ await executeCrud('جاري حذف الإكسسوار...', async () => {
               invoicePrintMode={prefs.invoicePrintMode}
               userPreferences={prefs}
               onUpdateInvoiceMode={handleUpdateInvoiceMode}
+              onNavigateTab={handleTabChange}
               onAddPayment={handleAddPayment}
               showToast={showToast}
             />
@@ -984,7 +885,7 @@ await executeCrud('جاري حذف الإكسسوار...', async () => {
           )}
 
           {prefs.activeTab === 'reports' && (
-            <ReportsView data={data} showToast={showToast} />
+            <ReportsView data={data} dataRevision={dataRevision} showToast={showToast} />
           )}
 
           {prefs.activeTab === 'accounting' && (
@@ -1008,7 +909,8 @@ await executeCrud('جاري حذف الإكسسوار...', async () => {
               showToast={showToast}
             />
           )}
-          </Suspense>
+            </Suspense>
+          </AppErrorBoundary>
         </div>
       </main>
 

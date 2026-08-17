@@ -44,7 +44,7 @@ const OptionChip: React.FC<{ label: string; selected: boolean; onClick: () => vo
     type="button"
     aria-pressed={selected}
     onClick={onClick}
-    className={`${CONTROL_H} px-4 rounded-xl border-2 text-[11px] font-black whitespace-nowrap inline-flex items-center gap-2 transition-all duration-200 active:scale-95 cursor-pointer ${
+    className={`${CONTROL_H} px-4 rounded-xl border-2 text-[11px] font-black whitespace-nowrap inline-flex items-center gap-2 transition-all duration-200 active:scale-95 cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-[#b08a4a] focus-visible:ring-offset-2 ${
       selected
         ? 'bg-[#111111] border-[#111111] text-white shadow-md'
         : 'bg-white border-[#E5E7EB] text-[#6B7280] hover:border-[#111111] hover:text-[#111111]'
@@ -79,7 +79,7 @@ const Section: React.FC<{ title: string; icon?: React.ReactNode; className?: str
 export const draftKeyFor = (customerName?: string, customerPhone?: string, scope: string = 'new') =>
   `sahwa_measurements_draft:${scope}:${(customerName || 'new').trim()}:${(customerPhone || '').trim()}`;
 
-export const MeasurementsTableForm: React.FC<MeasurementsTableFormProps> = ({
+export const MeasurementsTableForm = React.memo<MeasurementsTableFormProps>(({
   measurements,
   onChange,
   styleDetails,
@@ -531,4 +531,4 @@ export const MeasurementsTableForm: React.FC<MeasurementsTableFormProps> = ({
       )}
     </div>
   );
-};
+});

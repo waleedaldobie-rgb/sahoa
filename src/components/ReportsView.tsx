@@ -1,5 +1,7 @@
 import React, { useState } from 'react';
 import { AppData } from '../types';
+import { DataRevision } from '../state/appDataStore';
+import { getCachedDerivedValue } from '../services/derivedDataCache';
 import { Button, Badge, EmptyState } from './ui';
 import {
   BarChart3,
@@ -11,14 +13,14 @@ import {
   Wallet,
   FileText
 } from 'lucide-react';
-import * as XLSX from 'xlsx';
 
 export interface ReportsViewProps {
   data: AppData;
   showToast: (msg: string, type: 'success' | 'danger' | 'warning' | 'info') => void;
+  dataRevision: DataRevision;
 }
 
-export const ReportsView: React.FC<ReportsViewProps> = ({ data, showToast }) => {
+export const ReportsView: React.FC<ReportsViewProps> = ({ data, dataRevision, showToast }) => {
   const [periodFilter, setPeriodFilter] = useState<'today' | 'week' | 'month' | 'year' | 'custom'>('month');
   const [startDate, setStartDate] = useState(() => {
     const d = new Date();
@@ -28,54 +30,104 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ data, showToast }) => 
   const [endDate, setEndDate] = useState(() => new Date().toISOString().split('T')[0]);
 
   const { orders, fabrics, accessories, purchases, expenses, cashTransactions, stockMovements } = data;
+  const reportCacheKey = `reports:${dataRevision.global}:${periodFilter}:${startDate}:${endDate}`;
+  const inventoryStats = React.useMemo(() => getCachedDerivedValue(`inventory:${dataRevision.inventory}`, () => ({
+    inventoryValue: fabrics.reduce((sum, fabric) => sum + (fabric.quantityMeters * (fabric.purchasePrice || 0)), 0) + accessories.reduce((sum, accessory) => sum + (accessory.quantity * (accessory.purchasePrice || 0)), 0),
+    lowStockItems: [
+      ...fabrics.filter((fabric) => fabric.quantityMeters <= fabric.minStockMeters).map((fabric) => fabric.name),
+      ...accessories.filter((accessory) => accessory.quantity <= accessory.minStock).map((accessory) => accessory.name)
+    ]
+  })), [accessories, dataRevision.inventory, fabrics]);
 
-  const isDateInSelectedPeriod = (value: string) => {
-    const date = new Date(value);
-    const now = new Date();
-    if (periodFilter === 'today') return value.slice(0, 10) === now.toISOString().slice(0, 10);
-    if (periodFilter === 'week') return date >= new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-    if (periodFilter === 'month') return date.getMonth() === now.getMonth() && date.getFullYear() === now.getFullYear();
-    if (periodFilter === 'year') return date.getFullYear() === now.getFullYear();
-    if (periodFilter === 'custom') return value.slice(0, 10) >= startDate && value.slice(0, 10) <= endDate;
-    return true;
-  };
+  const reportStats = React.useMemo(() => getCachedDerivedValue(reportCacheKey, () => {
+    const isDateInSelectedPeriod = (value: string) => {
+      const date = new Date(value);
+      const now = new Date();
+      if (periodFilter === 'today') return value.slice(0, 10) === now.toISOString().slice(0, 10);
+      if (periodFilter === 'week') return date >= new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+      if (periodFilter === 'month') return date.getMonth() === now.getMonth() && date.getFullYear() === now.getFullYear();
+      if (periodFilter === 'year') return date.getFullYear() === now.getFullYear();
+      if (periodFilter === 'custom') return value.slice(0, 10) >= startDate && value.slice(0, 10) <= endDate;
+      return true;
+    };
 
-  const filteredOrders = orders.filter((order) => isDateInSelectedPeriod(order.orderDate));
-  const filteredPurchases = (purchases || []).filter((purchase) => isDateInSelectedPeriod(purchase.purchaseDate));
-  const filteredExpenses = (expenses || []).filter((expense) => isDateInSelectedPeriod(expense.expenseDate));
-  const filteredCash = (cashTransactions || []).filter((transaction) => isDateInSelectedPeriod(transaction.transactionDate));
-  const filteredMovements = (stockMovements || []).filter((movement) => isDateInSelectedPeriod(movement.createdAt));
+    const filteredOrders = orders.filter((order) => isDateInSelectedPeriod(order.orderDate));
+    const filteredPurchases = (purchases || []).filter((purchase) => isDateInSelectedPeriod(purchase.purchaseDate));
+    const filteredExpenses = (expenses || []).filter((expense) => isDateInSelectedPeriod(expense.expenseDate));
+    const filteredCash = (cashTransactions || []).filter((transaction) => isDateInSelectedPeriod(transaction.transactionDate));
+    const filteredMovements = (stockMovements || []).filter((movement) => isDateInSelectedPeriod(movement.createdAt));
 
-  const totalOrdersCount = filteredOrders.length;
-  const totalSales = filteredOrders.filter((order) => order.status !== 'cancelled').reduce((sum, order) => sum + (order.totalAmount || 0), 0);
-  const deliveredOrders = filteredOrders.filter((order) => order.status === 'delivered');
-  const actualRevenue = deliveredOrders.reduce((sum, order) => sum + (order.totalAmount || 0), 0);
-  const collectedAmount = filteredCash.filter((transaction) => transaction.direction === 'in' && transaction.sourceType === 'customer_payment').reduce((sum, transaction) => sum + transaction.amount, 0)
-    || filteredOrders.reduce((sum, order) => sum + (order.paidAmount || 0), 0);
-  const remainingAmount = filteredOrders.reduce((sum, order) => sum + (order.remainingAmount || 0), 0);
-  const totalPurchases = filteredPurchases.reduce((sum, purchase) => sum + (purchase.totalAmount || 0), 0);
-  const totalExpenses = filteredExpenses.reduce((sum, expense) => sum + (expense.amount || 0), 0);
+    const totalOrdersCount = filteredOrders.length;
+    const totalSales = filteredOrders.filter((order) => order.status !== 'cancelled').reduce((sum, order) => sum + (order.totalAmount || 0), 0);
+    const deliveredOrders = filteredOrders.filter((order) => order.status === 'delivered');
+    const actualRevenue = deliveredOrders.reduce((sum, order) => sum + (order.totalAmount || 0), 0);
+    const collectedAmount = filteredCash.filter((transaction) => transaction.direction === 'in' && transaction.sourceType === 'customer_payment').reduce((sum, transaction) => sum + transaction.amount, 0)
+      || filteredOrders.reduce((sum, order) => sum + (order.paidAmount || 0), 0);
+    const remainingAmount = filteredOrders.reduce((sum, order) => sum + (order.remainingAmount || 0), 0);
+    const totalPurchases = filteredPurchases.reduce((sum, purchase) => sum + (purchase.totalAmount || 0), 0);
+    const totalExpenses = filteredExpenses.reduce((sum, expense) => sum + (expense.amount || 0), 0);
 
-  const materialCost = filteredOrders.filter((order) => order.status !== 'cancelled').reduce((sum, order) => {
-    if (typeof order.materialCost === 'number') return sum + order.materialCost;
-    const buyPrice = order.fabricBuyPriceAtOrder !== undefined && order.fabricBuyPriceAtOrder > 0 ? order.fabricBuyPriceAtOrder : (fabrics.find((fabric) => fabric.id === order.fabricId)?.purchasePrice || 0);
-    const consumption = order.fabricConsumptionMeters !== undefined && order.fabricConsumptionMeters > 0 ? order.fabricConsumptionMeters : (order.garmentCount || 1) * 3.5;
-    return sum + (buyPrice * consumption);
-  }, 0);
-  const grossProfit = totalSales - materialCost;
-  const netProfit = grossProfit - totalExpenses;
-  const avgOrderValue = totalOrdersCount > 0 ? Math.round(totalSales / totalOrdersCount) : 0;
-  const inventoryValue = fabrics.reduce((sum, fabric) => sum + (fabric.quantityMeters * (fabric.purchasePrice || 0)), 0) + accessories.reduce((sum, accessory) => sum + (accessory.quantity * (accessory.purchasePrice || 0)), 0);
-  const lowStockItems = [...fabrics.filter((fabric) => fabric.quantityMeters <= fabric.minStockMeters).map((fabric) => fabric.name), ...accessories.filter((accessory) => accessory.quantity <= accessory.minStock).map((accessory) => accessory.name)];
-  const consumptionByItem = filteredMovements.filter((movement) => movement.direction === 'sale').reduce((result: Record<string, number>, movement) => {
-    result[movement.itemName] = (result[movement.itemName] || 0) + movement.quantity;
-    return result;
-  }, {} as Record<string, number>);
-  const topConsumption = Object.entries(consumptionByItem).sort(([, first], [, second]) => Number(second) - Number(first)).slice(0, 5);
+    const materialCost = filteredOrders.filter((order) => order.status !== 'cancelled').reduce((sum, order) => {
+      if (typeof order.materialCost === 'number') return sum + order.materialCost;
+      const buyPrice = order.fabricBuyPriceAtOrder !== undefined && order.fabricBuyPriceAtOrder > 0 ? order.fabricBuyPriceAtOrder : (fabrics.find((fabric) => fabric.id === order.fabricId)?.purchasePrice || 0);
+      const consumption = order.fabricConsumptionMeters !== undefined && order.fabricConsumptionMeters > 0 ? order.fabricConsumptionMeters : (order.garmentCount || 1) * 3.5;
+      return sum + (buyPrice * consumption);
+    }, 0);
+    const grossProfit = totalSales - materialCost;
+    const netProfit = grossProfit - totalExpenses;
+    const avgOrderValue = totalOrdersCount > 0 ? Math.round(totalSales / totalOrdersCount) : 0;
+    const { inventoryValue, lowStockItems } = inventoryStats;
+    const consumptionByItem = filteredMovements.filter((movement) => movement.direction === 'sale').reduce((result: Record<string, number>, movement) => {
+      result[movement.itemName] = (result[movement.itemName] || 0) + movement.quantity;
+      return result;
+    }, {} as Record<string, number>);
+    const topConsumption = Object.entries(consumptionByItem).sort(([, first], [, second]) => Number(second) - Number(first)).slice(0, 5);
+
+    return {
+      filteredOrders,
+      filteredCash,
+      filteredMovements,
+      totalOrdersCount,
+      totalSales,
+      actualRevenue,
+      collectedAmount,
+      remainingAmount,
+      totalPurchases,
+      totalExpenses,
+      materialCost,
+      grossProfit,
+      netProfit,
+      avgOrderValue,
+      inventoryValue,
+      lowStockItems,
+      topConsumption
+    };
+  }), [inventoryStats, reportCacheKey]);
+
+  const {
+    filteredOrders,
+    filteredCash,
+    filteredMovements,
+    totalOrdersCount,
+    totalSales,
+    actualRevenue,
+    collectedAmount,
+    remainingAmount,
+    totalPurchases,
+    totalExpenses,
+    materialCost,
+    grossProfit,
+    netProfit,
+    avgOrderValue,
+    inventoryValue,
+    lowStockItems,
+    topConsumption
+  } = reportStats;
 
   // Export to Excel XLSX Handler
-  const handleExportExcel = () => {
+  const handleExportExcel = async () => {
     try {
+      const XLSX = await import('xlsx');
       const excelRows = filteredOrders.map((ord, idx) => ({
         'م': idx + 1,
         'رقم الطلب': ord.orderNumber,

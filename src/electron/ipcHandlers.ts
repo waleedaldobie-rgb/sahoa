@@ -19,6 +19,8 @@ import {
   InventoryItemType
 } from '../types';
 import { normalizeMeasurements, normalizeStyleDetails } from '../services/shared/measurementDefaults';
+import { normalizePositiveAmount } from '../domain/amountRules';
+import { round2 } from '../domain/inventoryRules';
 import { CustomerRepository } from './repositories/customerRepository';
 import { CashRepository } from './repositories/cashRepository';
 import { CustomerService } from './services/customerService';
@@ -50,7 +52,6 @@ const parseStyleDetailsJson = (value?: string) => {
   catch { return normalizeStyleDetails(); }
 };
 
-const round2 = (value: number) => Math.round((Number(value) + Number.EPSILON) * 100) / 100;
 
 const mapOrderEvent = (row: any): OrderEvent => ({
   id: row.id,
@@ -214,8 +215,7 @@ export function registerIpcHandlers(dbManager: SahwaDatabaseManager) {
   });
 
   safeIpcHandle(ipcMain, 'cash:createAdjustment', async (_, payload: any) => {
-    const amount = Number(payload.amount);
-    if (!Number.isFinite(amount) || amount <= 0) throw new Error('مبلغ الحركة يجب أن يكون أكبر من صفر');
+    const amount = normalizePositiveAmount(payload.amount, 'مبلغ الحركة');
     if (!payload.description?.trim()) throw new Error('وصف الحركة المالية مطلوب');
     const id = payload.id || `CASH-${Date.now()}`;
     const existing = cashRepository.findById(id) as any;
@@ -424,7 +424,7 @@ export function registerIpcHandlers(dbManager: SahwaDatabaseManager) {
   });
 
   safeIpcHandle(ipcMain, 'reports:exportExcel', async (_, startDate?: string, endDate?: string) => {
-    const buffer = dbManager.generateExcelReport(startDate, endDate);
+    const buffer = await dbManager.generateExcelReport(startDate, endDate);
     return buffer.toString('base64');
   });
 

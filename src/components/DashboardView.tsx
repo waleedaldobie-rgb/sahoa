@@ -130,10 +130,12 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           ) : (
             <div className="space-y-3">
               {dueOrders.map((ord) => (
-                <div
+                <button
+                  type="button"
                   key={ord.id}
                   onClick={() => onSelectOrder(ord)}
-                  className="p-4 bg-white hover:bg-[#F9FAFB] border border-[#E5E7EB] hover:border-[#111111] rounded-xl flex items-center justify-between cursor-pointer transition-all duration-200 group"
+                  aria-label={`عرض تفاصيل الطلب ${ord.orderNumber} للعميل ${ord.customerName}`}
+                  className="w-full text-right p-4 bg-white hover:bg-[#F9FAFB] border border-[#E5E7EB] hover:border-[#111111] rounded-xl flex items-center justify-between cursor-pointer transition-all duration-200 group focus:outline-none focus-visible:ring-2 focus-visible:ring-[#b08a4a] focus-visible:ring-offset-2"
                 >
                   <div className="flex items-center gap-4">
                     <div className="w-10 h-10 rounded-lg bg-[#F3F4F6] text-[#111111] flex items-center justify-center text-xs font-black shrink-0 group-hover:bg-[#111111] group-hover:text-white transition-colors">
@@ -150,7 +152,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                     <span className="text-[11px] font-black text-rose-600 font-mono bg-rose-50 px-2 py-0.5 rounded-md">{ord.deliveryDate}</span>
                     {getStatusBadge(ord.status)}
                   </div>
-                </div>
+                </button>
               ))}
             </div>
           )}
@@ -234,11 +236,12 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         className="p-0" // Remove padding to let table be full width
       >
         {recentOrders.length === 0 ? (
-          <EmptyState
-            icon={<Scissors className="w-6 h-6" />}
-            title="لا توجد طلبات مسجلة"
-            description="ابدأ بإضافة طلب جديد من الزر أعلاه."
-          />
+            <EmptyState
+              icon={<Scissors className="w-6 h-6" />}
+              title="لا توجد طلبات مسجلة"
+              description="ابدأ بإضافة طلب جديد من الزر أعلاه."
+              action={<Button variant="primary" size="sm" onClick={onOpenNewOrderModal} icon={<Plus className="w-4 h-4" />}>تسجيل طلب جديد</Button>}
+            />
         ) : (
           <div className="overflow-x-auto">
             <table className="premium-table">
