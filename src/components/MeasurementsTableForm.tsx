@@ -22,13 +22,14 @@ interface MeasurementsTableFormProps {
   onCancel?: () => void;
   saveLabel?: string;
   isSaving?: boolean;
+  layoutVariant?: 'orders-original' | 'customers-responsive';
 }
 
 const CONTROL_H = 'h-10'; 
-const inputClass = `${CONTROL_H} ux-measure-input bg-white border-2 border-[#111111] rounded-lg px-2 text-center text-[15px] font-black text-[#111111] focus:outline-none focus:bg-[#111111] focus:text-white focus:ring-4 focus:ring-[#111111]/5 transition-all duration-200 shadow-sm`;
+const inputClass = `${CONTROL_H} sahwa-measure-input ux-measure-input px-2 text-center text-[15px] font-black transition-all duration-200`;
 
-const rowClass = 'measurement-row flex items-center gap-3 flex-wrap sm:flex-nowrap py-[14px] border-b border-[#D9D9D9] last:border-b-0 min-w-0 group';
-const labelClass = 'text-[13px] font-black text-[#111111] whitespace-nowrap shrink-0 transition-all group-hover:translate-x-[-2px]';
+const rowClass = 'sahwa-measurement-row measurement-row flex items-center gap-3 flex-wrap sm:flex-nowrap py-[14px] last:border-b-0 min-w-0 group';
+const labelClass = 'sahwa-measure-label text-[13px] font-black whitespace-nowrap shrink-0';
 
 const emptyStyleDetails = (): CustomerStyleDetails => ({
   neckSizeHeader: '', neckHeightHeader: '', neckType: '', neckShape: '', neckPadding: '', neckLining: '', neckNotes: '',
@@ -44,11 +45,8 @@ const OptionChip: React.FC<{ label: string; selected: boolean; onClick: () => vo
     type="button"
     aria-pressed={selected}
     onClick={onClick}
-    className={`${CONTROL_H} px-4 rounded-xl border-2 text-[11px] font-black whitespace-nowrap inline-flex items-center gap-2 transition-all duration-200 active:scale-95 cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-[#b08a4a] focus-visible:ring-offset-2 ${
-      selected
-        ? 'bg-[#111111] border-[#111111] text-white shadow-md'
-        : 'bg-white border-[#E5E7EB] text-[#6B7280] hover:border-[#111111] hover:text-[#111111]'
-    }`}
+    data-selected={selected}
+    className={`sahwa-option-chip ${CONTROL_H} px-4 text-[11px] font-black whitespace-nowrap inline-flex items-center gap-2 transition-all duration-200 active:scale-95 cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-focus-token)] focus-visible:ring-offset-2 ${selected ? 'shadow-md' : ''}`}
   >
     {selected && <Check className="w-3.5 h-3.5 shrink-0" />}
     {label}
@@ -56,7 +54,7 @@ const OptionChip: React.FC<{ label: string; selected: boolean; onClick: () => vo
 );
 
 const DrawingBox: React.FC<{ children: React.ReactNode; className?: string; active?: boolean }> = ({ children, className = '', active = false }) => (
-  <div className={`drawing-box shrink-0 w-24 h-28 rounded-2xl border-2 border-[#111111] bg-[#F9FAFB] flex items-center justify-center p-2 text-[#111111] shadow-sm group-hover:bg-white transition-colors ${active ? 'drawing-box-active' : ''} ${className}`}>
+  <div data-active={active} className={`sahwa-drawing-box drawing-box shrink-0 w-24 h-28 flex items-center justify-center p-2 transition-colors ${active ? 'drawing-box-active' : ''} ${className}`}>
     {children}
   </div>
 );
@@ -67,12 +65,12 @@ const Section: React.FC<{ title: string; icon?: React.ReactNode; className?: str
   className = '',
   children,
 }) => (
-  <section className={`measurement-section min-w-0 border-2 border-[#111111] bg-white rounded-3xl overflow-visible shadow-[0_8px_30px_rgb(0,0,0,0.04)] hover:shadow-[0_8px_30px_rgb(0,0,0,0.08)] transition-all duration-300 ${className}`}>
-    <h4 className="measurement-section-header flex items-center gap-3 text-[14px] font-black text-white bg-[#111111] p-4">
+  <section className={`sahwa-form-section measurement-section min-w-0 overflow-visible transition-all duration-300 ${className}`}>
+    <h4 className="sahwa-form-section-header measurement-section-header flex items-center gap-3 text-[14px] font-black p-4">
       {icon}
       {title}
     </h4>
-    <div className="measurement-section-body p-6 space-y-1">{children}</div>
+    <div className="sahwa-form-section-body measurement-section-body p-6 space-y-1">{children}</div>
   </section>
 );
 
@@ -93,6 +91,7 @@ export const MeasurementsTableForm = React.memo<MeasurementsTableFormProps>(({
   onCancel,
   saveLabel = 'حفظ',
   isSaving = false,
+  layoutVariant = 'orders-original',
 }) => {
   const details = useMemo(() => styleDetails || emptyStyleDetails(), [styleDetails]);
   const [draftStatus, setDraftStatus] = useState<'idle' | 'saving' | 'saved' | 'restored'>('idle');
@@ -255,9 +254,13 @@ export const MeasurementsTableForm = React.memo<MeasurementsTableFormProps>(({
     { value: 'جيب مربع', label: 'جيب مربع' },
   ];
 
+  const measurementsGridClass = layoutVariant === 'customers-responsive'
+    ? 'measurements-ux-grid grid min-w-0 grid-cols-1 gap-5 xl:grid-cols-[minmax(0,2.5fr)_minmax(0,1.5fr)_minmax(0,1.8fr)] xl:gap-5 items-start'
+    : 'measurements-ux-grid grid grid-cols-1 xl:grid-cols-[2.5fr_1.5fr_1.8fr] gap-8 items-start';
+
   return (
     <div onKeyDown={handleKeyDown} onFocusCapture={handleInputFocus} onBlurCapture={handleFocusExit} dir="rtl" className="measurements-ux-form space-y-8 animate-in fade-in duration-500">
-      <div className="measurements-ux-grid grid grid-cols-1 xl:grid-cols-[2.5fr_1.5fr_1.8fr] gap-8 items-start">
+      <div className={measurementsGridClass}>
         {/* RIGHT COLUMN — القياسات الأساسية */}
         <Section title="القياسات الأساسية" icon={<Ruler className="w-5 h-5" />}>
           {NumberRow('طول أمام', 'frontLength')}
