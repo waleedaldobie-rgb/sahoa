@@ -2261,6 +2261,18 @@ input:focus, select:focus, textarea:focus {
       grid-template-columns: minmax(0, 2.5fr) minmax(0, 1.5fr) minmax(0, 1.8fr);
       gap: 2rem;
     }
+
+    .measurements-ux-form--orders .orders-measurement-basic {
+      order: 1;
+    }
+
+    .measurements-ux-form--orders .orders-measurement-other {
+      order: 2;
+    }
+
+    .measurements-ux-form--orders .orders-measurement-details {
+      order: 3;
+    }
   }
 
   @media (max-width: 1023px) {

@@ -265,7 +265,7 @@ export const MeasurementsTableForm = React.memo<MeasurementsTableFormProps>(({
     <div onKeyDown={handleKeyDown} onFocusCapture={handleInputFocus} onBlurCapture={handleFocusExit} dir="rtl" className={`measurements-ux-form ${layoutVariant === 'orders-original' ? 'measurements-ux-form--orders' : 'measurements-ux-form--customers'} space-y-8 animate-in fade-in duration-500`}>
       <div className={measurementsGridClass}>
         {/* RIGHT COLUMN — القياسات الأساسية */}
-        <Section title="القياسات الأساسية" icon={<Ruler className="w-5 h-5" />}>
+        <Section title="القياسات الأساسية" icon={<Ruler className="w-5 h-5" />} className="orders-measurement-basic">
           {NumberRow('طول أمام', 'frontLength')}
           {NumberRow('طول خلف', 'backLength')}
           {NumberRow('الكتف', 'shoulderWidth')}
@@ -375,7 +375,7 @@ export const MeasurementsTableForm = React.memo<MeasurementsTableFormProps>(({
         </Section>
 
         {/* MIDDLE COLUMN — تفاصيل التفصيل والرسومات */}
-        <Section title="تفاصيل التفصيل" icon={<Scissors className="w-5 h-5" />} className="xl:order-3">
+        <Section title="تفاصيل التفصيل" icon={<Scissors className="w-5 h-5" />} className="orders-measurement-details xl:order-3">
           <div className="space-y-6">
             <div className="space-y-3">
               <div className="space-y-2">
@@ -498,7 +498,7 @@ export const MeasurementsTableForm = React.memo<MeasurementsTableFormProps>(({
         </Section>
 
         {/* LEFT COLUMN — باقي القياسات */}
-        <Section title="باقي القياسات" className="h-full xl:order-2">
+        <Section title="باقي القياسات" className="orders-measurement-other h-full xl:order-2">
           <div className="flex flex-col h-full">
             {NumberRow('التخاليص', 'clearances')}
             {NumberRow('ميلان الكتف', 'shoulderSlope')}
