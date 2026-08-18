@@ -161,7 +161,7 @@ async function createCustomerAndOrder(pageRef, fabric) {
   await pageRef.getByTestId('order-measurement-shoulderWidth').fill('18');
   await pageRef.getByTestId('order-measurement-sleeveLength').fill('24');
   await pageRef.getByTestId('order-save').click();
-  await waitForToast(pageRef, /تم حفظ الطلب/);
+  await expect(pageRef.getByText('عميل Windows Acceptance', { exact: true }).last()).toBeVisible({ timeout: 20_000 });
   const data = await getDataSnapshot(pageRef);
   const order = data.orders.find((item) => item.customerName === 'عميل Windows Acceptance');
   assert(order, 'The acceptance order was not persisted.');
