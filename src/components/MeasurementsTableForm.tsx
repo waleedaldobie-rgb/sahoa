@@ -262,7 +262,7 @@ export const MeasurementsTableForm = React.memo<MeasurementsTableFormProps>(({
     : 'measurements-ux-grid grid grid-cols-1 xl:grid-cols-[2.5fr_1.5fr_1.8fr] gap-8 items-start';
 
   return (
-    <div onKeyDown={handleKeyDown} onFocusCapture={handleInputFocus} onBlurCapture={handleFocusExit} dir="rtl" className="measurements-ux-form space-y-8 animate-in fade-in duration-500">
+    <div onKeyDown={handleKeyDown} onFocusCapture={handleInputFocus} onBlurCapture={handleFocusExit} dir="rtl" className={`measurements-ux-form ${layoutVariant === 'orders-original' ? 'measurements-ux-form--orders' : 'measurements-ux-form--customers'} space-y-8 animate-in fade-in duration-500`}>
       <div className={measurementsGridClass}>
         {/* RIGHT COLUMN — القياسات الأساسية */}
         <Section title="القياسات الأساسية" icon={<Ruler className="w-5 h-5" />}>

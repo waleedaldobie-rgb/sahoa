@@ -2253,6 +2253,16 @@ input:focus, select:focus, textarea:focus {
     50% { opacity: 1; }
   }
 
+  /* The installed desktop window can expose a 1008px CSS viewport. Keep the
+     original order worksheet in its three-column desktop arrangement there;
+     customer forms remain responsive and stack below the xl breakpoint. */
+  @media (min-width: 960px) and (max-width: 1279px) {
+    .measurements-ux-form--orders .measurements-ux-grid {
+      grid-template-columns: minmax(0, 2.5fr) minmax(0, 1.5fr) minmax(0, 1.8fr);
+      gap: 2rem;
+    }
+  }
+
   @media (max-width: 1023px) {
     .measurements-ux-form .measurement-section-header {
       top: auto;
