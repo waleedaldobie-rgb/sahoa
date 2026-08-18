@@ -439,6 +439,7 @@ export function registerIpcHandlers(dbManager: SahwaDatabaseManager) {
 
   safeIpcHandle(ipcMain, 'whatsapp:send', async (_, phone: string, customerName: string, orderNumber: string, statusText: string) => {
     const whatsappUrl = whatsappService.logPreparedMessage(phone, customerName, orderNumber, statusText);
+    if (process.env.SAHWA_FORCE_WHATSAPP_FAILURE === '1') return false;
     try {
       const { shell } = require('electron');
       await shell.openExternal(whatsappUrl);

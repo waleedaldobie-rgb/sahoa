@@ -412,6 +412,13 @@ declare global {
       getOrderMaterialUsages?: (orderId?: string) => Promise<OrderMaterialUsage[]>;
       
       exportExcelReport?: (startDate?: string, endDate?: string) => Promise<string>;
+      automationStorageInfo?: () => Promise<{
+        userDataPath: string;
+        databasePath: string;
+        backupDir: string;
+        appPath: string;
+        isPackaged: boolean;
+      }>;
       getSettings?: () => Promise<any>;
       updateSetting?: (key: string, value: any) => Promise<boolean>;
     };

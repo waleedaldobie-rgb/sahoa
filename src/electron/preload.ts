@@ -75,6 +75,7 @@ export const electronBridge = {
   importBackup: (jsonContent: string) => ipcRenderer.invoke('system:restore', jsonContent),
   clearAllData: () => ipcRenderer.invoke('system:clearAllData'),
   exportExcelReport: (startDate?: string, endDate?: string) => ipcRenderer.invoke('reports:exportExcel', startDate, endDate),
+  automationStorageInfo: () => ipcRenderer.invoke('automation:storageInfo'),
   
   getSettings: () => ipcRenderer.invoke('settings:get'),
   updateSetting: (key: string, value: any) => ipcRenderer.invoke('settings:update', key, value),
