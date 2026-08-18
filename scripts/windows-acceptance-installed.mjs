@@ -211,7 +211,7 @@ async function testAccountingAndStock(pageRef, fabric) {
   await pageRef.getByLabel('المورد', { exact: true }).fill('مورد Windows Acceptance');
   await pageRef.getByLabel('رقم فاتورة الشراء', { exact: true }).fill('PUR-WIN-001');
   await pageRef.getByLabel('نوع الصنف', { exact: true }).selectOption('fabric');
-  await pageRef.getByLabel('الصنف', { exact: true }).selectOption({ label: fabric.name });
+  await pageRef.getByLabel('الصنف', { exact: true }).selectOption({ label: `${fabric.name} — ${fabric.color}` });
   await pageRef.getByLabel('الكمية', { exact: true }).fill('2');
   await pageRef.getByLabel('سعر الوحدة', { exact: true }).fill('18');
   await pageRef.getByRole('button', { name: 'إضافة', exact: true }).click();
