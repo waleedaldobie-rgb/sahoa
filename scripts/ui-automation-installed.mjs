@@ -45,7 +45,7 @@ async function openCustomers(page) {
 
 async function openOrders(page) {
   await page.getByRole('button', { name: 'إدارة الطلبات' }).click();
-  await expect(page.getByText('إدارة طلبات الخياطة', { exact: true })).toBeVisible();
+  await expect(page.getByText('إدارة طلبات الخياطة', { exact: true }).first()).toBeVisible();
 }
 
 let app;
