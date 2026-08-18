@@ -212,7 +212,7 @@ export const CustomersView: React.FC<CustomersViewProps> = ({
           })}
         </ol>
 
-        <div className="grid grid-cols-1 gap-8 lg:grid-cols-3">
+        <div className="grid grid-cols-1 gap-8">
           <Card id="customer-basic-section" title="البيانات الأساسية" className="h-fit lg:col-span-1" onFocusCapture={() => setActiveFormStage('basic')}>
             <div className="space-y-5">
               <Input
