@@ -223,7 +223,7 @@ async function testAccountingAndStock(pageRef, fabric) {
   await pageRef.getByRole('button', { name: 'المصروفات', exact: true }).click();
   await pageRef.getByLabel('المبلغ', { exact: true }).fill('35');
   await pageRef.getByLabel('الوصف', { exact: true }).fill('مصروف Windows Acceptance');
-  await pageRef.getByLabel('الملاحظات', { exact: true }).fill('اختبار قبول Windows');
+  await pageRef.getByLabel('ملاحظات', { exact: true }).fill('اختبار قبول Windows');
   await pageRef.getByRole('button', { name: 'حفظ المصروف', exact: true }).click();
   await waitForData(pageRef, (data) => data.expenses.some((item) => item.description === 'مصروف Windows Acceptance'), 'expense was not persisted');
   pass('expenses.create', 'created expense and linked cash effect');
@@ -232,7 +232,7 @@ async function testAccountingAndStock(pageRef, fabric) {
   await pageRef.getByLabel('المبلغ', { exact: true }).fill('15');
   await pageRef.getByLabel('المرجع', { exact: true }).fill('CASH-WIN-001');
   await pageRef.getByLabel('الوصف', { exact: true }).fill('تسوية Windows Acceptance');
-  await pageRef.getByLabel('الملاحظات', { exact: true }).fill('اختبار قبول Windows');
+  await pageRef.getByLabel('ملاحظات', { exact: true }).fill('اختبار قبول Windows');
   await pageRef.getByRole('button', { name: 'حفظ الحركة', exact: true }).click();
   await waitForData(pageRef, (data) => data.cashTransactions.some((item) => item.referenceNumber === 'CASH-WIN-001'), 'cash adjustment was not persisted');
   pass('cash.create', 'created cash adjustment and visible ledger entry');
