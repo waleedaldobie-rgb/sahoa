@@ -93,7 +93,8 @@ try {
   await waitForDashboard(page);
   await openCustomers(page);
   await expect(page.getByText('عميل UI Automation', { exact: true })).toBeVisible({ timeout: 15_000 });
-  await page.getByText('عميل UI Automation', { exact: true }).click();
+  const persistedCustomerRow = page.getByRole('row', { name: /عميل UI Automation/ });
+  await persistedCustomerRow.getByRole('button', { name: 'عرض التفاصيل' }).click();
   await expect(page.getByTestId('customer-measurement-frontLength')).toHaveValue('25.5');
   await page.screenshot({ path: path.join(evidenceDir, '05-customer-after-reopen.png'), fullPage: true });
 
