@@ -2301,8 +2301,8 @@ input:focus, select:focus, textarea:focus {
 @media screen {
   .printable-area,
   .invoice-print-host,
-  .printable-area-ticket,
-  .printable-area-summary,
+  .printable-area-ticket:not(.invoice-screen-preview),
+  .printable-area-summary:not(.invoice-screen-preview),
   .hidden-on-screen {
     display: none !important;
   }

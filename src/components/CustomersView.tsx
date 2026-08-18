@@ -314,7 +314,7 @@ export const CustomersView: React.FC<CustomersViewProps> = ({
                     measurements={formData.measurements}
                     measurementTestIdPrefix="customer"
                     styleDetails={formData.styleDetails}
-                    layoutVariant="customers-responsive"
+                    layoutVariant="orders-original"
                     onChange={(updated) => setFormData({ ...formData, measurements: updated })}
                     onStyleChange={(updated) => setFormData({ ...formData, styleDetails: updated })}
                     customerName={formData.name}
