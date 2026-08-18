@@ -23,6 +23,7 @@ interface MeasurementsTableFormProps {
   saveLabel?: string;
   isSaving?: boolean;
   layoutVariant?: 'orders-original' | 'customers-responsive';
+  measurementTestIdPrefix?: 'customer' | 'order';
 }
 
 const CONTROL_H = 'h-10'; 
@@ -92,6 +93,7 @@ export const MeasurementsTableForm = React.memo<MeasurementsTableFormProps>(({
   saveLabel = 'حفظ',
   isSaving = false,
   layoutVariant = 'orders-original',
+  measurementTestIdPrefix,
 }) => {
   const details = useMemo(() => styleDetails || emptyStyleDetails(), [styleDetails]);
   const [draftStatus, setDraftStatus] = useState<'idle' | 'saving' | 'saved' | 'restored'>('idle');
@@ -223,6 +225,7 @@ export const MeasurementsTableForm = React.memo<MeasurementsTableFormProps>(({
         value={measurements[field] || ''}
         onChange={(e) => updateField(field, e.target.value)}
         data-drawing={drawing}
+        data-testid={measurementTestIdPrefix ? `${measurementTestIdPrefix}-measurement-${field}` : undefined}
         className={`${inputClass} w-24 mx-2`}
       />
       <div className="flex-1 border-b-2 border-dotted border-[#111111]/20 group-hover:border-[#111111]/40 transition-colors mt-1" />
@@ -259,10 +262,10 @@ export const MeasurementsTableForm = React.memo<MeasurementsTableFormProps>(({
     : 'measurements-ux-grid grid grid-cols-1 xl:grid-cols-[2.5fr_1.5fr_1.8fr] gap-8 items-start';
 
   return (
-    <div onKeyDown={handleKeyDown} onFocusCapture={handleInputFocus} onBlurCapture={handleFocusExit} dir="rtl" className="measurements-ux-form space-y-8 animate-in fade-in duration-500">
+    <div onKeyDown={handleKeyDown} onFocusCapture={handleInputFocus} onBlurCapture={handleFocusExit} dir="rtl" className={`measurements-ux-form ${layoutVariant === 'orders-original' ? 'measurements-ux-form--orders' : 'measurements-ux-form--customers'} space-y-8 animate-in fade-in duration-500`}>
       <div className={measurementsGridClass}>
         {/* RIGHT COLUMN — القياسات الأساسية */}
-        <Section title="القياسات الأساسية" icon={<Ruler className="w-5 h-5" />}>
+        <Section title="القياسات الأساسية" icon={<Ruler className="w-5 h-5" />} className="orders-measurement-basic">
           {NumberRow('طول أمام', 'frontLength')}
           {NumberRow('طول خلف', 'backLength')}
           {NumberRow('الكتف', 'shoulderWidth')}
@@ -275,6 +278,7 @@ export const MeasurementsTableForm = React.memo<MeasurementsTableFormProps>(({
                 inputMode="decimal"
                 value={measurements.sleeveLength || ''}
                 onChange={(e) => updateField('sleeveLength', e.target.value)}
+                data-testid={measurementTestIdPrefix ? `${measurementTestIdPrefix}-measurement-sleeveLength` : undefined}
                 className={`${inputClass} w-20 mx-2`}
               />
               <div className="flex-1 min-w-[40px] border-b-2 border-solid border-[#E5E7EB] mt-1" />
@@ -371,7 +375,7 @@ export const MeasurementsTableForm = React.memo<MeasurementsTableFormProps>(({
         </Section>
 
         {/* MIDDLE COLUMN — تفاصيل التفصيل والرسومات */}
-        <Section title="تفاصيل التفصيل" icon={<Scissors className="w-5 h-5" />} className="xl:order-3">
+        <Section title="تفاصيل التفصيل" icon={<Scissors className="w-5 h-5" />} className="orders-measurement-details xl:order-3">
           <div className="space-y-6">
             <div className="space-y-3">
               <div className="space-y-2">
@@ -494,7 +498,7 @@ export const MeasurementsTableForm = React.memo<MeasurementsTableFormProps>(({
         </Section>
 
         {/* LEFT COLUMN — باقي القياسات */}
-        <Section title="باقي القياسات" className="h-full xl:order-2">
+        <Section title="باقي القياسات" className="orders-measurement-other h-full xl:order-2">
           <div className="flex flex-col h-full">
             {NumberRow('التخاليص', 'clearances')}
             {NumberRow('ميلان الكتف', 'shoulderSlope')}
