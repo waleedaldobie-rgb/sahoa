@@ -741,7 +741,10 @@ await executeCrud('جاري حذف الإكسسوار...', async () => {
   // WhatsApp Sender
   const handleSendWhatsAppNotice = async (phone: string, name: string, orderNum: string, statusText: string) => {
     await executeCrud('جاري إرسال إشعار الواتساب...', async () => {
-      await window.electronAPI.sendWhatsAppNotice(phone, name, orderNum, statusText);
+      const opened = await window.electronAPI.sendWhatsAppNotice(phone, name, orderNum, statusText);
+      if (opened === false) {
+        throw new Error('تعذر فتح واتساب. تحقق من اتصال الإنترنت ثم حاول مرة أخرى.');
+      }
       showToast(`تم توجيه إشعار واتساب للعميل ${name}`, 'success');
       await loadAppData();
     });
