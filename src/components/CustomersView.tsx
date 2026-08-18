@@ -216,6 +216,7 @@ export const CustomersView: React.FC<CustomersViewProps> = ({
           <Card id="customer-basic-section" title="البيانات الأساسية" className="h-fit lg:col-span-1" onFocusCapture={() => setActiveFormStage('basic')}>
             <div className="space-y-5">
               <Input
+                data-testid="customer-name"
                 label="اسم العميل الكامل *"
                 ref={customerNameInputRef}
                 value={formData.name}
@@ -225,6 +226,7 @@ export const CustomersView: React.FC<CustomersViewProps> = ({
                 error={formErrors.name}
               />
               <Input
+                data-testid="customer-phone"
                 label="رقم الجوال *"
                 value={formData.phone}
                 onChange={(e) => { setFormData({ ...formData, phone: e.target.value }); setFormErrors((prev) => ({ ...prev, phone: undefined })); }}
@@ -310,6 +312,7 @@ export const CustomersView: React.FC<CustomersViewProps> = ({
                 <div className="customers-measurements-scroll">
                   <MeasurementsTableForm
                     measurements={formData.measurements}
+                    measurementTestIdPrefix="customer"
                     styleDetails={formData.styleDetails}
                     layoutVariant="customers-responsive"
                     onChange={(updated) => setFormData({ ...formData, measurements: updated })}
@@ -386,7 +389,7 @@ export const CustomersView: React.FC<CustomersViewProps> = ({
           </div>
           <div className="flex w-full items-center justify-end gap-3 sm:w-auto">
             <Button type="button" variant="ghost" onClick={() => setIsFormOpen(false)}>إلغاء</Button>
-            <Button type="button" variant="primary" onClick={handleSave} icon={<Save className="h-5 w-5" />} size="lg" className="w-full sm:w-auto">
+            <Button data-testid="save-customer-measurements" type="button" variant="primary" onClick={handleSave} icon={<Save className="h-5 w-5" />} size="lg" className="w-full sm:w-auto">
               {selectedCustomer ? 'حفظ التغييرات' : 'حفظ العميل والمقاسات'}
             </Button>
           </div>
@@ -407,7 +410,7 @@ export const CustomersView: React.FC<CustomersViewProps> = ({
         </div>
         <div className="flex items-center gap-2" aria-label="ملخص العملاء">
           <span className="customers-count" aria-live="polite">{customers.length} عميل</span>
-          <Button type="button" variant="primary" size="md" onClick={handleOpenNewCustomer} icon={<User className="w-4 h-4" />}>
+          <Button data-testid="customers-add" type="button" variant="primary" size="md" onClick={handleOpenNewCustomer} icon={<User className="w-4 h-4" />}>
             إضافة عميل جديد
           </Button>
         </div>

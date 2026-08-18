@@ -23,6 +23,7 @@ interface MeasurementsTableFormProps {
   saveLabel?: string;
   isSaving?: boolean;
   layoutVariant?: 'orders-original' | 'customers-responsive';
+  measurementTestIdPrefix?: 'customer' | 'order';
 }
 
 const CONTROL_H = 'h-10'; 
@@ -92,6 +93,7 @@ export const MeasurementsTableForm = React.memo<MeasurementsTableFormProps>(({
   saveLabel = 'حفظ',
   isSaving = false,
   layoutVariant = 'orders-original',
+  measurementTestIdPrefix,
 }) => {
   const details = useMemo(() => styleDetails || emptyStyleDetails(), [styleDetails]);
   const [draftStatus, setDraftStatus] = useState<'idle' | 'saving' | 'saved' | 'restored'>('idle');
@@ -223,6 +225,7 @@ export const MeasurementsTableForm = React.memo<MeasurementsTableFormProps>(({
         value={measurements[field] || ''}
         onChange={(e) => updateField(field, e.target.value)}
         data-drawing={drawing}
+        data-testid={measurementTestIdPrefix ? `${measurementTestIdPrefix}-measurement-${field}` : undefined}
         className={`${inputClass} w-24 mx-2`}
       />
       <div className="flex-1 border-b-2 border-dotted border-[#111111]/20 group-hover:border-[#111111]/40 transition-colors mt-1" />
@@ -275,6 +278,7 @@ export const MeasurementsTableForm = React.memo<MeasurementsTableFormProps>(({
                 inputMode="decimal"
                 value={measurements.sleeveLength || ''}
                 onChange={(e) => updateField('sleeveLength', e.target.value)}
+                data-testid={measurementTestIdPrefix ? `${measurementTestIdPrefix}-measurement-sleeveLength` : undefined}
                 className={`${inputClass} w-20 mx-2`}
               />
               <div className="flex-1 min-w-[40px] border-b-2 border-solid border-[#E5E7EB] mt-1" />

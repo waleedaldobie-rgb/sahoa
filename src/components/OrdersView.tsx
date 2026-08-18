@@ -524,6 +524,7 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
           <p className="page-subtitle">متابعة مراحل التنفيذ، التسليم، وطباعة الكروت</p>
         </div>
         <Button
+          data-testid="orders-add"
           variant="primary"
           onClick={handleOpenNewOrder}
           icon={<Plus className="w-5 h-5" />}
@@ -714,6 +715,7 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
              <div className="flex items-center gap-3">
                 <Button variant="ghost" onClick={handleCloseNewOrder}>إلغاء</Button>
                 <Button 
+                  data-testid="order-save"
                   variant="primary" 
                   onClick={handleCreateOrder} 
                   icon={<Save className="w-4 h-4" />}
@@ -766,6 +768,7 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
                   </div>
                 ) : (
                   <Select
+                    data-testid="order-customer-select"
                     value={selectedCustomerId}
                     onChange={(e) => setSelectedCustomerId(e.target.value)}
                     icon={<User className="w-4 h-4" />}
@@ -979,6 +982,7 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
             
             <MeasurementsTableForm
               measurements={newOrderMeasurements}
+              measurementTestIdPrefix="order"
               onChange={setNewOrderMeasurements}
               styleDetails={newOrderStyleDetails}
               onStyleChange={setNewOrderStyleDetails}
