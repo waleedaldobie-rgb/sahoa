@@ -95,6 +95,10 @@ async function getDataSnapshot(pageRef) {
   return pageRef.evaluate(() => window.electronAPI.getData());
 }
 
+async function waitForData(pageRef, predicate, description) {
+  await expect.poll(async () => predicate(await getDataSnapshot(pageRef)), { timeout: 20_000, message: description }).toBe(true);
+}
+
 async function waitForReachability(url) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 5_000);
@@ -128,7 +132,8 @@ async function createFabric(pageRef) {
   await pageRef.getByLabel('اللون', { exact: true }).fill('كحلي');
   await pageRef.getByLabel('المخزون (متر)', { exact: true }).fill('50');
   await pageRef.getByRole('button', { name: 'حفظ البيانات', exact: true }).click();
-  await waitForToast(pageRef, /تم حفظ القماش/);
+  await expect(pageRef.getByText('قماش Windows Acceptance', { exact: true }).last()).toBeVisible({ timeout: 20_000 });
+  await waitForData(pageRef, (data) => data.fabrics.some((item) => item.name === 'قماش Windows Acceptance'), 'fabric data was not persisted');
   const data = await getDataSnapshot(pageRef);
   const fabric = data.fabrics.find((item) => item.name === 'قماش Windows Acceptance');
   assert(fabric, 'The acceptance fabric was not persisted.');
@@ -145,7 +150,8 @@ async function createCustomerAndOrder(pageRef, fabric) {
   await pageRef.getByTestId('customer-measurement-frontLength').fill('25.5');
   await pageRef.getByTestId('customer-measurement-sleeveLength').fill('24');
   await pageRef.getByTestId('save-customer-measurements').click();
-  await waitForToast(pageRef, /تم حفظ بيانات العميل بنجاح/);
+  await expect(pageRef.getByText('عميل Windows Acceptance', { exact: true }).last()).toBeVisible({ timeout: 20_000 });
+  await waitForData(pageRef, (data) => data.customers.some((item) => item.name === 'عميل Windows Acceptance'), 'customer data was not persisted');
   pass('customer.measurement-create', 'created customer and saved measurements');
 
   await openTab(pageRef, 'إدارة الطلبات', 'إدارة طلبات الخياطة');
@@ -180,7 +186,7 @@ async function verifyInvoiceAndPayment(pageRef, order) {
   await expect(pageRef.getByRole('dialog')).toBeVisible();
   await pageRef.getByLabel('مبلغ التحصيل (ر.س) *', { exact: true }).fill('170');
   await pageRef.getByRole('button', { name: 'تأكيد العملية', exact: true }).click();
-  await waitForToast(pageRef, /تم إضافة الدفعة بنجاح|تم تسجيل دفعة جديدة/);
+  await waitForData(pageRef, (data) => data.invoices.some((item) => item.orderId === order.id && Number(item.paidAmount) === 220), 'payment was not persisted');
   const data = await getDataSnapshot(pageRef);
   const invoice = data.invoices.find((item) => item.orderId === order.id);
   assert(invoice, 'Invoice was not generated for the order.');
@@ -211,7 +217,7 @@ async function testAccountingAndStock(pageRef, fabric) {
   await pageRef.getByRole('button', { name: 'إضافة', exact: true }).click();
   await expect(pageRef.getByText(fabric.name, { exact: true }).last()).toBeVisible();
   await pageRef.getByRole('button', { name: 'اعتماد وحفظ المشتريات', exact: true }).click();
-  await waitForToast(pageRef, /تم اعتماد المشتريات/);
+  await waitForData(pageRef, (data) => data.purchases.some((item) => item.supplier === 'مورد Windows Acceptance'), 'purchase was not persisted');
   pass('purchases.create', 'created purchase and linked stock/cash effects');
 
   await pageRef.getByRole('button', { name: 'المصروفات', exact: true }).click();
@@ -219,7 +225,7 @@ async function testAccountingAndStock(pageRef, fabric) {
   await pageRef.getByLabel('الوصف', { exact: true }).fill('مصروف Windows Acceptance');
   await pageRef.getByLabel('الملاحظات', { exact: true }).fill('اختبار قبول Windows');
   await pageRef.getByRole('button', { name: 'حفظ المصروف', exact: true }).click();
-  await waitForToast(pageRef, /تم تسجيل المصروف/);
+  await waitForData(pageRef, (data) => data.expenses.some((item) => item.description === 'مصروف Windows Acceptance'), 'expense was not persisted');
   pass('expenses.create', 'created expense and linked cash effect');
 
   await pageRef.getByRole('button', { name: 'الصندوق', exact: true }).click();
@@ -228,7 +234,7 @@ async function testAccountingAndStock(pageRef, fabric) {
   await pageRef.getByLabel('الوصف', { exact: true }).fill('تسوية Windows Acceptance');
   await pageRef.getByLabel('الملاحظات', { exact: true }).fill('اختبار قبول Windows');
   await pageRef.getByRole('button', { name: 'حفظ الحركة', exact: true }).click();
-  await waitForToast(pageRef, /تم تسجيل الحركة المالية/);
+  await waitForData(pageRef, (data) => data.cashTransactions.some((item) => item.referenceNumber === 'CASH-WIN-001'), 'cash adjustment was not persisted');
   pass('cash.create', 'created cash adjustment and visible ledger entry');
 
   const data = await getDataSnapshot(pageRef);
