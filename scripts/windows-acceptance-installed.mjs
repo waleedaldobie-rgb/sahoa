@@ -36,7 +36,14 @@ function assert(condition, message) {
 }
 
 async function waitForToast(pageRef, pattern) {
-  await expect(pageRef.getByRole('status').filter({ hasText: pattern })).toBeVisible({ timeout: 20_000 });
+  const toast = pageRef.locator('[role="status"], [role="alert"]').filter({ hasText: pattern }).last();
+  try {
+    await expect(toast).toBeVisible({ timeout: 20_000 });
+  } catch (error) {
+    const bodyText = (await pageRef.locator('body').innerText()).slice(-4000);
+    await pageRef.screenshot({ path: path.join(evidenceDir, `toast-failure-${Date.now()}.png`), fullPage: true }).catch(() => {});
+    throw new Error(`${error instanceof Error ? error.message : String(error)}\nVisible body tail:\n${bodyText}`);
+  }
 }
 
 async function waitForDashboard(pageRef) {
