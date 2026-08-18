@@ -444,6 +444,7 @@ export function registerIpcHandlers(dbManager: SahwaDatabaseManager) {
       await shell.openExternal(whatsappUrl);
     } catch (e) {
       console.error('Failed to open external WhatsApp URL:', e);
+      return false;
     }
     return true;
   });
