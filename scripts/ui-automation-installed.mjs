@@ -74,7 +74,7 @@ try {
   await page.getByTestId('orders-add').click();
   await expect(page.getByRole('dialog')).toBeVisible();
   await expect(page.getByText('جدول القياسات والرسومات', { exact: true })).toBeVisible();
-  await page.getByTestId('order-customer-select').selectOption({ label: /عميل UI Automation/ });
+  await page.getByTestId('order-customer-select').selectOption({ label: 'عميل UI Automation - (0500000099)' });
   await expect(page.getByTestId('order-customer-select')).toHaveValue(/.+/);
   await page.waitForTimeout(300);
   await page.getByTestId('order-measurement-frontLength').fill('25.5');
