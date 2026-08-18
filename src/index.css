@@ -2191,7 +2191,7 @@ input:focus, select:focus, textarea:focus {
   }
 
   .measurements-ux-form .ux-measure-input {
-    min-width: 72px;
+    min-width: 96px;
     min-height: 40px;
     border-radius: 10px !important;
     caret-color: var(--ux-ink);
@@ -2253,9 +2253,45 @@ input:focus, select:focus, textarea:focus {
     50% { opacity: 1; }
   }
 
-  /* The installed desktop window can expose a 1008px CSS viewport. Keep the
-     original order worksheet in its three-column desktop arrangement there;
-     customer forms remain responsive and stack below the xl breakpoint. */
+  /* Keep the published worksheet proportions in the maximized desktop window. */
+  .measurements-ux-form--orders,
+  .measurements-ux-form--orders .measurements-ux-grid,
+  .customers-measurements-scroll {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    overflow-x: clip;
+  }
+
+  .measurements-ux-form--orders .measurement-section,
+  .measurements-ux-form--orders .measurement-section-body,
+  .measurements-ux-form--orders .measurement-row,
+  .measurements-ux-form--orders .measurement-row.group {
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .measurements-ux-form--orders .sahwa-option-chip {
+    max-width: 100%;
+    min-height: 44px;
+    white-space: normal;
+    text-align: center;
+  }
+
+  .measurements-ux-form--orders .sahwa-drawing-box,
+  .measurements-ux-form--orders .drawing-box,
+  .measurements-ux-form--orders img,
+  .measurements-ux-form--orders svg {
+    max-width: 100%;
+  }
+
+  @media (min-width: 1280px) {
+    .measurements-ux-form--orders .measurements-ux-grid {
+      grid-template-columns: minmax(0, 2.5fr) minmax(0, 1.5fr) minmax(0, 1.8fr);
+      gap: 2rem;
+    }
+  }
+
   @media (min-width: 960px) and (max-width: 1279px) {
     .measurements-ux-form--orders .measurements-ux-grid {
       grid-template-columns: minmax(0, 2.5fr) minmax(0, 1.5fr) minmax(0, 1.8fr);
@@ -2301,8 +2337,8 @@ input:focus, select:focus, textarea:focus {
 @media screen {
   .printable-area,
   .invoice-print-host,
-  .printable-area-ticket,
-  .printable-area-summary,
+  .printable-area-ticket:not(.invoice-screen-preview),
+  .printable-area-summary:not(.invoice-screen-preview),
   .hidden-on-screen {
     display: none !important;
   }

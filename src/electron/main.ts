@@ -39,8 +39,11 @@ function createWindow() {
   registerIpcHandlers(dbManager);
 
   mainWindow = new BrowserWindow({
-    width: 1280,
-    height: 850,
+    width: 1600,
+    height: 950,
+    minWidth: 1360,
+    minHeight: 800,
+    center: true,
     title: 'صهوة للخياطة الرجالية - إدارة المحل والمأخوذات',
     icon: path.join(__dirname, '../build/icon.ico'),
     webPreferences: {
@@ -50,6 +53,7 @@ function createWindow() {
     }
   });
 
+  mainWindow.maximize();
   if (process.env.NODE_ENV === 'development') {
     mainWindow.loadURL('http://localhost:3000');
   } else {
