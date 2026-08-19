@@ -412,8 +412,10 @@ export function registerIpcHandlers(dbManager: SahwaDatabaseManager) {
     });
 
     safeIpcHandle(ipcMain, 'system:backup', async () => {
-    return dbManager.backupDatabase('manual_user');
-  });
+      const result = await dbManager.backupDatabase('manual_user');
+      if (!result.success) throw new Error(result.error || 'فشل إنشاء النسخة الاحتياطية');
+      return JSON.stringify(dbManager.exportFullDataAsJson(), null, 2);
+    });
 
   safeIpcHandle(ipcMain, 'system:restore', async (_, jsonContent: string) => {
     return dbManager.restoreFromJson(jsonContent);

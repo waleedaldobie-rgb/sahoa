@@ -176,8 +176,9 @@ async function main() {
 
   await record('backup, restore of older snapshot, and persistence after reopen', async () => {
     const backup = await call('system:backup');
-    assert.equal(backup.success, true);
-    assert.ok(fs.existsSync(backup.filePath));
+    assert.ok(typeof backup === 'string' && backup.length > 100);
+    const sqliteBackups = fs.readdirSync(backupDir).filter((fileName) => fileName.includes('manual_user') && fileName.endsWith('.db'));
+    assert.ok(sqliteBackups.length > 0);
     const restoreResult = await call('system:restore', oldBackupJson);
     assert.equal(restoreResult.success, true);
     const db = manager.getRawDb();
