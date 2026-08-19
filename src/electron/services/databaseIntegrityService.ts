@@ -192,9 +192,11 @@ export class DatabaseIntegrityService {
     }
 
     const invoiceOrderIds = new Set<string>();
+    const invoicesByOrder = new Map<string, any>();
     for (const invoice of (payload.invoices || [])) {
       if (invoiceOrderIds.has(String(invoice.orderId))) add({ code: 'DUPLICATE_INVOICE_ORDER', table: 'invoices', recordId: String(invoice.id), expected: 'one invoice per order', actual: invoice.orderId, reason: 'Backup contains multiple invoices for one order' });
       invoiceOrderIds.add(String(invoice.orderId));
+      invoicesByOrder.set(String(invoice.orderId), invoice);
       if (!payload.orders.some((order: any) => order.id === invoice.orderId)) add({ code: 'ORPHAN_INVOICE', table: 'invoices', recordId: invoice.id, expected: invoice.orderId, actual: null, reason: 'Invoice order is missing from backup' });
       try {
         if (!Array.isArray(invoice.payments)) {
@@ -203,13 +205,17 @@ export class DatabaseIntegrityService {
         }
         const payments = invoice.payments;
         const expected = summarizePaymentLedger(payments, invoice.totalAmount);
-        if (!nearlyEqual(Number(invoice.paidAmount), expected.paidAmount) || !nearlyEqual(Number(invoice.remainingAmount), expected.remainingAmount)) add({ code: 'INVOICE_PAYMENT_MISMATCH', table: 'invoices', recordId: invoice.id, expected: { paid: expected.paidAmount, remaining: expected.remainingAmount }, actual: { paid: invoice.paidAmount, remaining: invoice.remainingAmount }, reason: 'Backup invoice aggregates do not match payments', severity: 'critical' });
+        if (!nearlyEqual(Number(invoice.paidAmount), expected.paidAmount) || !nearlyEqual(Number(invoice.remainingAmount), expected.remainingAmount)) add({ code: 'INVOICE_PAYMENT_MISMATCH', table: 'invoices', recordId: invoice.id, expected: { paid: expected.paidAmount, remaining: expected.remainingAmount }, actual: { paid: invoice.paidAmount, remaining: invoice.remainingAmount }, reason: 'Backup invoice aggregates do not match the Invoice Payment Ledger', severity: 'critical' });
         const order = ordersById.get(String(invoice.orderId));
-        if (order && (!nearlyEqual(Number(order.totalAmount), Number(invoice.totalAmount)) || !nearlyEqual(Number(order.paidAmount), Number(invoice.paidAmount)) || !nearlyEqual(Number(order.remainingAmount), Number(invoice.remainingAmount)))) add({ code: 'INVOICE_ORDER_AGGREGATE_MISMATCH', table: 'invoices', recordId: invoice.id, expected: { total: order.totalAmount, paid: order.paidAmount, remaining: order.remainingAmount }, actual: { total: invoice.totalAmount, paid: invoice.paidAmount, remaining: invoice.remainingAmount }, reason: 'Invoice aggregate differs from its order', severity: 'critical' });
+        if (order && !nearlyEqual(Number(order.totalAmount), Number(invoice.totalAmount))) add({ code: 'INVOICE_ORDER_TOTAL_MISMATCH', table: 'invoices', recordId: invoice.id, expected: order.totalAmount, actual: invoice.totalAmount, reason: 'Invoice total differs from its order total', severity: 'critical' });
+        if (order && (!nearlyEqual(Number(order.paidAmount), expected.paidAmount) || !nearlyEqual(Number(order.remainingAmount), expected.remainingAmount))) add({ code: 'ORDER_PAYMENT_PROJECTION_MISMATCH', table: 'orders', recordId: order.id, expected: { paid: expected.paidAmount, remaining: expected.remainingAmount, source: 'invoice.paymentLedger' }, actual: { paid: order.paidAmount, remaining: order.remainingAmount }, reason: 'Order payment projections do not match the Invoice Payment Ledger', severity: 'critical' });
         for (const payment of payments) assertValidPaymentMethod(payment.method);
       } catch (error: any) {
         add({ code: 'INVALID_PAYMENT_LEDGER', table: 'invoices', recordId: invoice.id, expected: 'valid payments with supported methods', actual: error?.message || String(error), reason: 'Backup invoice payments are invalid', severity: 'critical' });
       }
+    }
+    for (const order of payload.orders) {
+      if (!invoicesByOrder.has(String(order.id))) add({ code: 'MISSING_ORDER_INVOICE', table: 'orders', recordId: order.id, expected: 'one invoice per order', actual: null, reason: 'Order has no Invoice record in the backup; payment truth cannot be reconstructed', severity: 'critical' });
     }
     for (const fabric of payload.fabrics) if (!Number.isFinite(Number(fabric.quantityMeters)) || Number(fabric.quantityMeters) < 0) add({ code: 'NEGATIVE_STOCK', table: 'fabrics', recordId: fabric.id, expected: '>= 0', actual: fabric.quantityMeters, reason: 'Backup fabric quantity is negative', severity: 'critical' });
     for (const accessory of payload.accessories) if (!Number.isFinite(Number(accessory.quantity)) || Number(accessory.quantity) < 0) add({ code: 'NEGATIVE_STOCK', table: 'accessories', recordId: accessory.id, expected: '>= 0', actual: accessory.quantity, reason: 'Backup accessory quantity is negative', severity: 'critical' });
