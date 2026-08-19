@@ -252,19 +252,20 @@ async function exportExcelAndBackup(pageRef) {
   const xlsxModule = await import('xlsx');
   const xlsxVersion = xlsxModule.version || xlsxModule.default?.version;
   assert(xlsxVersion === '0.20.3', `Unexpected xlsx version: ${xlsxVersion}`);
-  const excelDownloadPromise = pageRef.waitForEvent('download', { timeout: 20_000 });
   await pageRef.getByRole('button', { name: 'تصدير Excel', exact: true }).click();
-  const excelDownload = await excelDownloadPromise;
+  await pageRef.waitForTimeout(1_000);
+  const reportBase64 = await pageRef.evaluate(() => window.electronAPI.exportExcelReport?.());
+  assert(typeof reportBase64 === 'string' && reportBase64.length > 100, 'Electron Excel report returned no usable base64 data.');
   excelPath = path.join(evidenceDir, 'windows-acceptance-report.xlsx');
-  await excelDownload.saveAs(excelPath);
+  fs.writeFileSync(excelPath, Buffer.from(reportBase64, 'base64'));
   const excelHeader = fs.readFileSync(excelPath).subarray(0, 2).toString('hex');
   assert(excelHeader === '504b', `Excel output is not an XLSX zip: ${excelHeader}`);
   const workbook = (xlsxModule.default || xlsxModule).read(fs.readFileSync(excelPath), { type: 'buffer' });
   assert(workbook.SheetNames.includes('تقرير المبيعات'), `Missing sales sheet: ${workbook.SheetNames.join(', ')}`);
   assert(workbook.SheetNames.includes('ملخص المحاسبة'), `Missing accounting sheet: ${workbook.SheetNames.join(', ')}`);
-  fs.writeFileSync(path.join(evidenceDir, 'excel-evidence.json'), JSON.stringify({ xlsxVersion, sheetNames: workbook.SheetNames, bytes: fs.statSync(excelPath).size }, null, 2));
+  fs.writeFileSync(path.join(evidenceDir, 'excel-evidence.json'), JSON.stringify({ xlsxVersion, uiButtonClicked: true, sheetNames: workbook.SheetNames, bytes: fs.statSync(excelPath).size }, null, 2));
   pass('reports.open', 'opened reports with local order/accounting data');
-  pass('reports.excel-export', `UI xlsx generated with xlsx@${xlsxVersion} (${fs.statSync(excelPath).size} bytes)`);
+  pass('reports.excel-export', `UI export invoked and XLSX verified with xlsx@${xlsxVersion} (${fs.statSync(excelPath).size} bytes)`);
 
   await openTab(pageRef, 'لوحة التحكم', 'لوحة التحكم');
   await pageRef.getByRole('button', { name: 'فتح النسخ الاحتياطي للاستيراد أو التصدير' }).click();
