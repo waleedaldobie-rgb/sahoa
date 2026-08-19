@@ -37,4 +37,12 @@ export class CashRepository {
   findBySourceId(sourceId: string): any | undefined {
     return this.db.prepare('SELECT id FROM cash_transactions WHERE source_id = ?').get(sourceId);
   }
+
+  listByOrderId(orderId: string): any[] {
+    return this.db.prepare(`
+      SELECT * FROM cash_transactions
+      WHERE order_id = ? AND source_type = 'customer_payment' AND direction = 'in'
+      ORDER BY created_at ASC, rowid ASC
+    `).all(orderId);
+  }
 }

@@ -1,8 +1,9 @@
 import { AccessoryItem, AppData, FabricItem } from '../../types';
+import { createSafeId } from '../../domain/idGenerator';
 
 export function createFabricInDraft(draft: AppData, fabric: Partial<FabricItem>): FabricItem {
   const newFabric: FabricItem = {
-    id: fabric.id || `FAB-${Date.now()}`,
+    id: fabric.id || createSafeId('FAB'),
     name: fabric.name || '',
     color: fabric.color || '',
     colorHex: fabric.colorHex || '#ffffff',
@@ -22,7 +23,7 @@ export function updateFabricInDraft(draft: AppData, fabric: FabricItem): boolean
 
 export function createAccessoryInDraft(draft: AppData, accessory: Partial<AccessoryItem>): AccessoryItem {
   const newAccessory: AccessoryItem = {
-    id: accessory.id || `ACC-${Date.now()}`,
+    id: accessory.id || createSafeId('ACC'),
     name: accessory.name || '',
     category: accessory.category || '',
     quantity: accessory.quantity || 0,

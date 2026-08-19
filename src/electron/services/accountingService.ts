@@ -4,6 +4,7 @@ import { CashRepository } from '../repositories/cashRepository';
 import { InventoryService } from './inventoryService';
 import { normalizePositiveAmount } from '../../domain/amountRules';
 import { round2 } from '../../domain/inventoryRules';
+import { createSafeId } from '../../domain/idGenerator';
 
 export class AccountingService {
   constructor(
@@ -24,7 +25,7 @@ export class AccountingService {
   }
 
   createPurchase(payload: any): { id: string; now: string } {
-    const purchaseId = payload.id || `PUR-${Date.now()}`;
+    const purchaseId = payload.id || createSafeId('PUR');
     const existing = this.findPurchase(purchaseId);
     if (existing) return { id: purchaseId, now: existing.row.created_at };
     const lines = Array.isArray(payload.lines) ? payload.lines : [];
@@ -63,7 +64,7 @@ export class AccountingService {
           type: 'purchase', id: purchaseId, number: payload.invoiceNumber || purchaseId
         });
         this.repository.insertPurchaseLine({
-          id: `PURL-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+          id: createSafeId('PURL'),
           purchaseId,
           itemType: line.input.itemType,
           itemId: line.input.itemId,
@@ -102,7 +103,7 @@ export class AccountingService {
   findExpense(id: string): any | undefined { return this.repository.findExpense(id); }
 
   createExpense(payload: any): string {
-    const expenseId = payload.id || `EXP-${Date.now()}`;
+    const expenseId = payload.id || createSafeId('EXP');
     if (this.repository.findExpense(expenseId)) return expenseId;
     if (!payload.category?.trim() || !payload.description?.trim()) throw new Error('تصنيف ووصف المصروف مطلوبان');
     const amount = normalizePositiveAmount(payload.amount, 'مبلغ المصروف');

@@ -1,0 +1,52 @@
+import { describe, expect, it } from 'vitest';
+import { AppData } from '../types';
+import { updateOrderMaterialsInDraft } from '../services/adapters/orderUpdateAdapter';
+import { applyPaymentToDraft } from '../services/adapters/paymentDraftAdapter';
+import { insertStockMovementInDraft } from '../services/adapters/inventoryMovementDraftAdapter';
+
+function makeData(): AppData {
+  return {
+    customers: [],
+    orders: [{
+      id: 'ORD-CONTRACT', orderNumber: 'CONTRACT-1', customerId: 'C1', customerName: 'عميل', customerPhone: '0500000000',
+      thobeTypeId: 'T1', thobeTypeName: 'ثوب', fabricId: 'FAB-A', fabricName: 'A', fabricColor: 'أبيض', fabricConsumptionMeters: 3.5,
+      fabricBuyPriceAtOrder: 10, garmentCount: 1, initialPaymentMethod: 'cash', orderDate: '2026-08-19', deliveryDate: '2026-08-20', status: 'cancelled',
+      totalAmount: 300, paidAmount: 0, remainingAmount: 300, isCustomMeasurement: false, measurements: {} as any, styleDetails: {} as any, createdAt: '2026-08-19'
+    }],
+    invoices: [{ id: 'INV-CONTRACT', invoiceNumber: 'INV-CONTRACT', orderId: 'ORD-CONTRACT', customerName: 'عميل', customerPhone: '0500000000', orderDate: '2026-08-19', totalAmount: 300, paidAmount: 0, remainingAmount: 300, paymentStatus: 'unpaid', payments: [] }],
+    fabrics: [{ id: 'FAB-A', name: 'A', color: 'أبيض', colorHex: '#fff', purchasePrice: 10, sellingPrice: 20, quantityMeters: 20, minStockMeters: 2 }],
+    accessories: [{ id: 'ACC-A', name: 'زر', category: 'إكسسوار', purchasePrice: 2, sellingPrice: 4, quantity: 10, minStock: 1, unit: 'حبة' }],
+    thobeTypes: [], colors: [], stockMovements: [], purchases: [], expenses: [], cashTransactions: [], orderMaterialUsages: [
+      { id: 'USAGE-FAB', orderId: 'ORD-CONTRACT', itemType: 'fabric', itemId: 'FAB-A', itemName: 'A', quantity: 3.5, unit: 'متر', unitCostAtUsage: 10, totalCost: 35, createdAt: '2026-08-19' },
+      { id: 'USAGE-ACC', orderId: 'ORD-CONTRACT', itemType: 'accessory', itemId: 'ACC-A', itemName: 'زر', quantity: 2, unit: 'حبة', unitCostAtUsage: 2, totalCost: 4, createdAt: '2026-08-19' }
+    ], orderEvents: [], notifications: []
+  };
+}
+
+describe('Mock/Production business contract', () => {
+  it('rebuilds the new material snapshot without consuming it while cancelled, then consumes it on reactivate', () => {
+    const draft = makeData();
+    const order = draft.orders[0];
+    const updated = { ...order, fabricId: 'FAB-A', garmentCount: 2, materialUsages: [{ itemType: 'accessory' as const, itemId: 'ACC-A', itemName: 'زر', quantity: 3, unit: 'حبة', unitCostAtUsage: 2 }] };
+    updateOrderMaterialsInDraft(draft, order, updated, 7);
+    expect(draft.fabrics[0].quantityMeters).toBe(20);
+    expect(draft.accessories[0].quantity).toBe(10);
+    expect(draft.orderMaterialUsages.some((usage) => usage.itemId === 'ACC-A' && usage.quantity === 3 && !usage.sourceMovementId)).toBe(true);
+    for (const usage of draft.orderMaterialUsages) {
+      const movement = insertStockMovementInDraft(draft, usage.itemType, usage.itemId!, -usage.quantity, 'sale', 'إعادة استهلاك مواد بعد الإلغاء', { type: 'order_reactivate', id: order.id });
+      usage.sourceMovementId = movement.id;
+    }
+    expect(draft.fabrics[0].quantityMeters).toBe(13);
+    expect(draft.accessories[0].quantity).toBe(7);
+    expect(draft.orderMaterialUsages.every((usage) => Boolean(usage.sourceMovementId))).toBe(true);
+  });
+
+  it('keeps payment aggregate derived from the payment ledger', () => {
+    const draft = makeData();
+    expect(applyPaymentToDraft(draft, 'INV-CONTRACT', 100, 'cash', 'test', 'PAY-CONTRACT')).toBe(true);
+    expect(draft.invoices[0].paidAmount).toBe(100);
+    expect(draft.invoices[0].payments.reduce((sum, payment) => sum + payment.amount, 0)).toBe(100);
+    expect(draft.orders[0].paidAmount).toBe(100);
+    expect(applyPaymentToDraft(draft, 'INV-CONTRACT', 100, 'cash', 'test', 'PAY-CONTRACT')).toBe(false);
+  });
+});

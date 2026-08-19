@@ -4,10 +4,10 @@ export interface DatabaseSettings {
   autoBackupIntervalHours: number; // default 1 hour
   maxBackupFiles: number; // default 14
   lastBackupTimestamp?: string;
-  schemaVersion: number; // current: 7
+  schemaVersion: number; // current: 9
 }
 
-export const CURRENT_SCHEMA_VERSION = 7;
+export const CURRENT_SCHEMA_VERSION = 9;
 
 export const CREATE_TABLES_SQL = `
 -- Enable PRAGMA FKs and WAL
@@ -116,6 +116,7 @@ CREATE TABLE IF NOT EXISTS orders (
 );
 
 -- Invoices & Payments
+-- One invoice per order is enforced by migration 008 after duplicate validation.
 CREATE TABLE IF NOT EXISTS invoices (
   id TEXT PRIMARY KEY,
   invoice_number TEXT NOT NULL UNIQUE,

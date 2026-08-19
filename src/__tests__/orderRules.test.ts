@@ -27,3 +27,12 @@ describe('shared order rules', () => {
     expect(first).toBe(second);
   });
 });
+
+
+describe('production financial invariants', () => {
+  it('rejects negative totals, negative payments, and overpayment', () => {
+    expect(() => calculateOrderAmounts(-1, 0)).toThrow(/غير سالب/);
+    expect(() => calculateOrderAmounts(100, -1)).toThrow(/غير سالب/);
+    expect(() => calculateOrderAmounts(100, 101)).toThrow(/يتجاوز/);
+  });
+});

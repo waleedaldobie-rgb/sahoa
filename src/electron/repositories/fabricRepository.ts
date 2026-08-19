@@ -1,5 +1,6 @@
 import Database from 'better-sqlite3';
 import { FabricItem } from '../../types';
+import { createSafeId } from '../../domain/idGenerator';
 
 export class FabricRepository {
   constructor(private readonly db: Database.Database) {}
@@ -19,7 +20,7 @@ export class FabricRepository {
   }
 
   insert(fabric: Partial<FabricItem>): FabricItem {
-    const id = fabric.id || `FAB-${Date.now()}`;
+    const id = fabric.id || createSafeId('FAB');
     const record: FabricItem = {
       id,
       name: fabric.name || 'قماش جديد',
@@ -38,11 +39,13 @@ export class FabricRepository {
   }
 
   update(fabric: FabricItem): void {
+    const current = this.db.prepare('SELECT quantity_meters FROM fabrics WHERE id = ?').get(fabric.id) as { quantity_meters?: number } | undefined;
+    if (!current) throw new Error('صنف القماش غير موجود');
     this.db.prepare(`
       UPDATE fabrics
       SET name = ?, color = ?, color_hex = ?, purchase_price = ?, selling_price = ?, quantity_meters = ?, min_stock_meters = ?
       WHERE id = ?
-    `).run(fabric.name, fabric.color, fabric.colorHex, fabric.purchasePrice, fabric.sellingPrice, fabric.quantityMeters, fabric.minStockMeters, fabric.id);
+    `).run(fabric.name, fabric.color, fabric.colorHex, fabric.purchasePrice, fabric.sellingPrice, current.quantity_meters ?? 0, fabric.minStockMeters, fabric.id);
   }
 
   delete(id: string): void {

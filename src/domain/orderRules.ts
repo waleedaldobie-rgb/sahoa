@@ -1,4 +1,5 @@
 import { OrderMaterialUsage } from '../types';
+import { round2 } from './inventoryRules';
 
 export interface OrderAmounts {
   totalAmount: number;
@@ -7,20 +8,34 @@ export interface OrderAmounts {
   paymentStatus: 'paid' | 'partial' | 'unpaid';
 }
 
+export function assertValidOrderAmounts(totalAmount: unknown, paidAmount: unknown): { total: number; paid: number } {
+  const total = Number(totalAmount);
+  const paid = Number(paidAmount);
+  if (!Number.isFinite(total) || total < 0) {
+    throw new Error('إجمالي الطلب يجب أن يكون رقماً غير سالب');
+  }
+  if (!Number.isFinite(paid) || paid < 0) {
+    throw new Error('المبلغ المدفوع يجب أن يكون رقماً غير سالب');
+  }
+  if (paid > total + 0.0001) {
+    throw new Error('المبلغ المدفوع لا يمكن أن يتجاوز إجمالي الطلب');
+  }
+  return { total: round2(total), paid: round2(paid) };
+}
+
 export function calculateOrderAmounts(totalAmount: number, paidAmount: number): OrderAmounts {
-  const total = Number.isFinite(Number(totalAmount)) ? Number(totalAmount) : 0;
-  const paid = Number.isFinite(Number(paidAmount)) ? Number(paidAmount) : 0;
-  const remainingAmount = total - paid;
+  const { total, paid } = assertValidOrderAmounts(totalAmount, paidAmount);
+  const remainingAmount = round2(total - paid);
   return {
     totalAmount: total,
     paidAmount: paid,
-    remainingAmount,
-    paymentStatus: remainingAmount <= 0 ? 'paid' : paid > 0 ? 'partial' : 'unpaid'
+    remainingAmount: Math.max(0, remainingAmount),
+    paymentStatus: remainingAmount <= 0.0001 ? 'paid' : paid > 0 ? 'partial' : 'unpaid'
   };
 }
 
 export function calculateMaterialCost(usages: OrderMaterialUsage[]): number {
-  return Math.round((usages.reduce((sum, usage) => sum + Number(usage.totalCost || 0), 0) + Number.EPSILON) * 100) / 100;
+  return round2(usages.reduce((sum, usage) => sum + Number(usage.totalCost || 0), 0));
 }
 
 export function materialSignature(usages: Array<Partial<OrderMaterialUsage> & { item_type?: string; item_id?: string; unit_cost_at_usage?: number }>): string {

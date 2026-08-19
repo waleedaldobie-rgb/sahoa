@@ -1,4 +1,5 @@
 export {
+  assertValidOrderAmounts,
   calculateOrderAmounts,
   calculateMaterialCost,
   materialSignature

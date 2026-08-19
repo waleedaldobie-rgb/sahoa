@@ -1,5 +1,6 @@
 import { AppData, CashTransaction, OrderEvent, PaymentRecord } from '../../types';
-import { calculatePaymentUpdate } from '../../domain/paymentRules';
+import { assertStoredPaymentAggregates, calculatePaymentUpdate } from '../../domain/paymentRules';
+import { createSafeId } from '../../domain/idGenerator';
 import { findById, hasIdOrSourceId } from '../shared/idempotencyRules';
 
 export function applyPaymentToDraft(
@@ -13,13 +14,14 @@ export function applyPaymentToDraft(
   const invoice = draft.invoices.find((item) => item.id === invoiceId);
   if (!invoice) throw new Error('الفاتورة غير موجودة');
 
+  const current = assertStoredPaymentAggregates(invoice.totalAmount, invoice.paidAmount, invoice.remainingAmount, invoice.payments || []);
   const { numericAmount, paidAmount, remainingAmount, paymentStatus } = calculatePaymentUpdate(
     invoice.totalAmount,
-    invoice.paidAmount,
-    invoice.remainingAmount,
+    current.paidAmount,
+    current.remainingAmount,
     amount
   );
-  const id = paymentId || `PAY-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+  const id = paymentId || createSafeId('PAY');
   if ((invoice.payments || []).some((payment) => payment.id === id) || hasIdOrSourceId(draft.cashTransactions, `CASH-PAY-${id}`, id)) {
     return false;
   }

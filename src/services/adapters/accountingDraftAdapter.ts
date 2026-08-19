@@ -1,12 +1,13 @@
 import { AppData, CashTransaction, ExpenseRecord } from '../../types';
 import { normalizePositiveAmount } from '../../domain/amountRules';
+import { createSafeId } from '../../domain/idGenerator';
 import { round2 } from '../../domain/inventoryRules';
 import { findById, hasIdOrSourceId } from '../shared/idempotencyRules';
 
 type DraftPayload = Record<string, any>;
 
 export function applyExpenseToDraft(draft: AppData, payload: DraftPayload): ExpenseRecord {
-  const id = payload.id || `EXP-${Date.now()}`;
+  const id = payload.id || createSafeId('EXP');
   const duplicate = findById(draft.expenses, id);
   if (duplicate) return duplicate;
   if (!payload.category?.trim() || !payload.description?.trim()) throw new Error('تصنيف ووصف المصروف مطلوبان');
@@ -44,7 +45,7 @@ export function applyCashAdjustmentToDraft(draft: AppData, payload: DraftPayload
   const amount = normalizePositiveAmount(payload.amount, 'مبلغ الحركة');
   if (!payload.description?.trim()) throw new Error('وصف الحركة المالية مطلوب');
 
-  const id = payload.id || `CASH-${Date.now()}`;
+  const id = payload.id || createSafeId('CASH');
   const duplicate = findById(draft.cashTransactions, id);
   if (duplicate) return duplicate;
 

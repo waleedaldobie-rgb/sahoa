@@ -61,8 +61,9 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ data, dataRevision, sh
     const totalSales = filteredOrders.filter((order) => order.status !== 'cancelled').reduce((sum, order) => sum + (order.totalAmount || 0), 0);
     const deliveredOrders = filteredOrders.filter((order) => order.status === 'delivered');
     const actualRevenue = deliveredOrders.reduce((sum, order) => sum + (order.totalAmount || 0), 0);
-    const collectedAmount = filteredCash.filter((transaction) => transaction.direction === 'in' && transaction.sourceType === 'customer_payment').reduce((sum, transaction) => sum + transaction.amount, 0)
-      || filteredOrders.reduce((sum, order) => sum + (order.paidAmount || 0), 0);
+    const collectedAmount = filteredCash
+      .filter((transaction) => transaction.direction === 'in' && transaction.sourceType === 'customer_payment')
+      .reduce((sum, transaction) => sum + transaction.amount, 0);
     const remainingAmount = filteredOrders.reduce((sum, order) => sum + (order.remainingAmount || 0), 0);
     const totalPurchases = filteredPurchases.reduce((sum, purchase) => sum + (purchase.totalAmount || 0), 0);
     const totalExpenses = filteredExpenses.reduce((sum, expense) => sum + (expense.amount || 0), 0);

@@ -1,5 +1,6 @@
 import React, { useRef, useState } from 'react';
 import { Invoice, Order, PaymentRecord, UserPreferences } from '../types';
+import { createSafeId } from '../domain/idGenerator';
 import { Card, Button, Input, Select, Modal, EmptyState, Badge } from './ui';
 import { PrintableInvoice } from './PrintableInvoice';
 export { PrintableInvoice };
@@ -78,7 +79,7 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
     paymentSubmitLock.current = true;
     setIsSubmittingPayment(true);
     const newPayment: PaymentRecord = {
-      id: 'PAY-' + Date.now(),
+      id: createSafeId('PAY'),
       invoiceId: selectedInvoice.id,
       orderId: selectedInvoice.orderId,
       amount: paymentAmount,

@@ -108,7 +108,7 @@ export interface Customer {
   measurementHistory: MeasurementHistoryRecord[];
 }
 
-export type OrderStatus = 'new' | 'processing' | 'ready' | 'delivered';
+export type OrderStatus = 'new' | 'processing' | 'ready' | 'delivered' | 'cancelled';
 
 export type OrderEventType = 'created' | 'status_changed' | 'inventory' | 'payment' | 'whatsapp' | 'printed' | 'measurement_applied' | 'note';
 

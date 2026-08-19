@@ -1,5 +1,6 @@
 import Database from 'better-sqlite3';
 import { ThobeType } from '../../types';
+import { createSafeId } from '../../domain/idGenerator';
 
 export class ThobeTypeRepository {
   constructor(private readonly db: Database.Database) {}
@@ -10,7 +11,7 @@ export class ThobeTypeRepository {
 
   insert(item: Partial<ThobeType>): ThobeType {
     const record: ThobeType = {
-      id: item.id || `TH-${Date.now()}`,
+      id: item.id || createSafeId('TH'),
       name: item.name || 'نوع جديد',
       defaultPrice: item.defaultPrice || 0,
       description: item.description || ''

@@ -5,6 +5,7 @@ import { CREATE_TABLES_SQL, CURRENT_SCHEMA_VERSION, DatabaseSettings } from './s
 import { Customer, Order, OrderEvent, FabricItem, AccessoryItem, ThobeType, ColorItem, NotificationItem, Invoice, UserPreferences } from '../types';
 import { DEFAULT_MEASUREMENTS, DEFAULT_STYLE_DETAILS, normalizeMeasurements, normalizeStyleDetails } from '../services/shared/measurementDefaults';
 import { MIGRATIONS } from './migrations';
+import { DatabaseIntegrityService } from './services/databaseIntegrityService';
 
 const parseMeasurementsJson = (value?: string) => {
   try { return normalizeMeasurements(JSON.parse(value || '{}')); }
@@ -393,17 +394,10 @@ export class SahwaDatabaseManager {
     try {
       const parsed = JSON.parse(jsonString);
 
-      // 1. Structure Verification
-      if (!parsed || typeof parsed !== 'object') {
-        return { success: false, error: 'الملف غير صالح: يجب أن يكون كائن JSON مقروء.' };
-      }
-
-      // Check required schema keys
-      const requiredCollections = ['customers', 'orders', 'fabrics', 'accessories', 'thobeTypes', 'colors'];
-      for (const col of requiredCollections) {
-        if (!Array.isArray(parsed[col])) {
-          return { success: false, error: `الملف غير متوافق: الحقل المفقود (${col}) غير موجود أو ليس قائمة مجاميع.` };
-        }
+      // 1. Structure, duplicate, foreign-key and business preflight validation
+      const preflight = DatabaseIntegrityService.validateRestorePayload(parsed);
+      if (!preflight.ok) {
+        return { success: false, error: `النسخة الاحتياطية غير صالحة: ${preflight.issues.map((item) => `${item.code}(${item.recordId || item.field || item.table})`).join(', ')}` };
       }
 
       // 2. Pre-Restore Safety Rolling Backup
@@ -622,6 +616,11 @@ export class SahwaDatabaseManager {
             notifStmt.run(n.id, n.type, n.title, n.message, n.date, n.read ? 1 : 0, n.customerPhone || null, n.orderId || null);
           }
         }
+
+        const postRestore = new DatabaseIntegrityService(db).check();
+        if (!postRestore.ok) {
+          throw new Error(`فشل فحص سلامة البيانات بعد الاستعادة: ${postRestore.issues.slice(0, 5).map((item) => `${item.code}(${item.recordId || item.table})`).join(', ')}`);
+        }
       });
 
       restoreTx();
@@ -838,10 +837,12 @@ export class SahwaDatabaseManager {
 
     const activeOrders = orders.filter((order) => order.status !== 'cancelled');
     const totalSales = activeOrders.reduce((sum, order) => sum + (order.total_amount || 0), 0);
-    const paidFromCash = cashTransactions
-      .filter((transaction) => transaction.direction === 'in' && transaction.source_type === 'customer_payment')
-      .reduce((sum, transaction) => sum + (transaction.amount || 0), 0);
-    const totalPaid = paidFromCash || orders.reduce((sum, order) => sum + (order.paid_amount || 0), 0);
+    const customerPayments = cashTransactions.filter((transaction) => transaction.direction === 'in' && transaction.source_type === 'customer_payment');
+    const totalPaid = customerPayments.reduce((sum, transaction) => sum + (transaction.amount || 0), 0);
+    const paidByOrder = new Map<string, number>();
+    for (const transaction of customerPayments) {
+      if (transaction.order_id) paidByOrder.set(transaction.order_id, (paidByOrder.get(transaction.order_id) || 0) + (transaction.amount || 0));
+    }
     const totalRemaining = activeOrders.reduce((sum, order) => sum + (order.remaining_amount || 0), 0);
     const totalPurchases = purchases.reduce((sum, purchase) => sum + (purchase.total_amount || 0), 0);
     const totalExpenses = expenses.reduce((sum, expense) => sum + (expense.amount || 0), 0);
@@ -862,7 +863,7 @@ export class SahwaDatabaseManager {
       'تاريخ التسليم': order.delivery_date,
       'حالة الطلب': order.status === 'delivered' ? 'مُسلم' : order.status === 'ready' ? 'جاهز' : 'قيد التنفيذ',
       'الإجمالي (ر.س)': order.total_amount,
-      'المدفوع (ر.س)': order.paid_amount,
+      'المدفوع في الفترة (ر.س)': paidByOrder.get(order.id) || 0,
       'المتبقي (ر.س)': order.remaining_amount
     }));
 

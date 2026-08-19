@@ -40,12 +40,12 @@ export class OrderWriteRepository {
 
   insertMaterialUsage(row: {
     id: string; orderId: string; itemType: string; itemId: string; itemName: string; quantity: number;
-    unit: string; unitCostAtUsage: number; totalCost: number; sourceMovementId: string; createdAt: string;
+    unit: string; unitCostAtUsage: number; totalCost: number; sourceMovementId?: string; createdAt: string;
   }): void {
     this.db.prepare(`
       INSERT INTO order_material_usages (id, order_id, item_type, item_id, item_name, quantity, unit, unit_cost_at_usage, total_cost, source_movement_id, created_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(row.id, row.orderId, row.itemType, row.itemId, row.itemName, row.quantity, row.unit, row.unitCostAtUsage, row.totalCost, row.sourceMovementId, row.createdAt);
+    `).run(row.id, row.orderId, row.itemType, row.itemId, row.itemName, row.quantity, row.unit, row.unitCostAtUsage, row.totalCost, row.sourceMovementId || null, row.createdAt);
   }
 
   insertInvoice(row: {
@@ -62,6 +62,10 @@ export class OrderWriteRepository {
 
   deleteMaterialUsages(orderId: string): void {
     this.db.prepare('DELETE FROM order_material_usages WHERE order_id = ?').run(orderId);
+  }
+
+  updateMaterialUsageSourceMovement(usageId: string, sourceMovementId: string | null): void {
+    this.db.prepare('UPDATE order_material_usages SET source_movement_id = ? WHERE id = ?').run(sourceMovementId, usageId);
   }
 
   updateOrder(row: {

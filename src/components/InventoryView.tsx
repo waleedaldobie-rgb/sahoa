@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { FabricItem, AccessoryItem, ThobeType, ColorItem, StockMovement, InventoryItemType } from '../types';
+import { createSafeId } from '../domain/idGenerator';
 import { Card, Button, Input, Select, Modal, Badge, EmptyState } from './ui';
 import { ConfirmModal } from './ConfirmModal';
 import {
@@ -113,7 +114,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
       showToast('يرجى أدخال اسم القماش', 'danger');
       return;
     }
-    onSaveFabric({ ...fabricForm, id: fabricForm.id || 'FAB-' + Date.now() });
+    onSaveFabric({ ...fabricForm, id: fabricForm.id || createSafeId('FAB') });
     showToast('تم حفظ القماش بنجاح', 'success');
     setIsFabricModalOpen(false);
   };
@@ -153,7 +154,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
       showToast('يرجى كتابة اسم الصنف', 'danger');
       return;
     }
-    onSaveAccessory({ ...accessoryForm, id: accessoryForm.id || 'ACC-' + Date.now() });
+    onSaveAccessory({ ...accessoryForm, id: accessoryForm.id || createSafeId('ACC') });
     showToast('تم حفظ صنف الإكسسوار بنجاح', 'success');
     setIsAccessoryModalOpen(false);
   };
@@ -163,14 +164,14 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
       showToast('يرجى كتابة اسم الموديل', 'danger');
       return;
     }
-    onSaveThobeType({ ...thobeTypeForm, id: thobeTypeForm.id || 'THB-' + Date.now() });
+    onSaveThobeType({ ...thobeTypeForm, id: thobeTypeForm.id || createSafeId('THB') });
     showToast('تم حفظ موديل الثوب بنجاح', 'success');
     setIsThobeTypeModalOpen(false);
   };
 
   const handleSaveColorSubmit = () => {
     if (!colorForm.name.trim()) return;
-    onSaveColor({ ...colorForm, id: colorForm.id || 'COL-' + Date.now() });
+    onSaveColor({ ...colorForm, id: colorForm.id || createSafeId('COL') });
     showToast('تم حفظ اللون بنجاح', 'success');
     setIsColorModalOpen(false);
   };

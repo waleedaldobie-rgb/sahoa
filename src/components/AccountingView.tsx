@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { ArrowDownLeft, ArrowUpRight, Banknote, ClipboardList, FilePlus2, PackagePlus, Plus, ReceiptText, WalletCards } from 'lucide-react';
 import { AccessoryItem, CashTransaction, ExpenseRecord, FabricItem, PaymentMethod, PurchaseLine, PurchaseRecord } from '../types';
+import { calculateCashDrawerSummary } from '../domain/cashRules';
 import { Badge, Button, Card, EmptyState, Input, Select } from './ui';
 
 interface AccountingViewProps {
@@ -56,12 +57,7 @@ export const AccountingView: React.FC<AccountingViewProps> = ({
   const itemOptions = lineType === 'fabric' ? fabrics : accessories;
   const selectedItem = itemOptions.find((item) => item.id === lineItemId);
   const purchaseTotal = purchaseLines.reduce((sum, line) => sum + line.totalAmount, 0);
-  const cashSummary = useMemo(() => {
-    const openingBalance = cashTransactions.filter((tx) => tx.sourceType === 'opening_balance').reduce((sum, tx) => sum + (tx.direction === 'in' ? tx.amount : -tx.amount), 0);
-    const income = cashTransactions.filter((tx) => tx.direction === 'in' && tx.sourceType !== 'opening_balance').reduce((sum, tx) => sum + tx.amount, 0);
-    const out = cashTransactions.filter((tx) => tx.direction === 'out' && tx.sourceType !== 'opening_balance').reduce((sum, tx) => sum + tx.amount, 0);
-    return { openingBalance, income, out, balance: openingBalance + income - out };
-  }, [cashTransactions]);
+  const cashSummary = useMemo(() => calculateCashDrawerSummary(cashTransactions), [cashTransactions]);
 
   const addLine = () => {
     const quantity = Number(lineQuantity);

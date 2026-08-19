@@ -3,7 +3,8 @@ import { CashRepository } from '../repositories/cashRepository';
 import { InvoiceRepository } from '../repositories/invoiceRepository';
 import { OrderEventRepository } from '../repositories/orderEventRepository';
 import { OrderWriteRepository } from '../repositories/orderWriteRepository';
-import { calculatePaymentUpdate } from '../../domain/paymentRules';
+import { assertStoredPaymentAggregates, calculatePaymentUpdate, parsePaymentLedger } from '../../domain/paymentRules';
+import { createSafeId } from '../../domain/idGenerator';
 
 export class PaymentService {
   constructor(
@@ -18,18 +19,24 @@ export class PaymentService {
     const tx = this.db.transaction(() => {
       const invoice = this.invoiceRepository.findById(invoiceId);
       if (!invoice) throw new Error('الفاتورة غير موجودة');
-      const paymentCalculation = calculatePaymentUpdate(
+
+      const existingPayments: PaymentRecord[] = parsePaymentLedger(invoice.payments_json);
+      const current = assertStoredPaymentAggregates(
         invoice.total_amount,
         invoice.paid_amount,
         invoice.remaining_amount,
+        existingPayments
+      );
+      const id = paymentId || createSafeId('PAY');
+      if (existingPayments.some((payment) => payment.id === id) || this.cashRepository.findBySourceId(id)) return false;
+
+      const paymentCalculation = calculatePaymentUpdate(
+        invoice.total_amount,
+        current.paidAmount,
+        current.remainingAmount,
         amount
       );
       const { numericAmount, paidAmount: newPaid, remainingAmount: newRemaining, paymentStatus: newStatus } = paymentCalculation;
-
-      const existingPayments: PaymentRecord[] = JSON.parse(invoice.payments_json || '[]');
-      const id = paymentId || `PAY-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
-      if (existingPayments.some((payment) => payment.id === id) || this.cashRepository.findBySourceId(id)) return false;
-
       const paymentDate = new Date().toISOString().slice(0, 10);
       const createdAt = new Date().toISOString();
       const newPayment: PaymentRecord = {
