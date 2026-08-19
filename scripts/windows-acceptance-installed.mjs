@@ -34,8 +34,8 @@ function assert(condition, message) {
   if (!condition) throw new Error(message);
 }
 
-async function waitForToast(pageRef, pattern) {
-  const toast = pageRef.getByRole('alert').filter({ hasText: pattern });
+async function waitForToast(pageRef, pattern, type = 'success') {
+  const toast = pageRef.getByRole(type === 'danger' ? 'alert' : 'status').filter({ hasText: pattern });
   try {
     await expect(toast).toBeVisible({ timeout: 20_000 });
   } catch (error) {
@@ -393,7 +393,7 @@ async function offlineAcceptance() {
   const whatsappButton = page.getByRole('button', { name: `إرسال رسالة واتساب للطلب ${orderNumber}`, exact: true });
   await expect(whatsappButton).toBeVisible();
   await whatsappButton.click();
-  await waitForToast(page, /تعذر فتح واتساب/);
+  await waitForToast(page, /تعذر فتح واتساب/, 'danger');
   assert(!page.isClosed(), 'Application crashed after WhatsApp failure.');
   pass('offline.whatsapp-failure', 'failure toast shown without application crash');
 
