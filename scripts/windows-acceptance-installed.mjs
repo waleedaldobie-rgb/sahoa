@@ -3,6 +3,31 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 
+function resolveReleaseVersion() {
+  const explicit = process.env.SAHWA_RELEASE_VERSION?.trim();
+  if (explicit) return { version: explicit, source: 'SAHWA_RELEASE_VERSION' };
+
+  const refName = process.env.GITHUB_REF_NAME?.trim();
+  if (refName && /^v\d+\.\d+\.\d+$/.test(refName)) {
+    return { version: refName, source: 'GITHUB_REF_NAME' };
+  }
+
+  try {
+    const tag = execFileSync('git', ['describe', '--tags', '--exact-match', 'HEAD'], {
+      cwd: process.cwd(), encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore']
+    }).trim();
+    if (/^v\d+\.\d+\.\d+$/.test(tag)) return { version: tag, source: 'git tag' };
+  } catch {}
+
+  try {
+    const packageJson = JSON.parse(fs.readFileSync(path.join(process.cwd(), 'package.json'), 'utf8'));
+    if (packageJson.version) return { version: `v${packageJson.version}`, source: 'package.json' };
+  } catch {}
+
+  return { version: 'unknown', source: 'fallback' };
+}
+
+const releaseInfo = resolveReleaseVersion();
 const executablePath = process.env.SAHWA_EXE;
 const testData = process.env.SAHWA_TEST_DATA || path.join(process.cwd(), 'windows-acceptance-data');
 const evidenceDir = process.env.SAHWA_EVIDENCE_DIR || path.join(process.cwd(), 'test-results', 'windows-acceptance');
@@ -446,7 +471,8 @@ try {
   });
 
   fs.writeFileSync(path.join(evidenceDir, 'acceptance-results.json'), JSON.stringify({
-    version: 'v1.1.6',
+    version: releaseInfo.version,
+    versionSource: releaseInfo.source,
     executablePath,
     testData,
     results,
@@ -456,7 +482,8 @@ try {
   console.log('WINDOWS_ACCEPTANCE=PASS');
 } catch (error) {
   fs.writeFileSync(path.join(evidenceDir, 'acceptance-results.json'), JSON.stringify({
-    version: 'v1.1.6',
+    version: releaseInfo.version,
+    versionSource: releaseInfo.source,
     executablePath,
     testData,
     results,
