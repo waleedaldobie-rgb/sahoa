@@ -359,21 +359,35 @@ async function offlineAcceptance() {
 
   await launchApp({ forceWhatsAppFailure: true });
   await waitForAppReady(page);
-  const fontEvidence = await page.evaluate(async () => {
-    await document.fonts.ready;
+    const fontEvidence = await page.evaluate(async () => {
     const root = document.querySelector('#root');
     const localFontRule = Array.from(document.styleSheets).flatMap((sheet) => {
       try { return Array.from(sheet.cssRules); } catch { return []; }
     }).some((rule) => /Tajawal-\d+\.ttf/.test(rule.cssText) && /\/fonts\//.test(rule.cssText));
+    const fontFiles = ['Tajawal-300.ttf', 'Tajawal-400.ttf', 'Tajawal-500.ttf', 'Tajawal-700.ttf', 'Tajawal-800.ttf', 'Tajawal-900.ttf'];
+    const validSignatures = new Set(['00010000', '4f54544f', '74746366', '74727565']);
+    const localFiles = await Promise.all(fontFiles.map(async (fileName) => {
+      try {
+        const url = new URL(`./fonts/${fileName}`, document.baseURI);
+        const response = await fetch(url.href);
+        const buffer = await response.arrayBuffer();
+        const header = Array.from(new Uint8Array(buffer.slice(0, 4)))
+          .map((byte) => byte.toString(16).padStart(2, '0')).join('');
+        return { fileName, url: url.href, responseOk: response.ok || response.status === 0, bytes: buffer.byteLength, header, validTtf: validSignatures.has(header) };
+      } catch (error) {
+        return { fileName, error: String(error), responseOk: false, bytes: 0, header: '', validTtf: false };
+      }
+    }));
     return {
       rootFontFamily: root ? getComputedStyle(root).fontFamily : '',
-      tajawalLoaded: document.fonts.check('16px Tajawal'),
       localFontRule,
+      localFiles,
+      localFontsValid: localFiles.every((file) => file.responseOk && file.bytes > 10_000 && file.validTtf),
       fontStatus: document.fonts.status
     };
   });
   fs.writeFileSync(path.join(evidenceDir, 'font-evidence.json'), JSON.stringify(fontEvidence, null, 2));
-  assert(fontEvidence.tajawalLoaded && fontEvidence.localFontRule && /Tajawal/i.test(fontEvidence.rootFontFamily), `Local Tajawal was not confirmed: ${JSON.stringify(fontEvidence)}`);
+  assert(fontEvidence.localFontsValid && fontEvidence.localFontRule && /Tajawal/i.test(fontEvidence.rootFontFamily), `Local Tajawal TTF files were not confirmed: ${JSON.stringify(fontEvidence)}`);
   pass('offline.tajawal', `Tajawal loaded offline with family ${fontEvidence.rootFontFamily}`);
 
   const offlineData = await getDataSnapshot(page);
