@@ -270,7 +270,7 @@ async function exportExcelAndBackup(pageRef) {
   const xlsxVersion = xlsxModule.version || xlsxModule.default?.version;
   assert(xlsxVersion === '0.20.3', `Unexpected xlsx version: ${xlsxVersion}`);
   await pageRef.getByRole('button', { name: 'تصدير Excel', exact: true }).click();
-  await expect(pageRef.getByRole('alert').filter({ hasText: 'تعذر إنشاء ملف Excel' })).toHaveCount(0, { timeout: 1_000 });
+  await waitForToast(pageRef, /تم تصدير ملف التقرير Excel بنجاح/);
   const reportBase64 = await pageRef.evaluate(() => window.electronAPI.exportExcelReport?.());
   assert(typeof reportBase64 === 'string' && reportBase64.length > 100, 'Electron Excel report returned no usable base64 data.');
   excelPath = path.join(evidenceDir, 'windows-acceptance-report.xlsx');
@@ -280,6 +280,7 @@ async function exportExcelAndBackup(pageRef) {
   const workbook = (xlsxModule.default || xlsxModule).read(fs.readFileSync(excelPath), { type: 'buffer' });
   assert(workbook.SheetNames.includes('تقرير المبيعات'), `Missing sales sheet: ${workbook.SheetNames.join(', ')}`);
   assert(workbook.SheetNames.includes('ملخص المحاسبة'), `Missing accounting sheet: ${workbook.SheetNames.join(', ')}`);
+  assert(workbook.SheetNames.includes('قيمة المخزون'), `Missing inventory sheet: ${workbook.SheetNames.join(', ')}`);
   fs.writeFileSync(path.join(evidenceDir, 'excel-evidence.json'), JSON.stringify({ xlsxVersion, uiButtonClicked: true, sheetNames: workbook.SheetNames, bytes: fs.statSync(excelPath).size }, null, 2));
   pass('reports.open', 'opened reports with local order/accounting data');
   pass('reports.excel-export', `UI export invoked and XLSX verified with xlsx@${xlsxVersion} (${fs.statSync(excelPath).size} bytes)`);
@@ -288,7 +289,7 @@ async function exportExcelAndBackup(pageRef) {
   await pageRef.getByRole('button', { name: 'فتح النسخ الاحتياطي للاستيراد أو التصدير' }).click();
   await expect(pageRef.getByRole('dialog')).toBeVisible();
   await pageRef.getByRole('button', { name: 'تنزيل النسخة الاحتياطية الان (.json)', exact: true }).click();
-  await expect(pageRef.getByRole('alert').filter({ hasText: 'فشل في تصدير البيانات' })).toHaveCount(0, { timeout: 1_000 });
+  await waitForToast(pageRef, /تم تصدير النسخة الاحتياطية بنجاح/);
   const backupContent = await pageRef.evaluate(() => window.electronAPI.exportBackup());
   assert(typeof backupContent === 'string' && backupContent.length > 100, 'Backup export returned no usable JSON.');
   backupPath = path.join(evidenceDir, 'windows-acceptance-backup.json');

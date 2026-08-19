@@ -124,47 +124,35 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ data, dataRevision, sh
     topConsumption
   } = reportStats;
 
-  // Export to Excel XLSX Handler
+  const getExportDateRange = () => {
+    const now = new Date();
+    const toIsoDate = (date: Date) => date.toISOString().split('T')[0];
+    if (periodFilter === 'today') return { start: toIsoDate(now), end: toIsoDate(now) };
+    if (periodFilter === 'week') return { start: toIsoDate(new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000)), end: toIsoDate(now) };
+    if (periodFilter === 'month') return { start: toIsoDate(new Date(now.getFullYear(), now.getMonth(), 1)), end: toIsoDate(now) };
+    if (periodFilter === 'year') return { start: toIsoDate(new Date(now.getFullYear(), 0, 1)), end: toIsoDate(new Date(now.getFullYear(), 11, 31)) };
+    return { start: startDate, end: endDate };
+  };
+
+  // Export through the real Electron/SQLite path so the visible report cannot diverge from persisted data.
   const handleExportExcel = async () => {
     try {
-      const XLSX = await import('xlsx');
-      const excelRows = filteredOrders.map((ord, idx) => ({
-        'م': idx + 1,
-        'رقم الطلب': ord.orderNumber,
-        'اسم العميل': ord.customerName,
-        'رقم الجوال': ord.customerPhone,
-        'نوع الثوب': ord.thobeTypeName,
-        'القماش واللون': `${ord.fabricName} (${ord.fabricColor})`,
-        'تاريخ الطلب': ord.orderDate,
-        'تاريخ التسليم': ord.deliveryDate,
-        'حالة الطلب': ord.status === 'delivered' ? 'مُسلم' : ord.status === 'ready' ? 'جاهز' : 'قيد التنفيذ',
-        'الإجمالي (ر.س)': ord.totalAmount,
-        'المدفوع (ر.س)': ord.paidAmount,
-        'المتبقي (ر.س)': ord.remainingAmount
-      }));
+      if (!window.electronAPI.exportExcelReport) throw new Error('Excel export is unavailable');
+      const { start, end } = getExportDateRange();
+      const reportBase64 = await window.electronAPI.exportExcelReport(start, end);
+      if (!reportBase64) throw new Error('Excel report returned no data');
 
-      const worksheet = XLSX.utils.json_to_sheet(excelRows);
-      const workbook = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(workbook, worksheet, 'تقرير المبيعات');
-      const summarySheet = XLSX.utils.json_to_sheet([
-        { البيان: 'إجمالي المبيعات', القيمة: totalSales },
-        { البيان: 'إجمالي التحصيل', القيمة: collectedAmount },
-        { البيان: 'المبالغ المتبقية', القيمة: remainingAmount },
-        { البيان: 'إجمالي المشتريات', القيمة: totalPurchases },
-        { البيان: 'إجمالي المصروفات', القيمة: totalExpenses },
-        { البيان: 'تكلفة المواد', القيمة: materialCost },
-        { البيان: 'صافي الربح', القيمة: netProfit },
-        { البيان: 'قيمة المخزون', القيمة: inventoryValue },
-        { البيان: 'أصناف منخفضة المخزون', القيمة: lowStockItems.length }
-      ]);
-      XLSX.utils.book_append_sheet(workbook, summarySheet, 'ملخص المحاسبة');
-      const inventorySheet = XLSX.utils.json_to_sheet([
-        ...fabrics.map((fabric) => ({ النوع: 'قماش', الصنف: fabric.name, الكمية: fabric.quantityMeters, الوحدة: 'متر', 'سعر الشراء': fabric.purchasePrice || 0, 'قيمة المخزون': fabric.quantityMeters * (fabric.purchasePrice || 0) })),
-        ...accessories.map((accessory) => ({ النوع: 'مستلزم', الصنف: accessory.name, الكمية: accessory.quantity, الوحدة: accessory.unit, 'سعر الشراء': accessory.purchasePrice || 0, 'قيمة المخزون': accessory.quantity * (accessory.purchasePrice || 0) }))
-      ]);
-      XLSX.utils.book_append_sheet(workbook, inventorySheet, 'قيمة المخزون');
-
-      XLSX.writeFile(workbook, `sahwa_financial_report_${new Date().toISOString().split('T')[0]}.xlsx`);
+      const binary = atob(reportBase64);
+      const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
+      const blob = new Blob([bytes], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `sahwa_financial_report_${new Date().toISOString().split('T')[0]}.xlsx`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
       showToast('تم تصدير ملف التقرير Excel بنجاح!', 'success');
     } catch (e) {
       showToast('تعذر إنشاء ملف Excel. يرجى المحاولة لاحقاً.', 'danger');

@@ -4,10 +4,10 @@ export interface DatabaseSettings {
   autoBackupIntervalHours: number; // default 1 hour
   maxBackupFiles: number; // default 14
   lastBackupTimestamp?: string;
-  schemaVersion: number; // current: 6
+  schemaVersion: number; // current: 7
 }
 
-export const CURRENT_SCHEMA_VERSION = 6;
+export const CURRENT_SCHEMA_VERSION = 7;
 
 export const CREATE_TABLES_SQL = `
 -- Enable PRAGMA FKs and WAL
@@ -64,6 +64,7 @@ CREATE TABLE IF NOT EXISTS accessories (
   min_stock REAL NOT NULL DEFAULT 5,
   unit TEXT NOT NULL DEFAULT 'حبة',
   purchase_price REAL NOT NULL DEFAULT 0,
+  selling_price REAL NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL
 );
 

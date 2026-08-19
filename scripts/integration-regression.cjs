@@ -6,6 +6,7 @@ const assert = require('assert');
 const { app, ipcMain } = require('electron');
 const { SahwaDatabaseManager } = require('../dist-electron/db.js');
 const { registerIpcHandlers } = require('../dist-electron/ipcHandlers.js');
+const XLSX = require('xlsx');
 
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'sahwa-integration-'));
 const databaseDir = path.join(root, 'database');
@@ -81,10 +82,14 @@ async function main() {
       sellingPrice: 100, quantityMeters: 30, minStockMeters: 2
     });
     const accessory = await call('accessories:create', {
-      id: accessoryId, name: 'سحاب تكامل', category: 'سحابات', quantity: 10, minStock: 2, unit: 'حبة', purchasePrice: 5
+      id: accessoryId, name: 'سحاب تكامل', category: 'سحابات', quantity: 10, minStock: 2, unit: 'حبة', purchasePrice: 5, sellingPrice: 12
     });
     assert.equal(fabric.quantityMeters, 30);
     assert.equal(accessory.quantity, 10);
+    await call('accessories:update', { ...accessory, sellingPrice: 12 });
+    const loadedInventory = (await call('data:get')).accessories.find((item) => item.id === accessoryId);
+    assert.equal(loadedInventory.purchasePrice, 5);
+    assert.equal(loadedInventory.sellingPrice, 12);
   });
 
   const orderPayload = {
@@ -127,7 +132,11 @@ async function main() {
     assert.equal((await call('cash:list')).filter((item) => item.sourceId === 'PAY-INT-001').length, 1);
   });
 
-  const oldBackupJson = JSON.stringify(manager.exportFullDataAsJson());
+  const oldSnapshot = manager.exportFullDataAsJson();
+  const oldAccessory = oldSnapshot.accessories.find((item) => item.id === accessoryId);
+  assert.equal(oldAccessory.purchasePrice, 5);
+  assert.equal(oldAccessory.sellingPrice, 12);
+  const oldBackupJson = JSON.stringify(oldSnapshot);
 
   await record('purchase increases inventory and records cash outflow', async () => {
     const purchase = await call('purchases:create', {
@@ -154,6 +163,10 @@ async function main() {
   await record('reports and Excel export contain data', async () => {
     const report = await call('reports:exportExcel', '2026-08-01', '2026-08-31');
     assert.ok(typeof report === 'string' && report.length > 100);
+    const workbook = XLSX.read(Buffer.from(report, 'base64'), { type: 'buffer' });
+    assert.deepEqual(workbook.SheetNames, ['تقرير المبيعات', 'ملخص المحاسبة', 'قيمة المخزون']);
+    const summaryRows = XLSX.utils.sheet_to_json(workbook.Sheets['ملخص المحاسبة']);
+    assert.ok(summaryRows.some((row) => row['البيان'] === 'إجمالي المشتريات' && row['القيمة'] === 234));
     const db = manager.getRawDb();
     const totals = db.prepare(`SELECT SUM(total_amount) AS sales, SUM(paid_amount) AS paid, SUM(remaining_amount) AS remaining FROM orders WHERE order_date BETWEEN ? AND ?`).get('2026-08-01', '2026-08-31');
     assert.equal(totals.sales, 300);
@@ -171,6 +184,9 @@ async function main() {
     assert.equal(db.prepare('SELECT COUNT(*) AS count FROM purchases WHERE id = ?').get('PUR-INT-001').count, 0);
     assert.equal(db.prepare('SELECT COUNT(*) AS count FROM expenses WHERE id = ?').get('EXP-INT-001').count, 0);
     assert.equal(db.prepare('SELECT COUNT(*) AS count FROM orders WHERE id = ?').get(orderId).count, 1);
+    const restoredAccessory = (await call('accessories:list')).find((item) => item.id === accessoryId);
+    assert.equal(restoredAccessory.purchasePrice, 5);
+    assert.equal(restoredAccessory.sellingPrice, 12);
   });
 
   await record('invalid and insufficient operations rollback atomically', async () => {

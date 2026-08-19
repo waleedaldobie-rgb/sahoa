@@ -468,11 +468,11 @@ export class SahwaDatabaseManager {
 
         // Restore Accessories
         const accStmt = db.prepare(`
-          INSERT INTO accessories (id, name, category, quantity, min_stock, unit, purchase_price, created_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+          INSERT INTO accessories (id, name, category, quantity, min_stock, unit, purchase_price, selling_price, created_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         `);
         for (const a of (parsed.accessories as AccessoryItem[])) {
-          accStmt.run(a.id, a.name, a.category, a.quantity || 0, a.minStock || 5, a.unit || 'حبة', a.purchasePrice || 0, new Date().toISOString());
+          accStmt.run(a.id, a.name, a.category, a.quantity || 0, a.minStock || 5, a.unit || 'حبة', a.purchasePrice || 0, a.sellingPrice || 0, new Date().toISOString());
         }
 
         // Restore Dress Types
@@ -704,7 +704,9 @@ export class SahwaDatabaseManager {
       category: a.category,
       quantity: a.quantity,
       minStock: a.min_stock,
-      unit: a.unit
+      unit: a.unit,
+      purchasePrice: a.purchase_price || 0,
+      sellingPrice: a.selling_price || 0
     }));
 
     const thobeTypes = rawThobeTypes.map(t => ({
@@ -816,69 +818,76 @@ export class SahwaDatabaseManager {
   public async generateExcelReport(startDate?: string, endDate?: string): Promise<Buffer> {
     const XLSX = await import('xlsx');
     const db = this.getRawDb();
+    const dateClause = startDate && endDate ? ' WHERE o.order_date >= ? AND o.order_date <= ?' : '';
+    const dateParams = startDate && endDate ? [startDate, endDate] : [];
 
-    let query = 'SELECT * FROM orders';
-    const params: string[] = [];
+    const orders = db.prepare(`
+      SELECT o.*,
+        COALESCE(SUM(omu.total_cost), o.fabric_consumption_meters * o.fabric_buy_price_at_order) AS material_cost
+      FROM orders o
+      LEFT JOIN order_material_usages omu ON omu.order_id = o.id
+      ${dateClause}
+      GROUP BY o.id
+      ORDER BY o.order_date DESC
+    `).all(...dateParams) as any[];
+    const purchases = db.prepare(`SELECT * FROM purchases${startDate && endDate ? ' WHERE purchase_date >= ? AND purchase_date <= ?' : ''}`).all(...dateParams) as any[];
+    const expenses = db.prepare(`SELECT * FROM expenses${startDate && endDate ? ' WHERE expense_date >= ? AND expense_date <= ?' : ''}`).all(...dateParams) as any[];
+    const cashTransactions = db.prepare(`SELECT * FROM cash_transactions${startDate && endDate ? ' WHERE transaction_date >= ? AND transaction_date <= ?' : ''}`).all(...dateParams) as any[];
+    const fabrics = db.prepare('SELECT * FROM fabrics ORDER BY name').all() as any[];
+    const accessories = db.prepare('SELECT * FROM accessories ORDER BY name').all() as any[];
 
-    if (startDate && endDate) {
-      query += ' WHERE order_date >= ? AND order_date <= ?';
-      params.push(startDate, endDate);
-    }
-    query += ' ORDER BY order_date DESC';
+    const activeOrders = orders.filter((order) => order.status !== 'cancelled');
+    const totalSales = activeOrders.reduce((sum, order) => sum + (order.total_amount || 0), 0);
+    const paidFromCash = cashTransactions
+      .filter((transaction) => transaction.direction === 'in' && transaction.source_type === 'customer_payment')
+      .reduce((sum, transaction) => sum + (transaction.amount || 0), 0);
+    const totalPaid = paidFromCash || orders.reduce((sum, order) => sum + (order.paid_amount || 0), 0);
+    const totalRemaining = activeOrders.reduce((sum, order) => sum + (order.remaining_amount || 0), 0);
+    const totalPurchases = purchases.reduce((sum, purchase) => sum + (purchase.total_amount || 0), 0);
+    const totalExpenses = expenses.reduce((sum, expense) => sum + (expense.amount || 0), 0);
+    const totalCost = activeOrders.reduce((sum, order) => sum + (order.material_cost || 0), 0);
+    const inventoryValue = fabrics.reduce((sum, fabric) => sum + (fabric.quantity_meters * (fabric.purchase_price || 0)), 0)
+      + accessories.reduce((sum, accessory) => sum + (accessory.quantity * (accessory.purchase_price || 0)), 0);
+    const lowStockItems = fabrics.filter((fabric) => fabric.quantity_meters <= fabric.min_stock_meters).length
+      + accessories.filter((accessory) => accessory.quantity <= accessory.min_stock).length;
 
-    const orders = db.prepare(query).all(...params) as any[];
-
-    // Calculate Summary Metrics
-    let totalSales = 0;
-    let totalPaid = 0;
-    let totalRemaining = 0;
-    let totalCost = 0;
-
-    const orderRows = orders.map(o => {
-      totalSales += o.total_amount || 0;
-      totalPaid += o.paid_amount || 0;
-      totalRemaining += o.remaining_amount || 0;
-
-      const fabricCost = (o.fabric_consumption_meters || 3.5) * (o.fabric_buy_price_at_order || 0);
-      totalCost += fabricCost;
-
-      return {
-        'رقم الطلب': o.order_number,
-        'اسم العميل': o.customer_name,
-        'الجوال': o.customer_phone,
-        'نوع الثوب': o.thobe_type_name,
-        'القماش': `${o.fabric_name} (${o.fabric_color})`,
-        'عدد القطع': o.garment_count || 1,
-        'تاريخ الطلب': o.order_date,
-        'تاريخ التسليم': o.delivery_date,
-        'الحالة': o.status,
-        'الإجمالي (ر.س)': o.total_amount,
-        'المدفوع (ر.س)': o.paid_amount,
-        'المتبقي (ر.س)': o.remaining_amount,
-        'تكلفة القماش (ر.س)': fabricCost,
-        'الربح التقديري (ر.س)': (o.total_amount || 0) - fabricCost
-      };
-    });
+    const orderRows = orders.map((order, index) => ({
+      'م': index + 1,
+      'رقم الطلب': order.order_number,
+      'اسم العميل': order.customer_name,
+      'رقم الجوال': order.customer_phone,
+      'نوع الثوب': order.thobe_type_name,
+      'القماش واللون': `${order.fabric_name} (${order.fabric_color})`,
+      'تاريخ الطلب': order.order_date,
+      'تاريخ التسليم': order.delivery_date,
+      'حالة الطلب': order.status === 'delivered' ? 'مُسلم' : order.status === 'ready' ? 'جاهز' : 'قيد التنفيذ',
+      'الإجمالي (ر.س)': order.total_amount,
+      'المدفوع (ر.س)': order.paid_amount,
+      'المتبقي (ر.س)': order.remaining_amount
+    }));
 
     const summaryRows = [
-      { 'البيان': 'إجمالي المبيعات', 'القيمة (ر.س)': totalSales },
-      { 'البيان': 'إجمالي المبالغ المحصلة', 'القيمة (ر.س)': totalPaid },
-      { 'البيان': 'إجمالي الذمم والديون المتبقية', 'القيمة (ر.س)': totalRemaining },
-      { 'البيان': 'إجمالي تكلفة الأقمشة المستخدمة', 'القيمة (ر.س)': totalCost },
-      { 'البيان': 'صافي الأرباح التقديرية', 'القيمة (ر.س)': totalSales - totalCost }
+      { البيان: 'إجمالي المبيعات', القيمة: totalSales },
+      { البيان: 'إجمالي التحصيل', القيمة: totalPaid },
+      { البيان: 'المبالغ المتبقية', القيمة: totalRemaining },
+      { البيان: 'إجمالي المشتريات', القيمة: totalPurchases },
+      { البيان: 'إجمالي المصروفات', القيمة: totalExpenses },
+      { البيان: 'تكلفة المواد', القيمة: totalCost },
+      { البيان: 'صافي الربح', القيمة: totalSales - totalCost - totalExpenses },
+      { البيان: 'قيمة المخزون', القيمة: inventoryValue },
+      { البيان: 'أصناف منخفضة المخزون', القيمة: lowStockItems }
     ];
 
-    // Build workbook
+    const inventoryRows = [
+      ...fabrics.map((fabric) => ({ النوع: 'قماش', الصنف: fabric.name, الكمية: fabric.quantity_meters, الوحدة: 'متر', 'سعر الشراء': fabric.purchase_price || 0, 'قيمة المخزون': fabric.quantity_meters * (fabric.purchase_price || 0) })),
+      ...accessories.map((accessory) => ({ النوع: 'مستلزم', الصنف: accessory.name, الكمية: accessory.quantity, الوحدة: accessory.unit, 'سعر الشراء': accessory.purchase_price || 0, 'قيمة المخزون': accessory.quantity * (accessory.purchase_price || 0) }))
+    ];
+
     const wb = XLSX.utils.book_new();
-
-    const ordersWs = XLSX.utils.json_to_sheet(orderRows);
-    const summaryWs = XLSX.utils.json_to_sheet(summaryRows);
-
-    XLSX.utils.book_append_sheet(wb, summaryWs, 'الملخص المالي');
-    XLSX.utils.book_append_sheet(wb, ordersWs, 'قائمة الطلبات');
-
-    const excelBuffer = XLSX.write(wb, { bookType: 'xlsx', type: 'buffer' });
-    return excelBuffer;
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(orderRows), 'تقرير المبيعات');
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(summaryRows), 'ملخص المحاسبة');
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(inventoryRows), 'قيمة المخزون');
+    return XLSX.write(wb, { bookType: 'xlsx', type: 'buffer' });
   }
 
   /**

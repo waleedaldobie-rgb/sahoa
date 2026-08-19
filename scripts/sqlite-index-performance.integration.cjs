@@ -141,7 +141,7 @@ function seedFixture(db) {
     const schemaVersion = db
       .prepare('SELECT value FROM system_settings WHERE key = ?')
       .get('schemaVersion')?.value;
-    assert.equal(schemaVersion, '6');
+    assert.equal(schemaVersion, '7');
 
     seedFixture(db);
 
