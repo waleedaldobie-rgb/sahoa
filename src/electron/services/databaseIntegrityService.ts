@@ -95,7 +95,29 @@ export class DatabaseIntegrityService {
     }
 
     const movements = this.db.prepare('SELECT * FROM inventory_movements ORDER BY item_type, item_id, created_at, rowid').all() as any[];
+    const movementItemTables: Record<string, string> = { fabric: 'fabrics', accessory: 'accessories' };
+    const movementReferenceTables: Record<string, string> = {
+      order: 'orders', order_update: 'orders', order_delete: 'orders', order_cancel: 'orders', order_reactivate: 'orders', purchase: 'purchases'
+    };
     for (const movement of movements) {
+      const itemType = String(movement.item_type || '');
+      const itemTable = movementItemTables[itemType];
+      if (!itemTable) {
+        issue({ code: 'INVALID_MOVEMENT_ITEM_TYPE', table: 'inventory_movements', recordId: movement.id, field: 'item_type', expected: Object.keys(movementItemTables), actual: movement.item_type, reason: 'Inventory movement item_type is not supported', severity: 'critical' });
+      } else if (!this.db.prepare(`SELECT id FROM ${itemTable} WHERE id = ?`).get(movement.item_id)) {
+        issue({ code: 'ORPHAN_INVENTORY_MOVEMENT', table: 'inventory_movements', recordId: movement.id, field: 'item_id', expected: `${itemType}:${movement.item_id}`, actual: null, reason: 'Inventory movement points to a missing Fabric or Accessory', severity: 'critical' });
+      }
+
+      const referenceType = movement.reference_type ? String(movement.reference_type) : '';
+      const referenceId = movement.reference_id ? String(movement.reference_id) : '';
+      const referenceTable = movementReferenceTables[referenceType];
+      if (referenceTable && (!referenceId || !this.db.prepare(`SELECT id FROM ${referenceTable} WHERE id = ?`).get(referenceId))) {
+        issue({ code: 'ORPHAN_INVENTORY_REFERENCE', table: 'inventory_movements', recordId: movement.id, field: 'reference_id', expected: `${referenceType}:${referenceId || '<required>'}`, actual: null, reason: 'Inventory movement reference points to a missing Order or Purchase', severity: 'critical' });
+      }
+      if (movement.direction === 'sale' && (!referenceType || !referenceId)) {
+        issue({ code: 'MISSING_INVENTORY_REFERENCE', table: 'inventory_movements', recordId: movement.id, field: 'reference_id', expected: 'reference for sale movement', actual: { referenceType: movement.reference_type, referenceId: movement.reference_id }, reason: 'Sale movement is not traceable to its business operation', severity: 'high' });
+      }
+
       const quantity = Number(movement.quantity);
       const before = Number(movement.quantity_before);
       const after = Number(movement.quantity_after);
