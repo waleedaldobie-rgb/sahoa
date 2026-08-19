@@ -159,6 +159,13 @@ export class DatabaseIntegrityService {
     for (const purchase of purchases) {
       const sum = this.db.prepare('SELECT COALESCE(SUM(total_amount), 0) AS total FROM purchase_lines WHERE purchase_id = ?').get(purchase.id) as { total: number };
       if (!nearlyEqual(Number(purchase.total_amount), Number(sum.total))) issue({ code: 'PURCHASE_TOTAL_MISMATCH', table: 'purchases', recordId: purchase.id, field: 'total_amount', expected: sum.total, actual: purchase.total_amount, reason: 'Purchase total differs from its line totals' });
+      const cash = this.db.prepare(`
+        SELECT COALESCE(SUM(amount), 0) AS total, COUNT(*) AS count
+        FROM cash_transactions
+        WHERE source_type = 'purchase' AND direction = 'out' AND source_id = ?
+      `).get(purchase.id) as { total: number; count: number };
+      if (Number(cash.count) === 0) issue({ code: 'MISSING_PURCHASE_CASH', table: 'purchases', recordId: purchase.id, field: 'cash_ledger', expected: 'matching purchase cash outflow', actual: null, reason: 'Purchase has no matching cash ledger entry', severity: 'critical' });
+      else if (!nearlyEqual(Number(cash.total), Number(purchase.total_amount))) issue({ code: 'PURCHASE_CASH_MISMATCH', table: 'purchases', recordId: purchase.id, field: 'cash_ledger.amount', expected: purchase.total_amount, actual: cash.total, reason: 'Purchase cash ledger does not match purchase total', severity: 'critical' });
     }
 
     return { ok: issues.length === 0, checkedAt: new Date().toISOString(), issues };
@@ -302,6 +309,10 @@ export class DatabaseIntegrityService {
       for (const line of (purchase.lines || [])) {
         if (!Number.isFinite(Number(line.quantity)) || Number(line.quantity) <= 0 || !Number.isFinite(Number(line.unitPrice)) || Number(line.unitPrice) < 0 || !nearlyEqual(Number(line.totalAmount), Number(line.quantity) * Number(line.unitPrice))) add({ code: 'INVALID_PURCHASE_LINE', table: 'purchases', recordId: line.id, expected: 'positive quantity, non-negative price, total=quantity*price', actual: line, reason: 'Purchase line is not auditable', severity: 'critical' });
       }
+      const purchaseCash = (payload.cashTransactions || []).filter((cash: any) => cash.sourceType === 'purchase' && String(cash.sourceId) === String(purchase.id) && cash.direction === 'out');
+      const purchaseCashTotal = purchaseCash.reduce((sum: number, cash: any) => sum + Number(cash.amount || 0), 0);
+      if (purchaseCash.length === 0) add({ code: 'MISSING_PURCHASE_CASH', table: 'purchases', recordId: purchase.id, field: 'cashTransactions', expected: 'matching purchase cash outflow', actual: null, reason: 'Backup purchase has no matching cash ledger entry', severity: 'critical' });
+      else if (!nearlyEqual(Number(purchaseCashTotal), Number(purchase.totalAmount))) add({ code: 'PURCHASE_CASH_MISMATCH', table: 'purchases', recordId: purchase.id, field: 'cashTransactions.amount', expected: purchase.totalAmount, actual: purchaseCashTotal, reason: 'Backup purchase cash ledger does not match purchase total', severity: 'critical' });
     }
     for (const expense of payload.expenses) {
       try { assertValidPaymentMethod(expense.paymentMethod ?? 'cash'); } catch (error: any) { add({ code: 'INVALID_PAYMENT_METHOD', table: 'expenses', recordId: expense.id, field: 'paymentMethod', expected: ['cash', 'card', 'transfer'], actual: expense.paymentMethod, reason: error.message, severity: 'critical' }); }

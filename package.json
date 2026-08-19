@@ -30,7 +30,9 @@
     "test:integration:r008-r009": "npm run build:electron && electron --no-sandbox scripts/r008-r009.integration.cjs",
     "test:integration:r009": "npm run build:electron && electron --no-sandbox scripts/r009-deletion.integration.cjs",
     "test:integration:r011": "npm run build:electron && electron --no-sandbox scripts/r011-cancelled-payment.integration.cjs",
-    "test:integration:r015": "npm run build:electron && electron --no-sandbox scripts/r015-payment-path-contract.integration.cjs"
+    "test:integration:r015": "npm run build:electron && electron --no-sandbox scripts/r015-payment-path-contract.integration.cjs",
+    "test:integration:r012": "npm run build:electron && electron --no-sandbox scripts/r012-purchase-cash-integrity.integration.cjs",
+    "test:contract:r014": "vitest run src/__tests__/r014CatalogQuantityContract.test.ts"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",
