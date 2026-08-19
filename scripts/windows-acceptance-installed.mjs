@@ -45,11 +45,15 @@ async function waitForToast(pageRef, pattern, type = 'success') {
   }
 }
 
-async function waitForDashboard(pageRef) {
+async function waitForAppReady(pageRef) {
   await pageRef.waitForLoadState('domcontentloaded', { timeout: 30_000 });
   await pageRef.waitForFunction(() => Boolean(window.electronAPI), undefined, { timeout: 30_000 });
-  await expect(pageRef.getByRole('main').getByText('لوحة التحكم', { exact: true })).toBeVisible({ timeout: 30_000 });
   await getDataSnapshot(pageRef);
+}
+
+async function waitForDashboard(pageRef) {
+  await waitForAppReady(pageRef);
+  await expect(pageRef.getByRole('main').getByText('لوحة التحكم', { exact: true })).toBeVisible({ timeout: 30_000 });
 }
 
 async function openTab(pageRef, navLabel, heading) {
@@ -349,7 +353,7 @@ async function offlineAcceptance() {
   pass('offline.network-cut', `network before=${before.reachable} after=${after.reachable}`);
 
   await launchApp({ forceWhatsAppFailure: true });
-  await waitForDashboard(page);
+  await waitForAppReady(page);
   const fontEvidence = await page.evaluate(async () => {
     await document.fonts.ready;
     const root = document.querySelector('#root');
@@ -416,7 +420,7 @@ try {
     await createTransientCustomerAndRestore(page);
     await closeApp();
     await launchApp();
-    await waitForDashboard(page);
+    await waitForAppReady(page);
     await verifyStorageAndPersistence(page);
     await closeApp();
     await offlineAcceptance();
