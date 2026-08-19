@@ -12,7 +12,7 @@ jobs:
   installed-app-ui:
     name: Build, install, and test Electron UI on Windows
     runs-on: windows-2022
-    timeout-minutes: 35
+    timeout-minutes: 50
 
     steps:
       - name: Checkout PR source
@@ -37,10 +37,25 @@ jobs:
           npm ci
           npm install --no-save --no-package-lock @playwright/test
 
-      - name: Verify source quality
+      - name: Verify source quality and TypeScript
         run: |
-          npm run lint
-          npm test
+          npm run quality
+          npm test -- --run
+
+      - name: Run SQLite integration regression
+        shell: pwsh
+        run: |
+          npm run build:electron
+          npx electron --no-sandbox scripts/integration-regression.cjs
+
+      - name: Build production renderer and Electron files
+        shell: pwsh
+        env:
+          GITHUB_PAGES: 'false'
+          ELECTRON_BUILD: 'true'
+        run: |
+          npm run build
+          npm run build:electron
 
       - name: Build Windows installer
         run: npm run dist -- --publish never
@@ -68,15 +83,15 @@ jobs:
           "SAHWA_TEST_DATA=$(Join-Path $env:RUNNER_TEMP 'SahwaTailoring-Data')" >> $env:GITHUB_ENV
           "SAHWA_EVIDENCE_DIR=$(Join-Path $env:GITHUB_WORKSPACE 'test-results/ui-automation')" >> $env:GITHUB_ENV
 
-      - name: Run installed Electron UI automation
+      - name: Run installed Electron Windows acceptance
         shell: pwsh
-        run: node scripts/ui-automation-installed.mjs
+        run: node scripts/windows-acceptance-installed.mjs
 
-      - name: Upload UI automation evidence
+      - name: Upload Windows acceptance evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: sahwa-windows-ui-automation-${{ github.run_number }}
+          name: sahwa-windows-acceptance-${{ github.run_number }}
           path: test-results/ui-automation/
           if-no-files-found: warn
           retention-days: 30

@@ -1,5 +1,6 @@
 import Database from 'better-sqlite3';
 import { ColorItem } from '../../types';
+import { createSafeId } from '../../domain/idGenerator';
 
 export class ColorRepository {
   constructor(private readonly db: Database.Database) {}
@@ -10,7 +11,7 @@ export class ColorRepository {
 
   insert(item: Partial<ColorItem>): ColorItem {
     const record: ColorItem = {
-      id: item.id || `COL-${Date.now()}`,
+      id: item.id || createSafeId('COL'),
       name: item.name || 'لون جديد',
       hex: item.hex || '#ffffff'
     };

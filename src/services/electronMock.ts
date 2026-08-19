@@ -1,8 +1,10 @@
 import { AppData, UserPreferences, Customer, CustomerMeasurements, CustomerStyleDetails, Order, Invoice, FabricItem, AccessoryItem, ThobeType, ColorItem, NotificationItem, PaymentRecord, StockMovement, PurchaseRecord, PurchaseLine, ExpenseRecord, CashTransaction, OrderMaterialUsage, OrderEvent, MeasurementHistoryRecord, InventoryItemType } from '../types';
 import { checkAndSyncStockAlerts } from '../utils/stockAlerts';
 import { calculateStockBalance, round2 } from './shared/inventoryRules';
+import { assertSafeInitialOrderStatus } from '../domain/orderRules';
 import { calculateMaterialCost, calculateOrderAmounts } from './shared/orderRules';
-import { calculatePaymentUpdate } from '../domain/paymentRules';
+import { assertStoredPaymentAggregates, assertValidPaymentMethod, calculatePaymentUpdate } from '../domain/paymentRules';
+import { createSafeId } from '../domain/idGenerator';
 import { normalizePositiveAmount } from '../domain/amountRules';
 import { applyPaymentToDraft } from './adapters/paymentDraftAdapter';
 import { applyExpenseToDraft, applyCashAdjustmentToDraft } from './adapters/accountingDraftAdapter';
@@ -10,11 +12,20 @@ import { createCustomerInDraft, updateCustomerInDraft, saveCustomerMeasurementHi
 import { createFabricInDraft, updateFabricInDraft, createAccessoryInDraft, updateAccessoryInDraft } from './adapters/inventoryCatalogDraftAdapter';
 import { createPurchaseInDraft, getInventoryMeta, insertStockMovementInDraft } from './adapters/inventoryMovementDraftAdapter';
 import { appendMaterialUsage, buildFabricMaterialUsage, buildInitialInvoiceDraft, buildMaterialUsage, buildOrderDraft, calculateOrderMaterialCost } from './adapters/orderDraftAdapter';
-import { updateOrderFabricStockInDraft, updateOrderInvoiceInDraft } from './adapters/orderUpdateAdapter';
+import { updateOrderMaterialsInDraft, updateOrderInvoiceInDraft } from './adapters/orderUpdateAdapter';
 import { findById, hasIdOrSourceId } from './shared/idempotencyRules';
 
 const STORAGE_KEY = 'sahwa_tailoring_app_data_v1';
 const PREFS_KEY = 'sahwa_tailoring_prefs_v1';
+const ORDER_SEQUENCE_KEY = 'sahwa_tailoring_order_sequence_v1';
+
+function nextMockOrderNumber(orders: Order[]): string {
+  const maxExisting = orders.reduce((max, order) => Math.max(max, Number(order.orderNumber) || 1000), 1000);
+  const stored = Number(window.localStorage.getItem(ORDER_SEQUENCE_KEY) || 1000);
+  const next = Math.max(maxExisting, stored) + 1;
+  window.localStorage.setItem(ORDER_SEQUENCE_KEY, String(next));
+  return String(next);
+}
 
 import { DEFAULT_MEASUREMENTS, DEFAULT_STYLE_DETAILS, EMPTY_MEASUREMENTS, EMPTY_STYLE_DETAILS, normalizeMeasurements, normalizeStyleDetails } from './shared/measurementDefaults';
 export { DEFAULT_MEASUREMENTS, DEFAULT_STYLE_DETAILS, EMPTY_MEASUREMENTS, EMPTY_STYLE_DETAILS, normalizeMeasurements, normalizeStyleDetails } from './shared/measurementDefaults';
@@ -398,15 +409,34 @@ export function initElectronMock() {
     async deleteOrder(id: string): Promise<boolean> {
       if (isRealElectron && existing?.deleteOrder) return existing.deleteOrder(id);
       await db.transaction((draft) => {
-        const o = draft.orders.find(ord => ord.id === id);
-        if (o && o.fabricId && (o.status as string) !== 'cancelled') {
-          const fab = draft.fabrics.find(f => f.id === o.fabricId);
-          if (fab) {
-            fab.quantityMeters = Number((fab.quantityMeters + o.fabricConsumptionMeters).toFixed(2));
+        const order = draft.orders.find((item) => item.id === id);
+        if (!order) return;
+        const usages = (draft.orderMaterialUsages || []).filter((usage) => usage.orderId === id);
+        if ((order.status as string) !== 'cancelled') {
+          for (const usage of usages) {
+            if (usage.itemId) insertStockMovementInDraft(draft, usage.itemType, usage.itemId, usage.quantity, 'return', 'إرجاع مواد بسبب حذف الطلب', { type: 'order_delete', id });
           }
         }
-        draft.orders = draft.orders.filter((ord) => ord.id !== id);
-        draft.invoices = draft.invoices.filter((inv) => inv.orderId !== id);
+        const invoice = draft.invoices.find((item) => item.orderId === id);
+        for (const payment of invoice?.payments || []) {
+          mockInsertCash(draft, {
+            id: `CASH-REV-${payment.id}`,
+            direction: 'out',
+            sourceType: 'adjustment',
+            sourceId: payment.id,
+            orderId: id,
+            referenceNumber: invoice?.invoiceNumber,
+            amount: payment.amount,
+            paymentMethod: payment.method,
+            transactionDate: new Date().toISOString().slice(0, 10),
+            description: `عكس دفعة محذوفة للطلب #${order.orderNumber}`,
+            createdAt: new Date().toISOString()
+          });
+        }
+        draft.orderMaterialUsages = (draft.orderMaterialUsages || []).filter((usage) => usage.orderId !== id);
+        draft.orderEvents = (draft.orderEvents || []).filter((event) => event.orderId !== id);
+        draft.orders = draft.orders.filter((item) => item.id !== id);
+        draft.invoices = draft.invoices.filter((item) => item.orderId !== id);
       });
       return true;
     },
@@ -581,11 +611,12 @@ export function initElectronMock() {
         const rate = settings.fabricConsumptionRatePerGarment || 3.5;
         const garmentCount = orderData.garmentCount || 1;
         const requiredMeters = garmentCount * rate;
-        const count = draft.orders.length;
-        const orderNumber = orderData.orderNumber || `${1001 + count}`;
+        const orderNumber = orderData.orderNumber || nextMockOrderNumber(draft.orders);
+        const initialStatus = assertSafeInitialOrderStatus(orderData.status);
+        const initialPaymentMethod = assertValidPaymentMethod((orderData as any).initialPaymentMethod || 'cash');
         const amounts = calculateOrderAmounts(orderData.totalAmount || 0, orderData.paidAmount || 0);
         const { totalAmount, paidAmount, remainingAmount } = amounts;
-        const orderId = orderData.id || `ORD-${Date.now()}`;
+        const orderId = orderData.id || createSafeId('ORD');
         let fabricMovement: StockMovement | undefined;
         let fabricBuyPrice = orderData.fabricBuyPriceAtOrder || 0;
 
@@ -616,7 +647,7 @@ export function initElectronMock() {
         const materialCost = calculateOrderMaterialCost(materialUsages);
 
         const createdAt = new Date().toISOString();
-        const newOrder = buildOrderDraft(orderData, {
+        const newOrder = buildOrderDraft({ ...orderData, status: initialStatus, initialPaymentMethod }, {
           orderId,
           orderNumber,
           requiredMeters,
@@ -632,7 +663,7 @@ export function initElectronMock() {
         draft.orders = [newOrder, ...draft.orders];
 
         // Create invoice and initial payment through the isolated order adapter.
-        const { invoice: newInvoice, payment: initialPayment } = buildInitialInvoiceDraft(orderData, orderId, orderNumber, totalAmount, paidAmount);
+        const { invoice: newInvoice, payment: initialPayment } = buildInitialInvoiceDraft({ ...orderData, status: initialStatus, initialPaymentMethod }, orderId, orderNumber, totalAmount, paidAmount);
         const initialPaymentId = initialPayment?.id;
 
         draft.invoices = [newInvoice, ...draft.invoices];
@@ -660,19 +691,26 @@ export function initElectronMock() {
       await db.transaction(async (draft) => {
         const existingOrder = draft.orders.find(o => o.id === updatedOrder.id);
         if (!existingOrder) throw new Error('الطلب المطلوب غير موجود');
+        const invoice = draft.invoices.find((item) => item.orderId === updatedOrder.id);
+        if (!invoice) throw new Error('لا توجد فاتورة مرتبطة بالطلب');
+        const current = assertStoredPaymentAggregates(invoice.totalAmount, invoice.paidAmount, invoice.remainingAmount, invoice.payments || []);
+        if (Math.abs(Number(updatedOrder.paidAmount ?? current.paidAmount) - current.paidAmount) > 0.0001) throw new Error('لا يمكن تعديل المبلغ المدفوع من خلال تحديث الطلب؛ استخدم مسار الدفعات');
 
         const settings = await window.electronAPI.getSettings();
         const rate = settings.fabricConsumptionRatePerGarment || 3.5;
-        const newMeters = (updatedOrder.garmentCount || 1) * rate;
+        const garmentCount = Number(updatedOrder.garmentCount ?? existingOrder.garmentCount ?? 1);
+        if (!Number.isInteger(garmentCount) || garmentCount < 1) throw new Error('عدد الثياب يجب أن يكون عدداً صحيحاً لا يقل عن 1');
+        const newMeters = garmentCount * rate;
 
-        updateOrderFabricStockInDraft(draft, existingOrder, updatedOrder, newMeters);
+        updateOrderMaterialsInDraft(draft, existingOrder, updatedOrder, newMeters);
 
         updatedOrder.fabricConsumptionMeters = newMeters;
-        const totalAmount = updatedOrder.totalAmount || 0;
-        const paidAmount = updatedOrder.paidAmount || 0;
+        updatedOrder.garmentCount = garmentCount;
+        const totalAmount = Number(updatedOrder.totalAmount ?? existingOrder.totalAmount);
+        const paidAmount = current.paidAmount;
         updateOrderInvoiceInDraft(draft, updatedOrder, totalAmount, paidAmount);
 
-        draft.orders = draft.orders.map((order) => order.id === updatedOrder.id ? updatedOrder : order);
+        draft.orders = draft.orders.map((order) => order.id === updatedOrder.id ? { ...updatedOrder, status: existingOrder.status, paidAmount, remainingAmount: updatedOrder.remainingAmount } : order);
       });
       return true;
     },
@@ -680,41 +718,37 @@ export function initElectronMock() {
     async updateOrderStatus(id: string, status: string): Promise<boolean> {
       if (isRealElectron && existing?.updateOrderStatus) return existing.updateOrderStatus(id, status);
       await db.transaction((draft) => {
-        const order = draft.orders.find(o => o.id === id);
+        const order = draft.orders.find((item) => item.id === id);
         if (!order) throw new Error('الطلب غير موجود في قاعدة البيانات');
-
-        const oldStatus = order.status;
-        if (status === 'cancelled' && (oldStatus as string) !== 'cancelled' && order.fabricId) {
-          // Return fabric
-          const fab = draft.fabrics.find(f => f.id === order.fabricId);
-          if (fab) {
-            fab.quantityMeters = Number((fab.quantityMeters + order.fabricConsumptionMeters).toFixed(2));
+        const oldStatus = String(order.status);
+        const allowed: Record<string, string[]> = { new: ['processing', 'cancelled'], processing: ['ready', 'cancelled'], ready: ['delivered', 'cancelled'], delivered: [], cancelled: ['new'] };
+        if (oldStatus === status) return;
+        if (!allowed[oldStatus]?.includes(status)) throw new Error(`انتقال حالة الطلب من ${oldStatus} إلى ${status} غير مسموح`);
+        const usages = (draft.orderMaterialUsages || []).filter((usage) => usage.orderId === id);
+        if (status === 'cancelled') {
+          for (const usage of usages) {
+            const movement = insertStockMovementInDraft(draft, usage.itemType, usage.itemId, usage.quantity, 'return', 'إرجاع مواد بسبب إلغاء الطلب', { type: 'order_cancel', id });
+            usage.sourceMovementId = undefined;
+            void movement;
           }
-        } else if ((oldStatus as string) === 'cancelled' && status !== 'cancelled' && order.fabricId) {
-          // Re-deduct
-          const fab = draft.fabrics.find(f => f.id === order.fabricId);
-          if (fab) {
-            if (fab.quantityMeters < order.fabricConsumptionMeters) {
-              throw new Error('لا توجد كمية قماش كافية لتغيير الحالة من ملغي إلى نشط.');
-            }
-            fab.quantityMeters = Number((fab.quantityMeters - order.fabricConsumptionMeters).toFixed(2));
+        } else if (oldStatus === 'cancelled' && status === 'new') {
+          for (const usage of usages) {
+            const movement = insertStockMovementInDraft(draft, usage.itemType, usage.itemId, -usage.quantity, 'sale', 'إعادة استهلاك مواد بعد إلغاء الإلغاء', { type: 'order_reactivate', id });
+            usage.sourceMovementId = movement.id;
           }
         }
-
         order.status = status as any;
-        if (oldStatus !== status) {
-          mockInsertEvent(draft, {
-            id: `EVT-STATUS-${id}-${Date.now()}`,
-            orderId: id,
-            type: 'status_changed',
-            title: `تغيير الحالة إلى ${status}`,
-            description: `تم تغيير حالة الطلب من ${oldStatus} إلى ${status}${status === 'cancelled' ? ' مع إعادة المواد للمخزون' : String(oldStatus) === 'cancelled' ? ' مع إعادة استهلاك المواد' : ''}.`,
-            fromStatus: oldStatus,
-            toStatus: status,
-            actor: 'النظام',
-            createdAt: new Date().toISOString()
-          });
-        }
+        mockInsertEvent(draft, {
+          id: createSafeId(`EVT-STATUS-${id}`),
+          orderId: id,
+          type: 'status_changed',
+          title: `تغيير الحالة إلى ${status}`,
+          description: `تم تغيير حالة الطلب من ${oldStatus} إلى ${status}${status === 'cancelled' ? ' مع إعادة المواد للمخزون' : oldStatus === 'cancelled' ? ' مع إعادة استهلاك المواد' : ''}.`,
+          fromStatus: oldStatus,
+          toStatus: status,
+          actor: 'النظام',
+          createdAt: new Date().toISOString()
+        });
       });
       return true;
     },
@@ -767,7 +801,7 @@ export function initElectronMock() {
       const data = await window.electronAPI.getData();
       const order = data.orders.find((item) => item.orderNumber === orderNumber);
       const newNotif: NotificationItem = {
-        id: 'NOTIF-' + Date.now(),
+        id: createSafeId('NOTIF'),
         type: 'whatsapp',
         title: `تذكير واتساب - طلب #${orderNumber}`,
         message: `تم إرسال رسالة واتساب للعميل ${customerName} (${phone}) - الحالة: ${statusText}`,

@@ -9,7 +9,9 @@ import {
   CashTransaction
 } from '../../types';
 import { calculateStockBalance, round2 } from '../shared/inventoryRules';
+import { assertValidPaymentMethod } from '../../domain/paymentRules';
 import { findById, hasIdOrSourceId } from '../shared/idempotencyRules';
+import { createSafeId } from '../../domain/idGenerator';
 
 type PurchasePayload = Record<string, any>;
 type InventoryMeta = {
@@ -33,7 +35,7 @@ export function insertStockMovementInDraft(
   const { before, after } = calculateStockBalance(meta.quantity, delta, meta.name);
   writeQuantity(itemType, meta, after);
   const movement: StockMovement = {
-    id: `MOV-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+    id: createSafeId('MOV'),
     itemType,
     itemId,
     itemName: meta.name,
@@ -53,7 +55,8 @@ export function insertStockMovementInDraft(
 }
 
 export function createPurchaseInDraft(draft: AppData, payload: PurchasePayload): PurchaseRecord {
-  const purchaseId = payload.id || `PUR-${Date.now()}`;
+  const purchaseId = payload.id || createSafeId('PUR');
+  const paymentMethod = assertValidPaymentMethod(payload.paymentMethod ?? 'cash');
   const duplicate = findById(draft.purchases, purchaseId);
   if (duplicate) return duplicate;
   if (!payload.supplier?.trim()) throw new Error('اسم المورد مطلوب');
@@ -73,7 +76,7 @@ export function createPurchaseInDraft(draft: AppData, payload: PurchasePayload):
     setPurchasePrice(input.itemType, meta, unitPrice);
     const lineTotal = round2(quantity * unitPrice);
     totalAmount += lineTotal;
-    preparedLines.push({ id: `PURL-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, purchaseId, itemType: input.itemType, itemId: input.itemId, itemName: input.itemName || meta.name, quantity, unit: input.unit || meta.unit, unitPrice, totalAmount: lineTotal, createdAt: now });
+    preparedLines.push({ id: createSafeId('PURL'), purchaseId, itemType: input.itemType, itemId: input.itemId, itemName: input.itemName || meta.name, quantity, unit: input.unit || meta.unit, unitPrice, totalAmount: lineTotal, createdAt: now });
   }
 
   const purchase: PurchaseRecord = {
@@ -82,7 +85,7 @@ export function createPurchaseInDraft(draft: AppData, payload: PurchasePayload):
     invoiceNumber: payload.invoiceNumber || undefined,
     purchaseDate,
     totalAmount: round2(totalAmount),
-    paymentMethod: payload.paymentMethod || 'cash',
+    paymentMethod,
     notes: payload.notes || undefined,
     status: 'approved',
     lines: preparedLines,
@@ -97,7 +100,7 @@ export function createPurchaseInDraft(draft: AppData, payload: PurchasePayload):
       sourceId: purchaseId,
       referenceNumber: payload.invoiceNumber || purchaseId,
       amount: round2(totalAmount),
-      paymentMethod: payload.paymentMethod || 'cash',
+      paymentMethod,
       transactionDate: purchaseDate,
       description: `شراء مخزون من ${payload.supplier.trim()}`,
       notes: payload.notes || undefined,

@@ -6,6 +6,7 @@ const assert = require('assert');
 const { app, ipcMain } = require('electron');
 const { SahwaDatabaseManager } = require('../dist-electron/db.js');
 const { registerIpcHandlers } = require('../dist-electron/ipcHandlers.js');
+const XLSX = require('xlsx');
 
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'sahwa-integration-'));
 const databaseDir = path.join(root, 'database');
@@ -37,7 +38,7 @@ async function main() {
   registerIpcHandlers(manager);
 
   await record('real IPC bridge registry', async () => {
-    for (const channel of ['customers:create', 'customers:update', 'orders:create', 'orders:update', 'orders:delete', 'invoices:addPayment', 'purchases:create', 'expenses:create', 'system:backup', 'system:restore', 'system:clearAllData']) {
+    for (const channel of ['customers:create', 'customers:update', 'orders:create', 'orders:update', 'orders:delete', 'invoices:addPayment', 'purchases:create', 'reports:exportExcel', 'system:backup', 'system:restore', 'system:clearAllData', 'system:integrityCheck']) {
       assert.ok((ipcMain._invokeHandlers || ipcMain._invokeHandlersMap).has(channel), channel);
     }
   });
@@ -81,10 +82,18 @@ async function main() {
       sellingPrice: 100, quantityMeters: 30, minStockMeters: 2
     });
     const accessory = await call('accessories:create', {
-      id: accessoryId, name: 'سحاب تكامل', category: 'سحابات', quantity: 10, minStock: 2, unit: 'حبة', purchasePrice: 5
+      id: accessoryId, name: 'سحاب تكامل', category: 'سحابات', quantity: 10, minStock: 2, unit: 'حبة', purchasePrice: 5, sellingPrice: 12
     });
     assert.equal(fabric.quantityMeters, 30);
     assert.equal(accessory.quantity, 10);
+    await call('accessories:update', { ...accessory, sellingPrice: 12, quantity: 999 });
+    const loadedInventory = (await call('data:get')).accessories.find((item) => item.id === accessoryId);
+    assert.equal(loadedInventory.purchasePrice, 5);
+    assert.equal(loadedInventory.sellingPrice, 12);
+    assert.equal(loadedInventory.quantity, 10);
+    await call('fabrics:update', { ...fabric, quantityMeters: 999, purchasePrice: 40, sellingPrice: 100 });
+    const afterCatalogUpdate = (await call('fabrics:list')).find((item) => item.id === fabricId);
+    assert.equal(afterCatalogUpdate.quantityMeters, 30);
   });
 
   const orderPayload = {
@@ -127,7 +136,85 @@ async function main() {
     assert.equal((await call('cash:list')).filter((item) => item.sourceId === 'PAY-INT-001').length, 1);
   });
 
-  const oldBackupJson = JSON.stringify(manager.exportFullDataAsJson());
+  await record('paidAmount cannot bypass the payment ledger', async () => {
+    const currentOrder = (await call('orders:list')).find((item) => item.id === orderId);
+    assert.ok(currentOrder);
+    await assert.rejects(
+      call('orders:update', { ...currentOrder, paidAmount: 200 }),
+      /مسار الدفعات|لا يمكن تعديل المبلغ المدفوع/
+    );
+    const invoice = (await call('invoices:list')).find((item) => item.orderId === orderId);
+    assert.equal(invoice.paidAmount, 150);
+    assert.equal(invoice.payments.reduce((sum, payment) => sum + payment.amount, 0), 150);
+  });
+
+  await record('backend rejects invalid order amounts and garment counts', async () => {
+    await assert.rejects(
+      call('orders:create', { ...orderPayload, id: 'ORD-NEGATIVE-GARMENT', orderNumber: 'INT-NEGATIVE-GARMENT', garmentCount: -1, paidAmount: 0 }),
+      /عدد الثياب/
+    );
+    await assert.rejects(
+      call('orders:create', { ...orderPayload, id: 'ORD-OVERPAYMENT', orderNumber: 'INT-OVERPAYMENT', garmentCount: 1, paidAmount: 301 }),
+      /يتجاوز/
+    );
+  });
+
+  await record('backend validates order status before inventory movement', async () => {
+    const db = manager.getRawDb();
+    const beforeMovements = db.prepare('SELECT COUNT(*) AS count FROM inventory_movements').get().count;
+    await assert.rejects(
+      call('orders:create', { ...orderPayload, id: 'ORD-INVALID-STATUS', orderNumber: 'INT-INVALID-STATUS', status: 'unknown', paidAmount: 0 }),
+      /حالة الطلب/
+    );
+    await assert.rejects(
+      call('orders:create', { ...orderPayload, id: 'ORD-CANCELLED-CREATE', orderNumber: 'INT-CANCELLED-CREATE', status: 'cancelled', paidAmount: 0 }),
+      /لا يمكن إنشاء/
+    );
+    assert.equal(db.prepare('SELECT COUNT(*) AS count FROM orders WHERE id IN (?, ?)').get('ORD-INVALID-STATUS', 'ORD-CANCELLED-CREATE').count, 0);
+    assert.equal(db.prepare('SELECT COUNT(*) AS count FROM inventory_movements').get().count, beforeMovements);
+    const valid = await call('orders:create', { ...orderPayload, id: 'ORD-VALID-STATUS', orderNumber: 'INT-VALID-STATUS', status: 'processing', paidAmount: 0, fabricId: undefined, fabricName: 'بدون قماش', materialUsages: [], orderDate: '2026-09-01', deliveryDate: '2026-09-02' });
+    assert.equal(valid.status, 'processing');
+    await assert.rejects(call('orders:updateStatus', 'ORD-VALID-STATUS', 'unknown'), /حالة الطلب/);
+  });
+
+  await record('backend validates payment methods across financial entry points', async () => {
+    const db = manager.getRawDb();
+    const beforeCash = db.prepare('SELECT COUNT(*) AS count FROM cash_transactions').get().count;
+    await assert.rejects(
+      call('invoices:addPayment', `INV-${orderNumber}`, 1, 'bitcoin', 'invalid method', 'PAY-INVALID-METHOD'),
+      /طريقة الدفع/
+    );
+    await assert.rejects(
+      call('purchases:create', { id: 'PUR-INVALID-METHOD', supplier: 'مورد', paymentMethod: 'bitcoin', lines: [{ itemType: 'fabric', itemId: fabricId, quantity: 1, unit: 'متر', unitPrice: 1 }] }),
+      /طريقة الدفع/
+    );
+    await assert.rejects(
+      call('expenses:create', { id: 'EXP-INVALID-METHOD', category: 'تشغيل', amount: 1, paymentMethod: '', description: 'invalid method' }),
+      /طريقة الدفع/
+    );
+    await assert.rejects(
+      call('cash:createAdjustment', { id: 'CASH-INVALID-METHOD', amount: 1, paymentMethod: 'bitcoin', description: 'invalid method' }),
+      /طريقة الدفع/
+    );
+    assert.equal(db.prepare('SELECT COUNT(*) AS count FROM cash_transactions').get().count, beforeCash);
+  });
+
+  await record('payment ledger drift is rejected before a new payment', async () => {
+    const db = manager.getRawDb();
+    const invoice = db.prepare('SELECT * FROM invoices WHERE order_id = ?').get(orderId);
+    db.prepare('UPDATE invoices SET paid_amount = 200, remaining_amount = 100 WHERE id = ?').run(invoice.id);
+    await assert.rejects(
+      call('invoices:addPayment', invoice.id, 10, 'cash', 'يجب رفضها', 'PAY-DRIFT-001'),
+      /لا تتطابق مع سجل الدفعات/
+    );
+    db.prepare('UPDATE invoices SET paid_amount = 150, remaining_amount = 150 WHERE id = ?').run(invoice.id);
+  });
+
+  const oldSnapshot = manager.exportFullDataAsJson();
+  const oldAccessory = oldSnapshot.accessories.find((item) => item.id === accessoryId);
+  assert.equal(oldAccessory.purchasePrice, 5);
+  assert.equal(oldAccessory.sellingPrice, 12);
+  const oldBackupJson = JSON.stringify(oldSnapshot);
 
   await record('purchase increases inventory and records cash outflow', async () => {
     const purchase = await call('purchases:create', {
@@ -154,23 +241,175 @@ async function main() {
   await record('reports and Excel export contain data', async () => {
     const report = await call('reports:exportExcel', '2026-08-01', '2026-08-31');
     assert.ok(typeof report === 'string' && report.length > 100);
+    const workbook = XLSX.read(Buffer.from(report, 'base64'), { type: 'buffer' });
+    assert.deepEqual(workbook.SheetNames, ['تقرير المبيعات', 'ملخص المحاسبة', 'قيمة المخزون']);
+    const summaryRows = XLSX.utils.sheet_to_json(workbook.Sheets['ملخص المحاسبة']);
+    assert.ok(summaryRows.some((row) => row['البيان'] === 'إجمالي المشتريات' && row['القيمة'] === 234));
     const db = manager.getRawDb();
     const totals = db.prepare(`SELECT SUM(total_amount) AS sales, SUM(paid_amount) AS paid, SUM(remaining_amount) AS remaining FROM orders WHERE order_date BETWEEN ? AND ?`).get('2026-08-01', '2026-08-31');
     assert.equal(totals.sales, 300);
     assert.equal(totals.paid, 150);
     assert.equal(totals.remaining, 150);
+    const earlyReport = await call('reports:exportExcel', '2026-08-01', '2026-08-16');
+    const earlyWorkbook = XLSX.read(Buffer.from(earlyReport, 'base64'), { type: 'buffer' });
+    const earlySummary = XLSX.utils.sheet_to_json(earlyWorkbook.Sheets['ملخص المحاسبة']);
+    const earlyCollected = earlySummary.find((row) => row['البيان'] === 'إجمالي التحصيل')['القيمة'];
+    assert.equal(earlyCollected, 100);
+  });
+
+  await record('card and transfer remain separate from the cash drawer', async () => {
+    const beforeCashOut = (await call('cash:list')).filter((item) => item.direction === 'out' && item.paymentMethod === 'cash').reduce((sum, item) => sum + item.amount, 0);
+    await call('purchases:create', {
+      id: 'PUR-CARD-001', supplier: 'مورد بطاقة', invoiceNumber: 'P-CARD-1', purchaseDate: '2026-08-19', paymentMethod: 'card',
+      lines: [{ itemType: 'fabric', itemId: fabricId, itemName: 'قماش تكامل', quantity: 1, unit: 'متر', unitPrice: 42 }]
+    });
+    await call('expenses:create', { id: 'EXP-TRANSFER-001', category: 'تشغيل', amount: 25, expenseDate: '2026-08-19', paymentMethod: 'transfer', description: 'مصروف تحويل' });
+    const transactions = await call('cash:list');
+    assert.equal(transactions.some((item) => item.sourceId === 'PUR-CARD-001' && item.paymentMethod === 'card'), true);
+    assert.equal(transactions.some((item) => item.sourceId === 'EXP-TRANSFER-001' && item.paymentMethod === 'transfer'), true);
+    const afterCashOut = transactions.filter((item) => item.direction === 'out' && item.paymentMethod === 'cash').reduce((sum, item) => sum + item.amount, 0);
+    assert.equal(afterCashOut, beforeCashOut);
   });
 
   await record('backup, restore of older snapshot, and persistence after reopen', async () => {
     const backup = await call('system:backup');
-    assert.equal(backup.success, true);
-    assert.ok(fs.existsSync(backup.filePath));
+    assert.ok(typeof backup === 'string' && backup.length > 100);
+    const versionedBackup = JSON.parse(backup);
+    assert.equal(versionedBackup.backupSchemaVersion, 2);
+    assert.equal(versionedBackup.schemaVersion, 9);
+    const sqliteBackups = fs.readdirSync(backupDir).filter((fileName) => fileName.includes('manual_user') && fileName.endsWith('.db'));
+    assert.ok(sqliteBackups.length > 0);
     const restoreResult = await call('system:restore', oldBackupJson);
-    assert.equal(restoreResult.success, true);
+    assert.equal(restoreResult.success, true, restoreResult.error || 'restore failed without an error');
     const db = manager.getRawDb();
     assert.equal(db.prepare('SELECT COUNT(*) AS count FROM purchases WHERE id = ?').get('PUR-INT-001').count, 0);
     assert.equal(db.prepare('SELECT COUNT(*) AS count FROM expenses WHERE id = ?').get('EXP-INT-001').count, 0);
     assert.equal(db.prepare('SELECT COUNT(*) AS count FROM orders WHERE id = ?').get(orderId).count, 1);
+    const restoredAccessory = (await call('accessories:list')).find((item) => item.id === accessoryId);
+    assert.equal(restoredAccessory.purchasePrice, 5);
+    assert.equal(restoredAccessory.sellingPrice, 12);
+    const integrity = await call('system:integrityCheck');
+    assert.equal(integrity.ok, true, JSON.stringify(integrity.issues));
+    const legacyBackup = JSON.parse(oldBackupJson);
+    delete legacyBackup.backupSchemaVersion;
+    delete legacyBackup.schemaVersion;
+    const legacyRestore = await call('system:restore', JSON.stringify(legacyBackup));
+    assert.equal(legacyRestore.success, true, legacyRestore.error || 'legacy restore failed');
+  });
+
+  await record('integrity checker detects missing source movement in live database', async () => {
+    const restore = await call('system:restore', oldBackupJson);
+    assert.equal(restore.success, true, restore.error || 'setup restore failed');
+    const db = manager.getRawDb();
+    const usage = db.prepare('SELECT source_movement_id FROM order_material_usages WHERE source_movement_id IS NOT NULL LIMIT 1').get();
+    assert.ok(usage?.source_movement_id);
+    db.prepare('DELETE FROM inventory_movements WHERE id = ?').run(usage.source_movement_id);
+    const report = await call('system:integrityCheck');
+    assert.equal(report.ok, false);
+    assert.equal(report.issues.some((issue) => issue.code === 'MISSING_SOURCE_MOVEMENT'), true);
+    const cleanup = await call('system:restore', oldBackupJson);
+    assert.equal(cleanup.success, true, cleanup.error || 'integrity fixture cleanup failed');
+  });
+
+  await record('restore rejects business-inconsistent backup without changing the database', async () => {
+    const beforeOrderCount = manager.getRawDb().prepare('SELECT COUNT(*) AS count FROM orders').get().count;
+    const invalid = JSON.parse(oldBackupJson);
+    invalid.invoices[0].paidAmount = 999;
+    invalid.invoices[0].remainingAmount = 0;
+    const result = await call('system:restore', JSON.stringify(invalid));
+    assert.equal(result.success, false);
+    assert.match(result.error, /INVOICE_PAYMENT_MISMATCH|INVOICE_ORDER_AGGREGATE_MISMATCH/);
+    assert.equal(manager.getRawDb().prepare('SELECT COUNT(*) AS count FROM orders').get().count, beforeOrderCount);
+  });
+
+  await record('restore rejects incomplete and untraceable business ledgers', async () => {
+    const beforeOrderCount = manager.getRawDb().prepare('SELECT COUNT(*) AS count FROM orders').get().count;
+    const missingCollection = JSON.parse(oldBackupJson);
+    delete missingCollection.cashTransactions;
+    const missingCollectionResult = await call('system:restore', JSON.stringify(missingCollection));
+    assert.equal(missingCollectionResult.success, false);
+    assert.match(missingCollectionResult.error, /MISSING_COLLECTION/);
+    assert.equal(manager.getRawDb().prepare('SELECT COUNT(*) AS count FROM orders').get().count, beforeOrderCount);
+
+    const missingMovement = JSON.parse(oldBackupJson);
+    assert.ok(missingMovement.orderMaterialUsages.length > 0);
+    missingMovement.orderMaterialUsages[0].sourceMovementId = 'MISSING-MOVEMENT-RESTORE';
+    const missingMovementResult = await call('system:restore', JSON.stringify(missingMovement));
+    assert.equal(missingMovementResult.success, false);
+    assert.match(missingMovementResult.error, /MISSING_SOURCE_MOVEMENT/);
+    assert.equal(manager.getRawDb().prepare('SELECT COUNT(*) AS count FROM orders').get().count, beforeOrderCount);
+
+    const invalidMethod = JSON.parse(oldBackupJson);
+    invalidMethod.expenses.push({ id: 'EXP-INVALID-RESTORE', category: 'تشغيل', amount: 1, expenseDate: '2026-08-19', paymentMethod: 'bitcoin', description: 'invalid', createdAt: new Date().toISOString() });
+    const invalidMethodResult = await call('system:restore', JSON.stringify(invalidMethod));
+    assert.equal(invalidMethodResult.success, false);
+    assert.match(invalidMethodResult.error, /INVALID_PAYMENT_METHOD|MISSING_EXPENSE_CASH/);
+    assert.equal(manager.getRawDb().prepare('SELECT COUNT(*) AS count FROM orders').get().count, beforeOrderCount);
+  });
+
+  await record('WhatsApp failure records failed state without success audit', async () => {
+    process.env.SAHWA_FORCE_WHATSAPP_FAILURE = '1';
+    try {
+      assert.equal(await call('whatsapp:send', '0500000001', 'عميل تكامل', orderNumber, 'قيد التنفيذ'), false);
+    } finally {
+      delete process.env.SAHWA_FORCE_WHATSAPP_FAILURE;
+    }
+    const snapshot = await call('data:get');
+    assert.equal(snapshot.notifications.some((item) => item.orderId === orderId && item.title.includes('فشل فتح')), true);
+    assert.equal(snapshot.notifications.some((item) => item.orderId === orderId && item.title.includes('تم فتح')), false);
+    const events = await call('orders:events:list', orderId);
+    assert.equal(events.some((item) => item.type === 'whatsapp' && item.title.includes('فشل')), true);
+  });
+
+  await record('order numbers use a persistent sequence instead of row count', async () => {
+    const first = await call('orders:create', { ...orderPayload, id: 'ORD-SEQ-001', orderNumber: undefined, totalAmount: 50, paidAmount: 0, materialUsages: [] });
+    const second = await call('orders:create', { ...orderPayload, id: 'ORD-SEQ-002', orderNumber: undefined, totalAmount: 50, paidAmount: 0, materialUsages: [] });
+    assert.notEqual(first.orderNumber, second.orderNumber);
+    assert.equal(Number(second.orderNumber), Number(first.orderNumber) + 1);
+    await call('orders:delete', 'ORD-SEQ-001');
+    const third = await call('orders:create', { ...orderPayload, id: 'ORD-SEQ-003', orderNumber: undefined, totalAmount: 50, paidAmount: 0, materialUsages: [] });
+    assert.equal(Number(third.orderNumber), Number(second.orderNumber) + 1);
+  });
+
+  await record('cancel edit reactivate consumes the new material snapshot only', async () => {
+    await call('fabrics:create', { id: 'FAB-INT-002', name: 'قماش بديل تكامل', color: 'كحلي', colorHex: '#111827', purchasePrice: 55, sellingPrice: 120, quantityMeters: 30, minStockMeters: 2 });
+    const activeOrder = (await call('orders:list')).find((item) => item.id === orderId);
+    assert.ok(activeOrder);
+    const beforeCancelFabric = manager.getRawDb().prepare('SELECT quantity_meters FROM fabrics WHERE id = ?').get(fabricId).quantity_meters;
+    const beforeCancelAccessory = manager.getRawDb().prepare('SELECT quantity FROM accessories WHERE id = ?').get(accessoryId).quantity;
+    await call('orders:updateStatus', orderId, 'cancelled');
+    const afterCancel = manager.getRawDb();
+    assert.equal(afterCancel.prepare('SELECT quantity_meters FROM fabrics WHERE id = ?').get(fabricId).quantity_meters, beforeCancelFabric + 3.5);
+    assert.equal(afterCancel.prepare('SELECT quantity FROM accessories WHERE id = ?').get(accessoryId).quantity, beforeCancelAccessory + 2);
+    assert.equal(await call('orders:update', { ...activeOrder, status: 'cancelled', fabricId: 'FAB-INT-002', fabricName: 'قماش بديل تكامل', fabricColor: 'كحلي', garmentCount: 2 }), true);
+    assert.equal(afterCancel.prepare('SELECT quantity_meters FROM fabrics WHERE id = ?').get('FAB-INT-002').quantity_meters, 30);
+    const updatedMaterials = afterCancel.prepare('SELECT item_type, item_id, quantity, source_movement_id FROM order_material_usages WHERE order_id = ? ORDER BY item_type, item_id').all(orderId);
+    assert.equal(updatedMaterials.some((row) => row.item_type === 'fabric' && row.item_id === 'FAB-INT-002' && row.quantity === 7 && row.source_movement_id === null), true);
+    assert.equal(updatedMaterials.some((row) => row.item_type === 'fabric' && row.item_id === fabricId), false);
+    await call('orders:updateStatus', orderId, 'new');
+    assert.equal(afterCancel.prepare('SELECT quantity_meters FROM fabrics WHERE id = ?').get(fabricId).quantity_meters, beforeCancelFabric + 3.5);
+    assert.equal(afterCancel.prepare('SELECT quantity_meters FROM fabrics WHERE id = ?').get('FAB-INT-002').quantity_meters, 23);
+    assert.equal(afterCancel.prepare('SELECT quantity FROM accessories WHERE id = ?').get(accessoryId).quantity, 8);
+    assert.equal(afterCancel.prepare('SELECT COUNT(*) AS count FROM order_material_usages WHERE order_id = ? AND source_movement_id IS NULL').get(orderId).count, 0);
+  });
+
+  await record('delete order reverses the actual payment ledger', async () => {
+    const deleted = await call('orders:create', { ...orderPayload, id: 'ORD-DELETE-PAY', orderNumber: 'DELETE-PAY-1', totalAmount: 100, paidAmount: 20, materialUsages: [] });
+    const beforeDelete = (await call('cash:list')).filter((item) => item.orderId === deleted.id && item.sourceType === 'customer_payment');
+    assert.equal(beforeDelete.length, 1);
+    await call('orders:delete', deleted.id);
+    const afterDelete = (await call('cash:list')).filter((item) => item.orderId === deleted.id);
+    assert.equal(afterDelete.some((item) => item.sourceType === 'adjustment' && item.direction === 'out' && item.amount === 20), true);
+    assert.equal((await call('orders:list')).some((item) => item.id === deleted.id), false);
+  });
+
+  await record('manual stock adjustment rolls back when movement insert fails', async () => {
+    const db = manager.getRawDb();
+    const before = db.prepare('SELECT quantity_meters FROM fabrics WHERE id = ?').get(fabricId).quantity_meters;
+    db.exec("CREATE TRIGGER integration_fail_inventory_insert BEFORE INSERT ON inventory_movements BEGIN SELECT RAISE(ABORT, 'forced movement failure'); END");
+    await assert.rejects(call('stock:adjust', 'fabric', fabricId, 2, 'اختبار rollback', 'adjustment'), /حدث خطأ غير متوقع/);
+    db.exec('DROP TRIGGER integration_fail_inventory_insert');
+    assert.equal(db.prepare('SELECT quantity_meters FROM fabrics WHERE id = ?').get(fabricId).quantity_meters, before);
   });
 
   await record('invalid and insufficient operations rollback atomically', async () => {

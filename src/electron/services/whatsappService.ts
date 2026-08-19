@@ -2,6 +2,9 @@ import { OrderEvent } from '../../types';
 import { NotificationRepository } from '../repositories/notificationRepository';
 import { OrderEventRepository } from '../repositories/orderEventRepository';
 import { OrderRepository } from '../repositories/orderRepository';
+import { createSafeId } from '../../domain/idGenerator';
+
+export type WhatsAppDeliveryResult = 'opened' | 'failed';
 
 export class WhatsAppService {
   constructor(
@@ -21,15 +24,22 @@ export class WhatsAppService {
     };
   }
 
-  logPreparedMessage(phone: string, customerName: string, orderNumber: string, statusText: string): string {
-    const prepared = this.prepareMessage(phone, customerName, orderNumber, statusText);
-    const notifId = `NOTIF-${Date.now()}`;
+  recordDeliveryResult(
+    phone: string,
+    customerName: string,
+    orderNumber: string,
+    statusText: string,
+    prepared: { orderId?: string },
+    result: WhatsAppDeliveryResult
+  ): void {
+    const notificationId = createSafeId('NOTIF');
     const now = new Date().toISOString();
+    const succeeded = result === 'opened';
     this.notificationRepository.insert({
-      id: notifId,
+      id: notificationId,
       type: 'whatsapp',
-      title: `تذكير واتساب - طلب #${orderNumber}`,
-      message: `تم إرسال رسالة واتساب للعميل ${customerName} (${phone}) - الحالة: ${statusText}`,
+      title: `${succeeded ? 'تم فتح' : 'فشل فتح'} واتساب - طلب #${orderNumber}`,
+      message: `${succeeded ? 'تم فتح' : 'فشل فتح'} رسالة واتساب للعميل ${customerName} (${phone}) - الحالة: ${statusText}`,
       date: new Date().toLocaleString('ar-SA'),
       read: true,
       customerPhone: phone,
@@ -37,17 +47,16 @@ export class WhatsAppService {
     });
     if (prepared.orderId) {
       const event: OrderEvent = {
-        id: `EVT-WHATSAPP-${notifId}`,
+        id: `EVT-WHATSAPP-${notificationId}`,
         orderId: prepared.orderId,
         type: 'whatsapp',
-        title: 'فتح رسالة واتساب',
-        description: `تم تجهيز رسالة واتساب للعميل ${customerName} عن حالة الطلب: ${statusText}.`,
+        title: succeeded ? 'فتح رسالة واتساب' : 'فشل فتح رسالة واتساب',
+        description: `${succeeded ? 'تم فتح' : 'فشل فتح'} رسالة واتساب للعميل ${customerName} عن حالة الطلب: ${statusText}.`,
         actor: 'النظام',
-        metadata: { phone, orderNumber, statusText },
+        metadata: { phone, orderNumber, statusText, result },
         createdAt: now
       };
       this.eventRepository.insert(event);
     }
-    return prepared.url;
   }
 }

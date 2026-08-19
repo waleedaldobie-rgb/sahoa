@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Customer, CustomerMeasurements, CustomerStyleDetails, MeasurementHistoryRecord } from '../types';
+import { createSafeId } from '../domain/idGenerator';
 import { EMPTY_MEASUREMENTS, EMPTY_STYLE_DETAILS } from '../services/shared/measurementDefaults';
 import { Card, Button, Input, EmptyState } from './ui';
 import { ConfirmModal } from './ConfirmModal';
@@ -139,7 +140,7 @@ export const CustomersView: React.FC<CustomersViewProps> = ({
 
     const nowStr = new Date().toISOString();
     const newCust: Customer = {
-      id: formData.id || 'CUST-' + Date.now(),
+      id: formData.id || createSafeId('CUST'),
       name: formData.name.trim(),
       phone: formData.phone.trim(),
       createdAt: selectedCustomer ? selectedCustomer.createdAt : nowStr,

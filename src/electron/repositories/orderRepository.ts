@@ -21,6 +21,24 @@ export class OrderRepository {
     return this.db.prepare('SELECT * FROM orders WHERE order_number = ?').get(orderNumber);
   }
 
+  nextOrderNumber(): string {
+    let candidate = Number((this.db.prepare(`
+      INSERT INTO order_number_sequence (name, next_number)
+      VALUES ('orders', 1002)
+      ON CONFLICT(name) DO UPDATE SET next_number = order_number_sequence.next_number + 1
+      RETURNING next_number - 1 AS allocated_number
+    `).get() as { allocated_number: number }).allocated_number);
+    while (this.findByOrderNumber(String(candidate))) {
+      candidate = Number((this.db.prepare(`
+        UPDATE order_number_sequence
+        SET next_number = next_number + 1
+        WHERE name = 'orders'
+        RETURNING next_number - 1 AS allocated_number
+      `).get() as { allocated_number: number }).allocated_number);
+    }
+    return String(candidate);
+  }
+
   count(): number {
     return Number((this.db.prepare('SELECT COUNT(*) AS count FROM orders').get() as { count: number }).count || 0);
   }

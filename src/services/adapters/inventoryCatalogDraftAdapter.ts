@@ -1,8 +1,9 @@
 import { AccessoryItem, AppData, FabricItem } from '../../types';
+import { createSafeId } from '../../domain/idGenerator';
 
 export function createFabricInDraft(draft: AppData, fabric: Partial<FabricItem>): FabricItem {
   const newFabric: FabricItem = {
-    id: fabric.id || `FAB-${Date.now()}`,
+    id: fabric.id || createSafeId('FAB'),
     name: fabric.name || '',
     color: fabric.color || '',
     colorHex: fabric.colorHex || '#ffffff',
@@ -16,13 +17,15 @@ export function createFabricInDraft(draft: AppData, fabric: Partial<FabricItem>)
 }
 
 export function updateFabricInDraft(draft: AppData, fabric: FabricItem): boolean {
-  draft.fabrics = draft.fabrics.map((item) => item.id === fabric.id ? fabric : item);
+  draft.fabrics = draft.fabrics.map((item) => item.id === fabric.id
+    ? { ...fabric, quantityMeters: item.quantityMeters }
+    : item);
   return true;
 }
 
 export function createAccessoryInDraft(draft: AppData, accessory: Partial<AccessoryItem>): AccessoryItem {
   const newAccessory: AccessoryItem = {
-    id: accessory.id || `ACC-${Date.now()}`,
+    id: accessory.id || createSafeId('ACC'),
     name: accessory.name || '',
     category: accessory.category || '',
     quantity: accessory.quantity || 0,
@@ -34,6 +37,8 @@ export function createAccessoryInDraft(draft: AppData, accessory: Partial<Access
 }
 
 export function updateAccessoryInDraft(draft: AppData, accessory: AccessoryItem): boolean {
-  draft.accessories = draft.accessories.map((item) => item.id === accessory.id ? accessory : item);
+  draft.accessories = draft.accessories.map((item) => item.id === accessory.id
+    ? { ...accessory, quantity: item.quantity }
+    : item);
   return true;
 }

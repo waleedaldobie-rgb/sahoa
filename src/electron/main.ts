@@ -1,4 +1,4 @@
-import { app, BrowserWindow } from 'electron';
+import { app, BrowserWindow, ipcMain } from 'electron';
 import path from 'path';
 import { SahwaDatabaseManager } from './db';
 import { registerIpcHandlers } from './ipcHandlers';
@@ -19,6 +19,18 @@ async function closeResourcesOnce(): Promise<void> {
   }
 }
 
+function registerAutomationDiagnostics(databaseDir: string, backupDir: string): void {
+  if (process.env.SAHWA_UI_AUTOMATION !== '1') return;
+
+  ipcMain.handle('automation:storageInfo', () => ({
+    userDataPath: app.getPath('userData'),
+    databasePath: path.join(databaseDir, 'sahwa_tailoring.db'),
+    backupDir,
+    appPath: app.getAppPath(),
+    isPackaged: app.isPackaged
+  }));
+}
+
 function createWindow() {
   app.setAppUserModelId('com.sahwa.tailoring');
   const userDataDir = app.getPath('userData');
@@ -37,6 +49,7 @@ function createWindow() {
   }
 
   registerIpcHandlers(dbManager);
+  registerAutomationDiagnostics(databaseDir, backupDir);
 
   mainWindow = new BrowserWindow({
     width: 1600,

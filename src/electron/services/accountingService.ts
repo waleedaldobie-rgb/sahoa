@@ -4,6 +4,8 @@ import { CashRepository } from '../repositories/cashRepository';
 import { InventoryService } from './inventoryService';
 import { normalizePositiveAmount } from '../../domain/amountRules';
 import { round2 } from '../../domain/inventoryRules';
+import { assertValidPaymentMethod } from '../../domain/paymentRules';
+import { createSafeId } from '../../domain/idGenerator';
 
 export class AccountingService {
   constructor(
@@ -24,7 +26,8 @@ export class AccountingService {
   }
 
   createPurchase(payload: any): { id: string; now: string } {
-    const purchaseId = payload.id || `PUR-${Date.now()}`;
+    const purchaseId = payload.id || createSafeId('PUR');
+    const paymentMethod = assertValidPaymentMethod(payload.paymentMethod ?? 'cash');
     const existing = this.findPurchase(purchaseId);
     if (existing) return { id: purchaseId, now: existing.row.created_at };
     const lines = Array.isArray(payload.lines) ? payload.lines : [];
@@ -53,7 +56,7 @@ export class AccountingService {
         invoiceNumber: payload.invoiceNumber,
         purchaseDate,
         totalAmount: round2(totalAmount),
-        paymentMethod: payload.paymentMethod || 'cash',
+        paymentMethod,
         notes: payload.notes,
         createdAt: now
       });
@@ -63,7 +66,7 @@ export class AccountingService {
           type: 'purchase', id: purchaseId, number: payload.invoiceNumber || purchaseId
         });
         this.repository.insertPurchaseLine({
-          id: `PURL-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+          id: createSafeId('PURL'),
           purchaseId,
           itemType: line.input.itemType,
           itemId: line.input.itemId,
@@ -85,7 +88,7 @@ export class AccountingService {
           sourceId: purchaseId,
           referenceNumber: payload.invoiceNumber || purchaseId,
           amount: round2(totalAmount),
-          paymentMethod: payload.paymentMethod || 'cash',
+          paymentMethod,
           transactionDate: purchaseDate,
           description: `شراء مخزون من ${payload.supplier.trim()}`,
           notes: payload.notes || undefined,
@@ -102,7 +105,8 @@ export class AccountingService {
   findExpense(id: string): any | undefined { return this.repository.findExpense(id); }
 
   createExpense(payload: any): string {
-    const expenseId = payload.id || `EXP-${Date.now()}`;
+    const expenseId = payload.id || createSafeId('EXP');
+    const paymentMethod = assertValidPaymentMethod(payload.paymentMethod ?? 'cash');
     if (this.repository.findExpense(expenseId)) return expenseId;
     if (!payload.category?.trim() || !payload.description?.trim()) throw new Error('تصنيف ووصف المصروف مطلوبان');
     const amount = normalizePositiveAmount(payload.amount, 'مبلغ المصروف');
@@ -115,7 +119,7 @@ export class AccountingService {
         category: payload.category.trim(),
         amount: round2(amount),
         expenseDate,
-        paymentMethod: payload.paymentMethod || 'cash',
+        paymentMethod,
         description: payload.description.trim(),
         notes: payload.notes,
         createdAt: now
@@ -127,7 +131,7 @@ export class AccountingService {
         sourceId: expenseId,
         referenceNumber: expenseId,
         amount: round2(amount),
-        paymentMethod: payload.paymentMethod || 'cash',
+        paymentMethod,
         transactionDate: expenseDate,
         description: payload.description.trim(),
         notes: payload.notes || undefined,

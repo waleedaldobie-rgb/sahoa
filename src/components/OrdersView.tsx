@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Order, Invoice, Customer, FabricItem, AccessoryItem, ThobeType, OrderStatus, CustomerMeasurements, CustomerStyleDetails, UserPreferences, MeasurementHistoryRecord, OrderEvent } from '../types';
+import { createSafeId } from '../domain/idGenerator';
 import { EMPTY_MEASUREMENTS, EMPTY_STYLE_DETAILS } from '../services/shared/measurementDefaults';
 import { Card, Button, Input, Select, Modal, EmptyState, Badge } from './ui';
 import { ConfirmModal } from './ConfirmModal';
@@ -315,7 +316,7 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
 
       const existingCustomer = customers.find((c) => c.phone.trim() === phone);
       customer = existingCustomer || {
-        id: `CUS-${Date.now()}`,
+        id: createSafeId('CUS'),
         name,
         phone,
         createdAt: new Date().toISOString(),
@@ -372,9 +373,9 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
     }
 
     setIsSubmittingOrder(true);
-    const newOrderNumber = String(1000 + orders.length + 1);
+    const newOrderNumber = '';
     const newOrder: Order = {
-      id: 'ORD-' + Date.now(),
+      id: createSafeId('ORD'),
       orderNumber: newOrderNumber,
       customerId: customer.id,
       customerName: customer.name,

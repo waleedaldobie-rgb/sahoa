@@ -1,5 +1,6 @@
 import { AppData, Order, OrderMaterialUsage, OrderMaterialUsageInput, StockMovement } from '../../types';
 import { calculateMaterialCost, calculateOrderAmounts } from '../../domain/orderRules';
+import { createSafeId } from '../../domain/idGenerator';
 import { normalizeMeasurements, normalizeStyleDetails } from '../shared/measurementDefaults';
 import { round2 } from '../shared/inventoryRules';
 
@@ -32,7 +33,7 @@ export function buildFabricMaterialUsage(
   createdAt: string
 ): OrderMaterialUsage {
   return {
-    id: `OMU-${Date.now()}-fabric`,
+    id: createSafeId('OMU-FABRIC'),
     orderId,
     itemType: 'fabric',
     itemId,
@@ -56,7 +57,7 @@ export function buildMaterialUsage(
   const quantity = Number(material.quantity);
   const unitCostAtUsage = Number(material.unitCostAtUsage ?? context.purchasePrice ?? 0);
   return {
-    id: `OMU-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+    id: createSafeId('OMU'),
     orderId,
     itemType: material.itemType,
     itemId: material.itemId,
@@ -134,7 +135,7 @@ export function buildInitialInvoiceDraft(
   const invoiceId = `INV-${orderNumber}`;
   const paymentStatus = calculateOrderAmounts(totalAmount, paidAmount).paymentStatus;
   const paymentId = paidAmount > 0
-    ? `PAY-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`
+    ? createSafeId('PAY')
     : undefined;
   const payment = paidAmount > 0 && paymentId
     ? {

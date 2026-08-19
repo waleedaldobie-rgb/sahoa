@@ -1,5 +1,6 @@
 import Database from 'better-sqlite3';
 import { AccessoryItem } from '../../types';
+import { createSafeId } from '../../domain/idGenerator';
 
 export class AccessoryRepository {
   constructor(private readonly db: Database.Database) {}
@@ -19,7 +20,7 @@ export class AccessoryRepository {
   }
 
   insert(accessory: Partial<AccessoryItem>): AccessoryItem {
-    const id = accessory.id || `ACC-${Date.now()}`;
+    const id = accessory.id || createSafeId('ACC');
     const record: AccessoryItem = {
       id,
       name: accessory.name || 'عنصر',
@@ -38,9 +39,11 @@ export class AccessoryRepository {
   }
 
   update(accessory: AccessoryItem): void {
+    const current = this.db.prepare('SELECT quantity FROM accessories WHERE id = ?').get(accessory.id) as { quantity?: number } | undefined;
+    if (!current) throw new Error('صنف الإكسسوار غير موجود');
     this.db.prepare(`
       UPDATE accessories SET name = ?, category = ?, quantity = ?, min_stock = ?, unit = ?, purchase_price = ?, selling_price = ? WHERE id = ?
-    `).run(accessory.name, accessory.category, accessory.quantity, accessory.minStock, accessory.unit, accessory.purchasePrice || 0, accessory.sellingPrice || 0, accessory.id);
+    `).run(accessory.name, accessory.category, current.quantity ?? 0, accessory.minStock, accessory.unit, accessory.purchasePrice || 0, accessory.sellingPrice || 0, accessory.id);
   }
 
   delete(id: string): void {

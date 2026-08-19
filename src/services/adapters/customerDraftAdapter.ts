@@ -1,9 +1,10 @@
 import { AppData, Customer, MeasurementHistoryRecord } from '../../types';
 import { normalizeMeasurements, normalizeStyleDetails } from '../shared/measurementDefaults';
+import { createSafeId } from '../../domain/idGenerator';
 
 export function createCustomerInDraft(draft: AppData, customer: Partial<Customer>): Customer {
   const newCustomer: Customer = {
-    id: customer.id || `CUST-${Date.now()}`,
+    id: customer.id || createSafeId('CUST'),
     name: customer.name || 'عميل جديد',
     phone: customer.phone || '',
     createdAt: customer.createdAt || new Date().toISOString().slice(0, 10),
@@ -26,7 +27,7 @@ export function updateCustomerInDraft(draft: AppData, customer: Customer): boole
   const now = new Date().toISOString();
   const history = measurementChanged
     ? [{
-        id: `HIST-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        id: createSafeId('HIST'),
         savedAt: now,
         note: 'نسخة سابقة قبل إنشاء مقاس جديد',
         measurements: { ...current.measurements },
@@ -54,7 +55,7 @@ export function saveCustomerMeasurementHistoryInDraft(
   const customer = draft.customers.find((item) => item.id === id);
   if (!customer) throw new Error('العميل غير موجود في قاعدة البيانات');
   const newHistory: MeasurementHistoryRecord = {
-    id: `HIST-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    id: createSafeId('HIST'),
     savedAt: new Date().toISOString().slice(0, 10),
     note,
     measurements: { ...customer.measurements },

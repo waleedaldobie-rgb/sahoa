@@ -3,7 +3,8 @@ import { CashRepository } from '../repositories/cashRepository';
 import { InvoiceRepository } from '../repositories/invoiceRepository';
 import { OrderEventRepository } from '../repositories/orderEventRepository';
 import { OrderWriteRepository } from '../repositories/orderWriteRepository';
-import { calculatePaymentUpdate } from '../../domain/paymentRules';
+import { assertStoredPaymentAggregates, assertValidPaymentMethod, calculatePaymentUpdate, parsePaymentLedger } from '../../domain/paymentRules';
+import { createSafeId } from '../../domain/idGenerator';
 
 export class PaymentService {
   constructor(
@@ -15,21 +16,28 @@ export class PaymentService {
   ) {}
 
   addPayment(invoiceId: string, amount: number, method: string, note: string, paymentId?: string): boolean {
+    const paymentMethod = assertValidPaymentMethod(method);
     const tx = this.db.transaction(() => {
       const invoice = this.invoiceRepository.findById(invoiceId);
       if (!invoice) throw new Error('الفاتورة غير موجودة');
-      const paymentCalculation = calculatePaymentUpdate(
+
+      const existingPayments: PaymentRecord[] = parsePaymentLedger(invoice.payments_json);
+      const current = assertStoredPaymentAggregates(
         invoice.total_amount,
         invoice.paid_amount,
         invoice.remaining_amount,
+        existingPayments
+      );
+      const id = paymentId || createSafeId('PAY');
+      if (existingPayments.some((payment) => payment.id === id) || this.cashRepository.findBySourceId(id)) return false;
+
+      const paymentCalculation = calculatePaymentUpdate(
+        invoice.total_amount,
+        current.paidAmount,
+        current.remainingAmount,
         amount
       );
       const { numericAmount, paidAmount: newPaid, remainingAmount: newRemaining, paymentStatus: newStatus } = paymentCalculation;
-
-      const existingPayments: PaymentRecord[] = JSON.parse(invoice.payments_json || '[]');
-      const id = paymentId || `PAY-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
-      if (existingPayments.some((payment) => payment.id === id) || this.cashRepository.findBySourceId(id)) return false;
-
       const paymentDate = new Date().toISOString().slice(0, 10);
       const createdAt = new Date().toISOString();
       const newPayment: PaymentRecord = {
@@ -38,7 +46,7 @@ export class PaymentService {
         orderId: invoice.order_id,
         amount: numericAmount,
         paymentDate,
-        method: method as any,
+        method: paymentMethod,
         note
       };
       existingPayments.push(newPayment);
@@ -53,7 +61,7 @@ export class PaymentService {
         orderId: invoice.order_id,
         referenceNumber: invoice.invoice_number,
         amount: numericAmount,
-        paymentMethod: method as any,
+        paymentMethod,
         transactionDate: paymentDate,
         description: `دفعة عميل للفاتورة ${invoice.invoice_number}`,
         notes: note || undefined,
@@ -66,7 +74,7 @@ export class PaymentService {
         title: 'تم تسجيل دفعة',
         description: `تم تسجيل دفعة بقيمة ${numericAmount} للفاتورة ${invoice.invoice_number}.`,
         actor: 'النظام',
-        metadata: { paymentId: id, amount: numericAmount, method, remainingAmount: newRemaining },
+        metadata: { paymentId: id, amount: numericAmount, method: paymentMethod, remainingAmount: newRemaining },
         createdAt
       };
       this.eventRepository.insert(event);

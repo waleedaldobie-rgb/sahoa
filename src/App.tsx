@@ -1,5 +1,6 @@
 import React, { Suspense, useEffect, useState } from 'react';
 import { Loader2 } from 'lucide-react';
+import { createSafeId } from './domain/idGenerator';
 import { AppData, UserPreferences, Customer, Order, Invoice, FabricItem, AccessoryItem, ThobeType, ColorItem, PaymentRecord, OrderStatus, InventoryItemType, MeasurementHistoryRecord } from './types';
 import { initElectronMock } from './services/electronMock';
 import { formatIpcErrorMessage } from './utils/ipcError';
@@ -382,7 +383,7 @@ export default function App() {
             : (order.paidAmount > 0
                 ? [
                     {
-                      id: 'PAY-' + Date.now(),
+                      id: createSafeId('PAY'),
                       invoiceId: invId,
                       orderId: order.id,
                       amount: order.paidAmount,

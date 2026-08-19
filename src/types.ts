@@ -108,7 +108,7 @@ export interface Customer {
   measurementHistory: MeasurementHistoryRecord[];
 }
 
-export type OrderStatus = 'new' | 'processing' | 'ready' | 'delivered';
+export type OrderStatus = 'new' | 'processing' | 'ready' | 'delivered' | 'cancelled';
 
 export type OrderEventType = 'created' | 'status_changed' | 'inventory' | 'payment' | 'whatsapp' | 'printed' | 'measurement_applied' | 'note';
 
@@ -412,6 +412,13 @@ declare global {
       getOrderMaterialUsages?: (orderId?: string) => Promise<OrderMaterialUsage[]>;
       
       exportExcelReport?: (startDate?: string, endDate?: string) => Promise<string>;
+      automationStorageInfo?: () => Promise<{
+        userDataPath: string;
+        databasePath: string;
+        backupDir: string;
+        appPath: string;
+        isPackaged: boolean;
+      }>;
       getSettings?: () => Promise<any>;
       updateSetting?: (key: string, value: any) => Promise<boolean>;
     };

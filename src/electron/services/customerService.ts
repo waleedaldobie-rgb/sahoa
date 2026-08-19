@@ -1,5 +1,6 @@
 import { Customer } from '../../types';
 import { normalizeMeasurements, normalizeStyleDetails } from '../../services/shared/measurementDefaults';
+import { createSafeId } from '../../domain/idGenerator';
 import { CustomerRepository, CustomerRow } from '../repositories/customerRepository';
 
 const parseMeasurements = (value?: string) => {
@@ -12,7 +13,7 @@ const parseStyleDetails = (value?: string) => {
   catch { return normalizeStyleDetails(); }
 };
 
-const createHistoryId = () => `HIST-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+const createHistoryId = () => createSafeId('HIST');
 
 export class CustomerService {
   constructor(
@@ -38,7 +39,7 @@ export class CustomerService {
   }
 
   create(input: Partial<Customer>): Customer {
-    const id = input.id || `CUST-${Date.now()}`;
+    const id = input.id || createSafeId('CUST');
     const name = input.name || 'عميل جديد';
     const phone = (input.phone || '').trim();
     const createdAt = input.createdAt || new Date().toISOString().slice(0, 10);

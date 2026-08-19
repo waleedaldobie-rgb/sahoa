@@ -1,9 +1,13 @@
 import { InventoryItemType, StockMovement } from '../../types';
 import { InventoryMeta, InventoryRepository } from '../repositories/inventoryRepository';
 import { calculateStockBalance, round2 } from '../../services/shared/inventoryRules';
+import { createSafeId } from '../../domain/idGenerator';
 
 export class InventoryService {
-  constructor(private readonly repository: InventoryRepository) {}
+  constructor(
+    private readonly repository: InventoryRepository,
+    private readonly db: { transaction<T>(callback: () => T): () => T }
+  ) {}
 
   getMeta(itemType: InventoryItemType, itemId: string): InventoryMeta {
     return this.repository.getMeta(itemType, itemId);
@@ -44,42 +48,47 @@ export class InventoryService {
     reason: string,
     reference?: { type?: string; id?: string; number?: string }
   ): StockMovement {
-    const meta = this.repository.getMeta(itemType, itemId);
-    const { before, after: safeAfter } = calculateStockBalance(meta.quantity, delta, meta.name);
-    const id = `MOV-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
-    const createdAt = new Date().toISOString();
-    this.repository.updateQuantity(meta, safeAfter, itemId);
-    this.repository.insertMovement({
-      id,
-      itemType,
-      itemId,
-      itemName: meta.name,
-      direction,
-      quantity: Math.abs(delta),
-      quantityBefore: before,
-      quantityAfter: safeAfter,
-      unit: meta.unit,
-      reason,
-      referenceType: reference?.type,
-      referenceId: reference?.id,
-      referenceNumber: reference?.number,
-      createdAt
+    const run = this.db.transaction(() => {
+      const meta = this.repository.getMeta(itemType, itemId);
+      const numericDelta = Number(delta);
+      if (!Number.isFinite(numericDelta) || numericDelta === 0) throw new Error('كمية حركة المخزون غير صالحة');
+      const { before, after: safeAfter } = calculateStockBalance(meta.quantity, numericDelta, meta.name);
+      const id = createSafeId('MOV');
+      const createdAt = new Date().toISOString();
+      this.repository.updateQuantity(meta, safeAfter, itemId);
+      this.repository.insertMovement({
+        id,
+        itemType,
+        itemId,
+        itemName: meta.name,
+        direction,
+        quantity: Math.abs(round2(numericDelta)),
+        quantityBefore: before,
+        quantityAfter: safeAfter,
+        unit: meta.unit,
+        reason,
+        referenceType: reference?.type,
+        referenceId: reference?.id,
+        referenceNumber: reference?.number,
+        createdAt
+      });
+      return {
+        id,
+        itemType,
+        itemId,
+        itemName: meta.name,
+        direction,
+        quantity: Math.abs(round2(numericDelta)),
+        quantityBefore: before,
+        quantityAfter: safeAfter,
+        unit: meta.unit,
+        reason,
+        referenceType: reference?.type,
+        referenceId: reference?.id,
+        referenceNumber: reference?.number,
+        createdAt
+      };
     });
-    return {
-      id,
-      itemType,
-      itemId,
-      itemName: meta.name,
-      direction,
-      quantity: Math.abs(delta),
-      quantityBefore: before,
-      quantityAfter: safeAfter,
-      unit: meta.unit,
-      reason,
-      referenceType: reference?.type,
-      referenceId: reference?.id,
-      referenceNumber: reference?.number,
-      createdAt
-    };
+    return run();
   }
 }
