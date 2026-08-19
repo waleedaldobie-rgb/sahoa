@@ -12,7 +12,10 @@ export class PaymentService {
     private readonly orderWriteRepository: OrderWriteRepository,
     private readonly cashRepository: CashRepository,
     private readonly eventRepository: OrderEventRepository,
-    private readonly db: { transaction<T>(callback: () => T): () => T }
+    private readonly db: {
+      transaction<T>(callback: () => T): () => T;
+      prepare(sql: string): { get(...params: any[]): unknown };
+    }
   ) {}
 
   addPayment(invoiceId: string, amount: number, method: string, note: string, paymentId?: string): boolean {
@@ -20,6 +23,8 @@ export class PaymentService {
     const tx = this.db.transaction(() => {
       const invoice = this.invoiceRepository.findById(invoiceId);
       if (!invoice) throw new Error('الفاتورة غير موجودة');
+      const order = this.db.prepare('SELECT status FROM orders WHERE id = ?').get(invoice.order_id) as { status?: string } | undefined;
+      if (order?.status === 'cancelled') throw new Error('لا يمكن تسجيل دفعة لطلب ملغى');
 
       const existingPayments: PaymentRecord[] = parsePaymentLedger(invoice.payments_json);
       const current = assertStoredPaymentAggregates(

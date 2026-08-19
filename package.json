@@ -28,7 +28,9 @@
     "test:migration:r007": "npm run build:electron && electron --no-sandbox scripts/r007-restore-policy.integration.cjs",
     "test:integrity:r010": "npm run build:electron && electron --no-sandbox scripts/r010-integrity-orphans.integration.cjs",
     "test:integration:r008-r009": "npm run build:electron && electron --no-sandbox scripts/r008-r009.integration.cjs",
-    "test:integration:r009": "npm run build:electron && electron --no-sandbox scripts/r009-deletion.integration.cjs"
+    "test:integration:r009": "npm run build:electron && electron --no-sandbox scripts/r009-deletion.integration.cjs",
+    "test:integration:r011": "npm run build:electron && electron --no-sandbox scripts/r011-cancelled-payment.integration.cjs",
+    "test:integration:r015": "npm run build:electron && electron --no-sandbox scripts/r015-payment-path-contract.integration.cjs"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",
