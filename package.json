@@ -23,7 +23,8 @@
     "quality": "npm run quality:domain && npm run quality:adapters && npm run lint",
     "test": "vitest run",
     "test:integration": "npm run build:electron && electron --no-sandbox scripts/integration-regression.cjs",
-    "test:sqlite:indexes": "npm run build:electron && electron --no-sandbox scripts/sqlite-index-performance.integration.cjs"
+    "test:sqlite:indexes": "npm run build:electron && electron --no-sandbox scripts/sqlite-index-performance.integration.cjs",
+    "test:migration:r006": "npm run build:electron && electron --no-sandbox scripts/r006-migration-008.integration.cjs"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",
