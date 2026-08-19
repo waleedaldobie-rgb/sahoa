@@ -327,10 +327,15 @@ async function createTransientCustomerAndRestore(pageRef) {
 async function verifyStorageAndPersistence(pageRef) {
   const storage = await pageRef.evaluate(() => window.electronAPI.automationStorageInfo?.());
   assert(storage?.isPackaged === true, 'Installed app did not report app.isPackaged=true.');
-  assert(storage.userDataPath.startsWith(path.join(testData, 'AppData')), `userData escaped isolated APPDATA: ${storage.userDataPath}`);
-  assert(storage.databasePath.startsWith(storage.userDataPath), `Database path is outside userData: ${storage.databasePath}`);
-  assert(!storage.databasePath.includes('Program Files'), `Database path is inside Program Files: ${storage.databasePath}`);
-  assert(!storage.databasePath.includes(path.dirname(executablePath)), `Database path is inside install directory: ${storage.databasePath}`);
+  const expectedAppData = process.env.APPDATA ? path.resolve(process.env.APPDATA) : '';
+  const normalizedUserData = path.resolve(storage.userDataPath).toLowerCase();
+  const normalizedAppData = expectedAppData.toLowerCase();
+  assert(normalizedAppData && (normalizedUserData === normalizedAppData || normalizedUserData.startsWith(`${normalizedAppData}${path.sep}`)), `userData is outside Windows APPDATA: ${storage.userDataPath}`);
+  const normalizedUserDataRoot = path.resolve(storage.userDataPath).toLowerCase();
+  const normalizedDatabase = path.resolve(storage.databasePath).toLowerCase();
+  assert(normalizedDatabase.startsWith(`${normalizedUserDataRoot}${path.sep}`), `Database path is outside userData: ${storage.databasePath}`);
+  assert(!normalizedDatabase.includes('program files'), `Database path is inside Program Files: ${storage.databasePath}`);
+  assert(!normalizedDatabase.startsWith(path.dirname(executablePath).toLowerCase()), `Database path is inside install directory: ${storage.databasePath}`);
   assert(fs.existsSync(storage.databasePath), `SQLite database does not exist: ${storage.databasePath}`);
   assert(fs.statSync(storage.databasePath).size > 0, 'SQLite database is empty.');
   fs.writeFileSync(path.join(evidenceDir, 'storage-info.json'), JSON.stringify({ ...storage, executablePath, testData }, null, 2));
