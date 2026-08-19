@@ -25,6 +25,49 @@ let backupPath;
 let excelPath;
 let orderNumber;
 
+function readPackageVersion() {
+  const packagePath = path.join(process.cwd(), 'package.json');
+  try {
+    const packageJson = JSON.parse(fs.readFileSync(packagePath, 'utf8'));
+    return packageJson.version ? `v${packageJson.version}` : null;
+  } catch {
+    return null;
+  }
+}
+
+function readExactGitTag() {
+  try {
+    return execFileSync('git', ['describe', '--tags', '--exact-match', 'HEAD'], {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore']
+    }).trim() || null;
+  } catch {
+    return null;
+  }
+}
+
+function readGitCommit() {
+  try {
+    return execFileSync('git', ['rev-parse', 'HEAD'], {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore']
+    }).trim() || null;
+  } catch {
+    return null;
+  }
+}
+
+const acceptanceVersion =
+  process.env.SAHWA_EXPECTED_VERSION ||
+  readExactGitTag() ||
+  readPackageVersion() ||
+  'unknown';
+
+const acceptanceCommit =
+  process.env.SAHWA_EXPECTED_COMMIT ||
+  readGitCommit() ||
+  'unknown';
+
 function pass(id, detail) {
   results.push({ id, status: 'PASS', detail });
   console.log(`ACCEPTANCE_PASS=${id} ${detail}`);
@@ -446,7 +489,8 @@ try {
   });
 
   fs.writeFileSync(path.join(evidenceDir, 'acceptance-results.json'), JSON.stringify({
-    version: 'v1.1.6',
+    version: acceptanceVersion,
+    commit: acceptanceCommit,
     executablePath,
     testData,
     results,
@@ -456,7 +500,8 @@ try {
   console.log('WINDOWS_ACCEPTANCE=PASS');
 } catch (error) {
   fs.writeFileSync(path.join(evidenceDir, 'acceptance-results.json'), JSON.stringify({
-    version: 'v1.1.6',
+    version: acceptanceVersion,
+    commit: acceptanceCommit,
     executablePath,
     testData,
     results,
