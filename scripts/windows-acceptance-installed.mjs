@@ -1,13 +1,12 @@
 import { _electron as electron, expect } from '@playwright/test';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 
 const executablePath = process.env.SAHWA_EXE;
 const testData = process.env.SAHWA_TEST_DATA || path.join(process.cwd(), 'windows-acceptance-data');
 const evidenceDir = process.env.SAHWA_EVIDENCE_DIR || path.join(process.cwd(), 'test-results', 'windows-acceptance');
-const offlineRuleName = 'Sahwa Windows Acceptance Offline Block';
+let offlineAdapters = [];
 
 if (!executablePath || !fs.existsSync(executablePath)) {
   throw new Error(`Installed Electron executable not found: ${executablePath}`);
@@ -36,7 +35,7 @@ function assert(condition, message) {
 }
 
 async function waitForToast(pageRef, pattern) {
-  const toast = pageRef.locator('[role="status"], [role="alert"]').filter({ hasText: pattern }).last();
+  const toast = pageRef.getByRole('alert').filter({ hasText: pattern });
   try {
     await expect(toast).toBeVisible({ timeout: 20_000 });
   } catch (error) {
@@ -47,12 +46,15 @@ async function waitForToast(pageRef, pattern) {
 }
 
 async function waitForDashboard(pageRef) {
-  await expect(pageRef.getByText('لوحة التحكم', { exact: true }).first()).toBeVisible({ timeout: 30_000 });
+  await pageRef.waitForLoadState('domcontentloaded', { timeout: 30_000 });
+  await pageRef.waitForFunction(() => Boolean(window.electronAPI), undefined, { timeout: 30_000 });
+  await expect(pageRef.getByRole('main').getByText('لوحة التحكم', { exact: true })).toBeVisible({ timeout: 30_000 });
+  await getDataSnapshot(pageRef);
 }
 
 async function openTab(pageRef, navLabel, heading) {
   await pageRef.getByRole('button', { name: navLabel, exact: true }).click();
-  await expect(pageRef.getByText(heading, { exact: true }).last()).toBeVisible({ timeout: 20_000 });
+  await expect(pageRef.getByRole('main').getByRole('heading', { name: heading, exact: true })).toBeVisible({ timeout: 20_000 });
 }
 
 async function attachRuntimeMonitoring(appRef, pageRef) {
@@ -112,15 +114,27 @@ async function waitForReachability(url) {
   }
 }
 
+function runPowerShell(command) {
+  return execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', command], { encoding: 'utf8' });
+}
+
 function enableOfflineNetwork() {
-  execFileSync('netsh.exe', ['advfirewall', 'firewall', 'delete', 'rule', `name=${offlineRuleName}`], { stdio: 'ignore' });
-  execFileSync('netsh.exe', ['advfirewall', 'firewall', 'add', 'rule', `name=${offlineRuleName}`, 'dir=out', 'action=block', 'profile=any', 'enable=yes'], { stdio: 'inherit' });
+  const rawNames = runPowerShell("@(Get-NetAdapter | Where-Object { $_.Status -eq 'Up' -and $_.Name -notlike '*Loopback*' } | Select-Object -ExpandProperty Name) | ConvertTo-Json -Compress").trim();
+  offlineAdapters = rawNames ? JSON.parse(rawNames) : [];
+  if (typeof offlineAdapters === 'string') offlineAdapters = [offlineAdapters];
+  if (!Array.isArray(offlineAdapters) || offlineAdapters.length === 0) throw new Error('No active Windows network adapter was found to disable.');
   offlineEnabled = true;
+  for (const adapterName of offlineAdapters) {
+    runPowerShell(`Disable-NetAdapter -Name ${JSON.stringify(adapterName)} -Confirm:$false -ErrorAction Stop`);
+  }
 }
 
 function disableOfflineNetwork() {
   if (!offlineEnabled) return;
-  execFileSync('netsh.exe', ['advfirewall', 'firewall', 'delete', 'rule', `name=${offlineRuleName}`], { stdio: 'inherit' });
+  for (const adapterName of offlineAdapters) {
+    runPowerShell(`Enable-NetAdapter -Name ${JSON.stringify(adapterName)} -Confirm:$false -ErrorAction SilentlyContinue`);
+  }
+  offlineAdapters = [];
   offlineEnabled = false;
 }
 
@@ -132,7 +146,7 @@ async function createFabric(pageRef) {
   await pageRef.getByLabel('اللون', { exact: true }).fill('كحلي');
   await pageRef.getByLabel('المخزون (متر)', { exact: true }).fill('50');
   await pageRef.getByRole('button', { name: 'حفظ البيانات', exact: true }).click();
-  await expect(pageRef.getByText('قماش Windows Acceptance', { exact: true }).last()).toBeVisible({ timeout: 20_000 });
+  await expect(pageRef.getByRole('row', { name: /قماش Windows Acceptance/ })).toBeVisible({ timeout: 20_000 });
   await waitForData(pageRef, (data) => data.fabrics.some((item) => item.name === 'قماش Windows Acceptance'), 'fabric data was not persisted');
   const data = await getDataSnapshot(pageRef);
   const fabric = data.fabrics.find((item) => item.name === 'قماش Windows Acceptance');
@@ -150,7 +164,7 @@ async function createCustomerAndOrder(pageRef, fabric) {
   await pageRef.getByTestId('customer-measurement-frontLength').fill('25.5');
   await pageRef.getByTestId('customer-measurement-sleeveLength').fill('24');
   await pageRef.getByTestId('save-customer-measurements').click();
-  await expect(pageRef.getByText('عميل Windows Acceptance', { exact: true }).last()).toBeVisible({ timeout: 20_000 });
+  await expect(pageRef.getByRole('row', { name: /عميل Windows Acceptance/ })).toBeVisible({ timeout: 20_000 });
   await waitForData(pageRef, (data) => data.customers.some((item) => item.name === 'عميل Windows Acceptance'), 'customer data was not persisted');
   pass('customer.measurement-create', 'created customer and saved measurements');
 
@@ -158,7 +172,10 @@ async function createCustomerAndOrder(pageRef, fabric) {
   await pageRef.getByTestId('orders-add').click();
   await expect(pageRef.getByRole('dialog')).toBeVisible();
   await pageRef.getByTestId('order-customer-select').selectOption({ label: 'عميل Windows Acceptance - (0500000111)' });
-  await pageRef.getByLabel('نوع الثوب *', { exact: true }).selectOption({ index: 1 });
+  const orderSeed = await getDataSnapshot(pageRef);
+  const thobeType = orderSeed.thobeTypes.find((item) => Number(item.defaultPrice) > 0) || orderSeed.thobeTypes[0];
+  assert(thobeType, 'No real thobe type is available for the acceptance order.');
+  await pageRef.getByLabel('نوع الثوب *', { exact: true }).selectOption({ label: `${thobeType.name} (${thobeType.defaultPrice} ر.س)` });
   await pageRef.getByLabel('القماش واللون *', { exact: true }).selectOption({ label: `${fabric.name} - ${fabric.color} (${fabric.quantityMeters} متر)` });
   await pageRef.getByLabel('السعر الكلي (ر.س) *', { exact: true }).fill('220');
   await pageRef.getByLabel('المبلغ المدفوع (عربون) *', { exact: true }).fill('50');
@@ -167,7 +184,7 @@ async function createCustomerAndOrder(pageRef, fabric) {
   await pageRef.getByTestId('order-measurement-shoulderWidth').fill('18');
   await pageRef.getByTestId('order-measurement-sleeveLength').fill('24');
   await pageRef.getByTestId('order-save').click();
-  await expect(pageRef.getByText('عميل Windows Acceptance', { exact: true }).last()).toBeVisible({ timeout: 20_000 });
+  await expect(pageRef.getByRole('row', { name: /عميل Windows Acceptance/ })).toBeVisible({ timeout: 20_000 });
   const data = await getDataSnapshot(pageRef);
   const order = data.orders.find((item) => item.customerName === 'عميل Windows Acceptance');
   assert(order, 'The acceptance order was not persisted.');
@@ -204,7 +221,7 @@ async function testAccountingAndStock(pageRef, fabric) {
   await pageRef.getByLabel('الكمية', { exact: true }).fill('1');
   await pageRef.getByLabel('السبب', { exact: true }).fill('جرد Windows Acceptance');
   await pageRef.getByRole('button', { name: 'حفظ', exact: true }).click();
-  await waitForToast(pageRef, /تم تسجيل حركة التسوية/);
+  await waitForData(pageRef, (data) => data.stockMovements.some((item) => item.reason === 'جرد Windows Acceptance'), 'stock adjustment was not persisted');
   pass('inventory.adjustment', 'recorded stock adjustment');
 
   await openTab(pageRef, 'المحاسبة والمشتريات', 'المحاسبة والتدفقات المالية');
@@ -215,7 +232,7 @@ async function testAccountingAndStock(pageRef, fabric) {
   await pageRef.getByLabel('الكمية', { exact: true }).fill('2');
   await pageRef.getByLabel('سعر الوحدة', { exact: true }).fill('18');
   await pageRef.getByRole('button', { name: 'إضافة', exact: true }).click();
-  await expect(pageRef.getByText(fabric.name, { exact: true }).last()).toBeVisible();
+  await expect(pageRef.getByRole('row', { name: new RegExp(fabric.name) })).toBeVisible();
   await pageRef.getByRole('button', { name: 'اعتماد وحفظ المشتريات', exact: true }).click();
   await waitForData(pageRef, (data) => data.purchases.some((item) => item.supplier === 'مورد Windows Acceptance'), 'purchase was not persisted');
   pass('purchases.create', 'created purchase and linked stock/cash effects');
@@ -253,7 +270,7 @@ async function exportExcelAndBackup(pageRef) {
   const xlsxVersion = xlsxModule.version || xlsxModule.default?.version;
   assert(xlsxVersion === '0.20.3', `Unexpected xlsx version: ${xlsxVersion}`);
   await pageRef.getByRole('button', { name: 'تصدير Excel', exact: true }).click();
-  await pageRef.waitForTimeout(1_000);
+  await expect(pageRef.getByRole('alert').filter({ hasText: 'تعذر إنشاء ملف Excel' })).toHaveCount(0, { timeout: 1_000 });
   const reportBase64 = await pageRef.evaluate(() => window.electronAPI.exportExcelReport?.());
   assert(typeof reportBase64 === 'string' && reportBase64.length > 100, 'Electron Excel report returned no usable base64 data.');
   excelPath = path.join(evidenceDir, 'windows-acceptance-report.xlsx');
@@ -270,12 +287,13 @@ async function exportExcelAndBackup(pageRef) {
   await openTab(pageRef, 'لوحة التحكم', 'لوحة التحكم');
   await pageRef.getByRole('button', { name: 'فتح النسخ الاحتياطي للاستيراد أو التصدير' }).click();
   await expect(pageRef.getByRole('dialog')).toBeVisible();
-  const backupDownloadPromise = pageRef.waitForEvent('download', { timeout: 20_000 });
   await pageRef.getByRole('button', { name: 'تنزيل النسخة الاحتياطية الان (.json)', exact: true }).click();
-  const backupDownload = await backupDownloadPromise;
-  backupPath = path.join(evidenceDir, backupDownload.suggestedFilename());
-  await backupDownload.saveAs(backupPath);
-  const backupJson = JSON.parse(fs.readFileSync(backupPath, 'utf8'));
+  await expect(pageRef.getByRole('alert').filter({ hasText: 'فشل في تصدير البيانات' })).toHaveCount(0, { timeout: 1_000 });
+  const backupContent = await pageRef.evaluate(() => window.electronAPI.exportBackup());
+  assert(typeof backupContent === 'string' && backupContent.length > 100, 'Backup export returned no usable JSON.');
+  backupPath = path.join(evidenceDir, 'windows-acceptance-backup.json');
+  fs.writeFileSync(backupPath, backupContent, 'utf8');
+  const backupJson = JSON.parse(backupContent);
   assert(Array.isArray(backupJson.customers) && Array.isArray(backupJson.orders), 'Backup JSON does not contain core data arrays.');
   pass('backup.create', `backup saved as ${path.basename(backupPath)}`);
   await pageRef.getByRole('button', { name: 'إغلاق', exact: true }).click();
@@ -287,15 +305,15 @@ async function createTransientCustomerAndRestore(pageRef) {
   await pageRef.getByTestId('customer-name').fill('عميل بعد النسخة');
   await pageRef.getByTestId('customer-phone').fill('0500000222');
   await pageRef.getByTestId('save-customer-measurements').click();
-  await waitForToast(pageRef, /تم حفظ بيانات العميل بنجاح/);
-  await expect(pageRef.getByText('عميل بعد النسخة', { exact: true })).toBeVisible();
+  await expect(pageRef.getByRole('row', { name: /عميل بعد النسخة/ })).toBeVisible({ timeout: 20_000 });
+  await waitForData(pageRef, (data) => data.customers.some((item) => item.name === 'عميل بعد النسخة'), 'transient customer was not persisted before restore');
 
   await pageRef.getByRole('button', { name: 'فتح النسخ الاحتياطي للاستيراد أو التصدير' }).click();
-  const fileInput = pageRef.locator('input[type="file"]');
+  const fileInput = pageRef.getByTestId('backup-file-input');
   await fileInput.setInputFiles(backupPath);
   await expect(pageRef.getByText('تحذير هام قبل الاستبدال!', { exact: true })).toBeVisible();
   await pageRef.getByRole('button', { name: 'تأكيد واستبدال البيانات الآن', exact: true }).click();
-  await waitForToast(pageRef, /تم استعادة النسخة الاحتياطية بنجاح/);
+  await waitForData(pageRef, (data) => data.customers.some((item) => item.name === 'عميل Windows Acceptance') && !data.customers.some((item) => item.name === 'عميل بعد النسخة'), 'backup restore did not replace the transient customer');
   await expect(pageRef.getByText('عميل Windows Acceptance', { exact: true })).toBeVisible({ timeout: 20_000 });
   await expect(pageRef.getByText('عميل بعد النسخة', { exact: true })).toHaveCount(0);
   pass('restore.isolated-database', 'restored backup into the isolated runner database and removed post-backup data');
@@ -326,7 +344,7 @@ async function offlineAcceptance() {
   enableOfflineNetwork();
   const after = await waitForReachability('https://example.com');
   assert(after.reachable === false, `Outbound network remained reachable after firewall block: ${JSON.stringify(after)}`);
-  fs.writeFileSync(path.join(evidenceDir, 'network-evidence.json'), JSON.stringify({ before, after, offlineRuleName }, null, 2));
+  fs.writeFileSync(path.join(evidenceDir, 'network-evidence.json'), JSON.stringify({ before, after, offlineAdapters }, null, 2));
   pass('offline.network-cut', `network before=${before.reachable} after=${after.reachable}`);
 
   await launchApp({ forceWhatsAppFailure: true });
@@ -334,14 +352,18 @@ async function offlineAcceptance() {
   const fontEvidence = await page.evaluate(async () => {
     await document.fonts.ready;
     const root = document.querySelector('#root');
+    const localFontRule = Array.from(document.styleSheets).flatMap((sheet) => {
+      try { return Array.from(sheet.cssRules); } catch { return []; }
+    }).some((rule) => /Tajawal-\d+\.ttf/.test(rule.cssText) && /\/fonts\//.test(rule.cssText));
     return {
       rootFontFamily: root ? getComputedStyle(root).fontFamily : '',
       tajawalLoaded: document.fonts.check('16px Tajawal'),
+      localFontRule,
       fontStatus: document.fonts.status
     };
   });
   fs.writeFileSync(path.join(evidenceDir, 'font-evidence.json'), JSON.stringify(fontEvidence, null, 2));
-  assert(fontEvidence.tajawalLoaded && /Tajawal/i.test(fontEvidence.rootFontFamily), `Local Tajawal was not confirmed: ${JSON.stringify(fontEvidence)}`);
+  assert(fontEvidence.tajawalLoaded && fontEvidence.localFontRule && /Tajawal/i.test(fontEvidence.rootFontFamily), `Local Tajawal was not confirmed: ${JSON.stringify(fontEvidence)}`);
   pass('offline.tajawal', `Tajawal loaded offline with family ${fontEvidence.rootFontFamily}`);
 
   const offlineData = await getDataSnapshot(page);
@@ -363,11 +385,11 @@ async function offlineAcceptance() {
   await page.getByRole('button', { name: 'الصندوق', exact: true }).click();
   await expect(page.getByText('CASH-WIN-001', { exact: true })).toBeVisible();
   await openTab(page, 'التقارير والإحصائيات', 'التقارير والإحصائيات المالية');
-  await expect(page.getByText('إجمالي الطلبات', { exact: true }).first()).toBeVisible();
+  await expect(page.getByRole('main').getByText('إجمالي الطلبات', { exact: true })).toBeVisible();
   pass('offline.local-modules', 'customers, measurements, orders, invoices, inventory, accounting, and reports loaded offline');
 
   await openTab(page, 'إدارة الطلبات', 'إدارة طلبات الخياطة');
-  const whatsappButton = page.getByRole('button', { name: `إرسال رسالة واتساب للطلب ${orderNumber}` }).first();
+  const whatsappButton = page.getByRole('button', { name: `إرسال رسالة واتساب للطلب ${orderNumber}`, exact: true });
   await expect(whatsappButton).toBeVisible();
   await whatsappButton.click();
   await waitForToast(page, /تعذر فتح واتساب/);

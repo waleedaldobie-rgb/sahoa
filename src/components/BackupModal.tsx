@@ -144,6 +144,7 @@ export const BackupModal: React.FC<BackupModalProps> = ({
           headerIcon={<Upload className="w-5 h-5 text-amber-500" />}
         >
           <input
+            data-testid="backup-file-input"
             type="file"
             ref={fileInputRef}
             onChange={handleFileChange}
