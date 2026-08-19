@@ -17,6 +17,9 @@ jobs:
     steps:
       - name: Checkout PR source
         uses: actions/checkout@v4
+        with:
+          # Test the exact PR head, not GitHub's synthetic pull_request merge ref.
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -85,6 +88,8 @@ jobs:
 
       - name: Run installed Electron Windows acceptance
         shell: pwsh
+        env:
+          SAHWA_EXPECTED_COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
         run: node scripts/windows-acceptance-installed.mjs
 
       - name: Upload Windows acceptance evidence
