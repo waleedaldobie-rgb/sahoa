@@ -47,6 +47,28 @@ export class AccessoryRepository {
   }
 
   delete(id: string): void {
+    const existing = this.db.prepare('SELECT id FROM accessories WHERE id = ?').get(id);
+    if (!existing) throw new Error('صنف الإكسسوار غير موجود');
+
+    const usage = this.db.prepare(`
+      SELECT 1 FROM order_material_usages
+      WHERE item_type = 'accessory' AND item_id = ?
+      LIMIT 1
+    `).get(id);
+    const movement = this.db.prepare(`
+      SELECT 1 FROM inventory_movements
+      WHERE item_type = 'accessory' AND item_id = ?
+      LIMIT 1
+    `).get(id);
+    const purchaseLine = this.db.prepare(`
+      SELECT 1 FROM purchase_lines
+      WHERE item_type = 'accessory' AND item_id = ?
+      LIMIT 1
+    `).get(id);
+
+    if (usage || movement || purchaseLine) {
+      throw new Error('لا يمكن حذف هذا الصنف لارتباطه بسجل تشغيلي');
+    }
     this.db.prepare('DELETE FROM accessories WHERE id = ?').run(id);
   }
 }

@@ -229,7 +229,8 @@ export class OrderService {
       const oldAccessorySignature = materialSignature(oldMaterials);
       const newAccessorySignature = materialSignature(updatedOrder.materialUsages || []);
       const materialPayloadChanged = updatedOrder.materialUsages !== undefined && oldAccessorySignature !== newAccessorySignature;
-      const materialChanged = fabricChanged || countChanged || materialPayloadChanged;
+      const consumptionChanged = Math.abs(Number(existing.fabric_consumption_meters || 0) - newMeters) > 0.0001;
+      const materialChanged = fabricChanged || countChanged || materialPayloadChanged || consumptionChanged;
 
       if (materialChanged) {
         const isCancelled = existing.status === 'cancelled';

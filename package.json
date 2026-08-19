@@ -26,7 +26,9 @@
     "test:sqlite:indexes": "npm run build:electron && electron --no-sandbox scripts/sqlite-index-performance.integration.cjs",
     "test:migration:r006": "npm run build:electron && electron --no-sandbox scripts/r006-migration-008.integration.cjs",
     "test:migration:r007": "npm run build:electron && electron --no-sandbox scripts/r007-restore-policy.integration.cjs",
-    "test:integrity:r010": "npm run build:electron && electron --no-sandbox scripts/r010-integrity-orphans.integration.cjs"
+    "test:integrity:r010": "npm run build:electron && electron --no-sandbox scripts/r010-integrity-orphans.integration.cjs",
+    "test:integration:r008-r009": "npm run build:electron && electron --no-sandbox scripts/r008-r009.integration.cjs",
+    "test:integration:r009": "npm run build:electron && electron --no-sandbox scripts/r009-deletion.integration.cjs"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",
