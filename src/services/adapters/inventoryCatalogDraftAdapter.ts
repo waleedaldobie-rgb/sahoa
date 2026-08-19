@@ -17,7 +17,9 @@ export function createFabricInDraft(draft: AppData, fabric: Partial<FabricItem>)
 }
 
 export function updateFabricInDraft(draft: AppData, fabric: FabricItem): boolean {
-  draft.fabrics = draft.fabrics.map((item) => item.id === fabric.id ? fabric : item);
+  draft.fabrics = draft.fabrics.map((item) => item.id === fabric.id
+    ? { ...fabric, quantityMeters: item.quantityMeters }
+    : item);
   return true;
 }
 
@@ -35,6 +37,8 @@ export function createAccessoryInDraft(draft: AppData, accessory: Partial<Access
 }
 
 export function updateAccessoryInDraft(draft: AppData, accessory: AccessoryItem): boolean {
-  draft.accessories = draft.accessories.map((item) => item.id === accessory.id ? accessory : item);
+  draft.accessories = draft.accessories.map((item) => item.id === accessory.id
+    ? { ...accessory, quantity: item.quantity }
+    : item);
   return true;
 }

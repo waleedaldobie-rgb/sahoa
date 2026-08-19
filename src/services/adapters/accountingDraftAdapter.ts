@@ -1,5 +1,6 @@
 import { AppData, CashTransaction, ExpenseRecord } from '../../types';
 import { normalizePositiveAmount } from '../../domain/amountRules';
+import { assertValidPaymentMethod } from '../../domain/paymentRules';
 import { createSafeId } from '../../domain/idGenerator';
 import { round2 } from '../../domain/inventoryRules';
 import { findById, hasIdOrSourceId } from '../shared/idempotencyRules';
@@ -8,6 +9,7 @@ type DraftPayload = Record<string, any>;
 
 export function applyExpenseToDraft(draft: AppData, payload: DraftPayload): ExpenseRecord {
   const id = payload.id || createSafeId('EXP');
+  const paymentMethod = assertValidPaymentMethod(payload.paymentMethod ?? 'cash');
   const duplicate = findById(draft.expenses, id);
   if (duplicate) return duplicate;
   if (!payload.category?.trim() || !payload.description?.trim()) throw new Error('تصنيف ووصف المصروف مطلوبان');
@@ -19,7 +21,7 @@ export function applyExpenseToDraft(draft: AppData, payload: DraftPayload): Expe
     category: payload.category.trim(),
     amount: round2(amount),
     expenseDate: payload.expenseDate || now.slice(0, 10),
-    paymentMethod: payload.paymentMethod || 'cash',
+    paymentMethod,
     description: payload.description.trim(),
     notes: payload.notes || undefined,
     createdAt: now
@@ -43,6 +45,7 @@ export function applyExpenseToDraft(draft: AppData, payload: DraftPayload): Expe
 
 export function applyCashAdjustmentToDraft(draft: AppData, payload: DraftPayload): CashTransaction {
   const amount = normalizePositiveAmount(payload.amount, 'مبلغ الحركة');
+  const paymentMethod = assertValidPaymentMethod(payload.paymentMethod ?? 'cash');
   if (!payload.description?.trim()) throw new Error('وصف الحركة المالية مطلوب');
 
   const id = payload.id || createSafeId('CASH');
@@ -56,7 +59,7 @@ export function applyCashAdjustmentToDraft(draft: AppData, payload: DraftPayload
     sourceId: payload.sourceId,
     referenceNumber: payload.referenceNumber,
     amount: round2(amount),
-    paymentMethod: payload.paymentMethod || 'cash',
+    paymentMethod,
     transactionDate: payload.transactionDate || new Date().toISOString().slice(0, 10),
     description: payload.description.trim(),
     notes: payload.notes,

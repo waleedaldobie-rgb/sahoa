@@ -1,5 +1,23 @@
 import { OrderMaterialUsage } from '../types';
 import { round2 } from './inventoryRules';
+import { OrderStatus } from '../types';
+
+export const ORDER_STATUSES: readonly OrderStatus[] = ['new', 'processing', 'ready', 'delivered', 'cancelled'];
+
+export function assertValidOrderStatus(value: unknown): OrderStatus {
+  if (typeof value !== 'string' || !ORDER_STATUSES.includes(value as OrderStatus)) {
+    throw new Error('حالة الطلب غير صالحة');
+  }
+  return value as OrderStatus;
+}
+
+export function assertSafeInitialOrderStatus(value: unknown): OrderStatus {
+  const status = assertValidOrderStatus(value ?? 'new');
+  if (status === 'cancelled') {
+    throw new Error('لا يمكن إنشاء طلب بحالة ملغى؛ أنشئ الطلب بحالة جديدة ثم استخدم مسار الإلغاء');
+  }
+  return status;
+}
 
 export interface OrderAmounts {
   totalAmount: number;

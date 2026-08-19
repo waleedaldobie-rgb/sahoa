@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { calculateMaterialCost, calculateOrderAmounts, materialSignature } from '../services/shared/orderRules';
+import { assertSafeInitialOrderStatus, assertValidOrderStatus, calculateMaterialCost, calculateOrderAmounts, materialSignature } from '../services/shared/orderRules';
+import { assertValidPaymentMethod } from '../domain/paymentRules';
 
 describe('shared order rules', () => {
   it('calculates order amounts and payment status consistently', () => {
@@ -34,5 +35,20 @@ describe('production financial invariants', () => {
     expect(() => calculateOrderAmounts(-1, 0)).toThrow(/غير سالب/);
     expect(() => calculateOrderAmounts(100, -1)).toThrow(/غير سالب/);
     expect(() => calculateOrderAmounts(100, 101)).toThrow(/يتجاوز/);
+  });
+
+  it('accepts only supported order statuses and safe initial status', () => {
+    expect(assertValidOrderStatus('processing')).toBe('processing');
+    expect(assertSafeInitialOrderStatus(undefined)).toBe('new');
+    expect(() => assertValidOrderStatus('unknown')).toThrow(/حالة الطلب/);
+    expect(() => assertSafeInitialOrderStatus('cancelled')).toThrow(/لا يمكن إنشاء/);
+  });
+
+  it('accepts only supported payment methods', () => {
+    expect(assertValidPaymentMethod('cash')).toBe('cash');
+    expect(assertValidPaymentMethod('card')).toBe('card');
+    expect(assertValidPaymentMethod('transfer')).toBe('transfer');
+    expect(() => assertValidPaymentMethod('bitcoin')).toThrow(/طريقة الدفع/);
+    expect(() => assertValidPaymentMethod('')).toThrow(/طريقة الدفع/);
   });
 });

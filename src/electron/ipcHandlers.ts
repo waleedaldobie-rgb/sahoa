@@ -43,6 +43,7 @@ import { ThobeTypeRepository } from './repositories/thobeTypeRepository';
 import { ColorRepository } from './repositories/colorRepository';
 import { DatabaseIntegrityService } from './services/databaseIntegrityService';
 import { createSafeId } from '../domain/idGenerator';
+import { assertValidPaymentMethod } from '../domain/paymentRules';
 
 const parseMeasurementsJson = (value?: string) => {
   try { return normalizeMeasurements(JSON.parse(value || '{}')); }
@@ -218,6 +219,7 @@ export function registerIpcHandlers(dbManager: SahwaDatabaseManager) {
 
   safeIpcHandle(ipcMain, 'cash:createAdjustment', async (_, payload: any) => {
     const amount = normalizePositiveAmount(payload.amount, 'مبلغ الحركة');
+    const paymentMethod = assertValidPaymentMethod(payload.paymentMethod ?? 'cash');
     if (!payload.description?.trim()) throw new Error('وصف الحركة المالية مطلوب');
     const id = payload.id || createSafeId('CASH');
     const existing = cashRepository.findById(id) as any;
@@ -229,7 +231,7 @@ export function registerIpcHandlers(dbManager: SahwaDatabaseManager) {
       sourceId: payload.sourceId,
       referenceNumber: payload.referenceNumber,
       amount: round2(amount),
-      paymentMethod: payload.paymentMethod || 'cash',
+      paymentMethod,
       transactionDate: payload.transactionDate || new Date().toISOString().slice(0, 10),
       description: payload.description.trim(),
       notes: payload.notes,

@@ -1,4 +1,6 @@
 export {
+  assertSafeInitialOrderStatus,
+  assertValidOrderStatus,
   assertValidOrderAmounts,
   calculateOrderAmounts,
   calculateMaterialCost,

@@ -1,8 +1,8 @@
 import { Order, OrderMaterialUsage, PaymentRecord, StockMovement } from '../../types';
 import { normalizeMeasurements, normalizeStyleDetails } from '../../services/shared/measurementDefaults';
 import { round2 } from '../../services/shared/inventoryRules';
-import { assertValidOrderAmounts, calculateMaterialCost, calculateOrderAmounts, materialSignature } from '../../services/shared/orderRules';
-import { assertStoredPaymentAggregates, parsePaymentLedger } from '../../domain/paymentRules';
+import { assertSafeInitialOrderStatus, assertValidOrderAmounts, calculateMaterialCost, calculateOrderAmounts, materialSignature } from '../../services/shared/orderRules';
+import { assertStoredPaymentAggregates, assertValidPaymentMethod, parsePaymentLedger } from '../../domain/paymentRules';
 import { createSafeId } from '../../domain/idGenerator';
 import { CashRepository } from '../repositories/cashRepository';
 import { OrderEventRepository } from '../repositories/orderEventRepository';
@@ -62,6 +62,8 @@ export class OrderService {
       const amounts = calculateOrderAmounts(validatedTotal, validatedPaid);
       const { totalAmount, paidAmount, remainingAmount } = amounts;
       const orderDate = orderData.orderDate || new Date().toISOString().slice(0, 10);
+      const initialStatus = assertSafeInitialOrderStatus(orderData.status);
+      const paymentMethod = assertValidPaymentMethod((orderData as any).initialPaymentMethod ?? 'cash');
       const createdAt = new Date().toISOString();
 
       let fabricBuyPrice = 0;
@@ -90,7 +92,7 @@ export class OrderService {
         garmentCount,
         orderDate,
         deliveryDate: orderData.deliveryDate || orderDate,
-        status: orderData.status || 'new',
+        status: initialStatus,
         totalAmount,
         paidAmount,
         remainingAmount,
@@ -147,7 +149,6 @@ export class OrderService {
       }
 
       const invId = `INV-${orderNumber}`;
-      const paymentMethod = (orderData as any).initialPaymentMethod || 'cash';
       const paymentId = paidAmount > 0 ? createSafeId('PAY') : undefined;
       const initialPayments = paidAmount > 0 ? [{
         id: paymentId,
@@ -195,7 +196,7 @@ export class OrderService {
         type: 'created',
         title: 'تم إنشاء الطلب',
         description: `تم إنشاء الطلب #${orderNumber} وتسجيل الفاتورة${paidAmount > 0 ? ' والدفعة الأولى' : ''}.`,
-        toStatus: orderData.status || 'new',
+        toStatus: initialStatus,
         actor: 'النظام',
         metadata: { materialCost, paidAmount, remainingAmount },
         createdAt

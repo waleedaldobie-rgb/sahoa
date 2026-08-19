@@ -5,7 +5,7 @@ import { CREATE_TABLES_SQL, CURRENT_SCHEMA_VERSION, DatabaseSettings } from './s
 import { Customer, Order, OrderEvent, FabricItem, AccessoryItem, ThobeType, ColorItem, NotificationItem, Invoice, UserPreferences } from '../types';
 import { DEFAULT_MEASUREMENTS, DEFAULT_STYLE_DETAILS, normalizeMeasurements, normalizeStyleDetails } from '../services/shared/measurementDefaults';
 import { MIGRATIONS } from './migrations';
-import { DatabaseIntegrityService } from './services/databaseIntegrityService';
+import { BACKUP_SCHEMA_VERSION, DatabaseIntegrityService } from './services/databaseIntegrityService';
 
 const parseMeasurementsJson = (value?: string) => {
   try { return normalizeMeasurements(JSON.parse(value || '{}')); }
@@ -808,7 +808,12 @@ export class SahwaDatabaseManager {
       metadata: e.metadata_json ? JSON.parse(e.metadata_json) : undefined, createdAt: e.created_at
     }));
 
-    return { customers, fabrics, accessories, thobeTypes, colors, orders, invoices, notifications, stockMovements, purchases, expenses, cashTransactions, orderMaterialUsages, orderEvents };
+    return {
+      backupSchemaVersion: BACKUP_SCHEMA_VERSION,
+      schemaVersion: CURRENT_SCHEMA_VERSION,
+      customers, fabrics, accessories, thobeTypes, colors, orders, invoices, notifications,
+      stockMovements, purchases, expenses, cashTransactions, orderMaterialUsages, orderEvents
+    };
   }
 
   /**

@@ -3,7 +3,7 @@ import { CashRepository } from '../repositories/cashRepository';
 import { InvoiceRepository } from '../repositories/invoiceRepository';
 import { OrderEventRepository } from '../repositories/orderEventRepository';
 import { OrderWriteRepository } from '../repositories/orderWriteRepository';
-import { assertStoredPaymentAggregates, calculatePaymentUpdate, parsePaymentLedger } from '../../domain/paymentRules';
+import { assertStoredPaymentAggregates, assertValidPaymentMethod, calculatePaymentUpdate, parsePaymentLedger } from '../../domain/paymentRules';
 import { createSafeId } from '../../domain/idGenerator';
 
 export class PaymentService {
@@ -16,6 +16,7 @@ export class PaymentService {
   ) {}
 
   addPayment(invoiceId: string, amount: number, method: string, note: string, paymentId?: string): boolean {
+    const paymentMethod = assertValidPaymentMethod(method);
     const tx = this.db.transaction(() => {
       const invoice = this.invoiceRepository.findById(invoiceId);
       if (!invoice) throw new Error('الفاتورة غير موجودة');
@@ -45,7 +46,7 @@ export class PaymentService {
         orderId: invoice.order_id,
         amount: numericAmount,
         paymentDate,
-        method: method as any,
+        method: paymentMethod,
         note
       };
       existingPayments.push(newPayment);
@@ -60,7 +61,7 @@ export class PaymentService {
         orderId: invoice.order_id,
         referenceNumber: invoice.invoice_number,
         amount: numericAmount,
-        paymentMethod: method as any,
+        paymentMethod,
         transactionDate: paymentDate,
         description: `دفعة عميل للفاتورة ${invoice.invoice_number}`,
         notes: note || undefined,
@@ -73,7 +74,7 @@ export class PaymentService {
         title: 'تم تسجيل دفعة',
         description: `تم تسجيل دفعة بقيمة ${numericAmount} للفاتورة ${invoice.invoice_number}.`,
         actor: 'النظام',
-        metadata: { paymentId: id, amount: numericAmount, method, remainingAmount: newRemaining },
+        metadata: { paymentId: id, amount: numericAmount, method: paymentMethod, remainingAmount: newRemaining },
         createdAt
       };
       this.eventRepository.insert(event);

@@ -159,6 +159,46 @@ async function main() {
     );
   });
 
+  await record('backend validates order status before inventory movement', async () => {
+    const db = manager.getRawDb();
+    const beforeMovements = db.prepare('SELECT COUNT(*) AS count FROM inventory_movements').get().count;
+    await assert.rejects(
+      call('orders:create', { ...orderPayload, id: 'ORD-INVALID-STATUS', orderNumber: 'INT-INVALID-STATUS', status: 'unknown', paidAmount: 0 }),
+      /حالة الطلب/
+    );
+    await assert.rejects(
+      call('orders:create', { ...orderPayload, id: 'ORD-CANCELLED-CREATE', orderNumber: 'INT-CANCELLED-CREATE', status: 'cancelled', paidAmount: 0 }),
+      /لا يمكن إنشاء/
+    );
+    assert.equal(db.prepare('SELECT COUNT(*) AS count FROM orders WHERE id IN (?, ?)').get('ORD-INVALID-STATUS', 'ORD-CANCELLED-CREATE').count, 0);
+    assert.equal(db.prepare('SELECT COUNT(*) AS count FROM inventory_movements').get().count, beforeMovements);
+    const valid = await call('orders:create', { ...orderPayload, id: 'ORD-VALID-STATUS', orderNumber: 'INT-VALID-STATUS', status: 'processing', paidAmount: 0, fabricId: undefined, fabricName: 'بدون قماش', materialUsages: [], orderDate: '2026-09-01', deliveryDate: '2026-09-02' });
+    assert.equal(valid.status, 'processing');
+    await assert.rejects(call('orders:updateStatus', 'ORD-VALID-STATUS', 'unknown'), /حالة الطلب/);
+  });
+
+  await record('backend validates payment methods across financial entry points', async () => {
+    const db = manager.getRawDb();
+    const beforeCash = db.prepare('SELECT COUNT(*) AS count FROM cash_transactions').get().count;
+    await assert.rejects(
+      call('invoices:addPayment', `INV-${orderNumber}`, 1, 'bitcoin', 'invalid method', 'PAY-INVALID-METHOD'),
+      /طريقة الدفع/
+    );
+    await assert.rejects(
+      call('purchases:create', { id: 'PUR-INVALID-METHOD', supplier: 'مورد', paymentMethod: 'bitcoin', lines: [{ itemType: 'fabric', itemId: fabricId, quantity: 1, unit: 'متر', unitPrice: 1 }] }),
+      /طريقة الدفع/
+    );
+    await assert.rejects(
+      call('expenses:create', { id: 'EXP-INVALID-METHOD', category: 'تشغيل', amount: 1, paymentMethod: '', description: 'invalid method' }),
+      /طريقة الدفع/
+    );
+    await assert.rejects(
+      call('cash:createAdjustment', { id: 'CASH-INVALID-METHOD', amount: 1, paymentMethod: 'bitcoin', description: 'invalid method' }),
+      /طريقة الدفع/
+    );
+    assert.equal(db.prepare('SELECT COUNT(*) AS count FROM cash_transactions').get().count, beforeCash);
+  });
+
   await record('payment ledger drift is rejected before a new payment', async () => {
     const db = manager.getRawDb();
     const invoice = db.prepare('SELECT * FROM invoices WHERE order_id = ?').get(orderId);
@@ -234,10 +274,13 @@ async function main() {
   await record('backup, restore of older snapshot, and persistence after reopen', async () => {
     const backup = await call('system:backup');
     assert.ok(typeof backup === 'string' && backup.length > 100);
+    const versionedBackup = JSON.parse(backup);
+    assert.equal(versionedBackup.backupSchemaVersion, 2);
+    assert.equal(versionedBackup.schemaVersion, 9);
     const sqliteBackups = fs.readdirSync(backupDir).filter((fileName) => fileName.includes('manual_user') && fileName.endsWith('.db'));
     assert.ok(sqliteBackups.length > 0);
     const restoreResult = await call('system:restore', oldBackupJson);
-    assert.equal(restoreResult.success, true);
+    assert.equal(restoreResult.success, true, restoreResult.error || 'restore failed without an error');
     const db = manager.getRawDb();
     assert.equal(db.prepare('SELECT COUNT(*) AS count FROM purchases WHERE id = ?').get('PUR-INT-001').count, 0);
     assert.equal(db.prepare('SELECT COUNT(*) AS count FROM expenses WHERE id = ?').get('EXP-INT-001').count, 0);
@@ -247,6 +290,25 @@ async function main() {
     assert.equal(restoredAccessory.sellingPrice, 12);
     const integrity = await call('system:integrityCheck');
     assert.equal(integrity.ok, true, JSON.stringify(integrity.issues));
+    const legacyBackup = JSON.parse(oldBackupJson);
+    delete legacyBackup.backupSchemaVersion;
+    delete legacyBackup.schemaVersion;
+    const legacyRestore = await call('system:restore', JSON.stringify(legacyBackup));
+    assert.equal(legacyRestore.success, true, legacyRestore.error || 'legacy restore failed');
+  });
+
+  await record('integrity checker detects missing source movement in live database', async () => {
+    const restore = await call('system:restore', oldBackupJson);
+    assert.equal(restore.success, true, restore.error || 'setup restore failed');
+    const db = manager.getRawDb();
+    const usage = db.prepare('SELECT source_movement_id FROM order_material_usages WHERE source_movement_id IS NOT NULL LIMIT 1').get();
+    assert.ok(usage?.source_movement_id);
+    db.prepare('DELETE FROM inventory_movements WHERE id = ?').run(usage.source_movement_id);
+    const report = await call('system:integrityCheck');
+    assert.equal(report.ok, false);
+    assert.equal(report.issues.some((issue) => issue.code === 'MISSING_SOURCE_MOVEMENT'), true);
+    const cleanup = await call('system:restore', oldBackupJson);
+    assert.equal(cleanup.success, true, cleanup.error || 'integrity fixture cleanup failed');
   });
 
   await record('restore rejects business-inconsistent backup without changing the database', async () => {
@@ -256,7 +318,32 @@ async function main() {
     invalid.invoices[0].remainingAmount = 0;
     const result = await call('system:restore', JSON.stringify(invalid));
     assert.equal(result.success, false);
-    assert.match(result.error, /INVOICE_PAYMENT_MISMATCH/);
+    assert.match(result.error, /INVOICE_PAYMENT_MISMATCH|INVOICE_ORDER_AGGREGATE_MISMATCH/);
+    assert.equal(manager.getRawDb().prepare('SELECT COUNT(*) AS count FROM orders').get().count, beforeOrderCount);
+  });
+
+  await record('restore rejects incomplete and untraceable business ledgers', async () => {
+    const beforeOrderCount = manager.getRawDb().prepare('SELECT COUNT(*) AS count FROM orders').get().count;
+    const missingCollection = JSON.parse(oldBackupJson);
+    delete missingCollection.cashTransactions;
+    const missingCollectionResult = await call('system:restore', JSON.stringify(missingCollection));
+    assert.equal(missingCollectionResult.success, false);
+    assert.match(missingCollectionResult.error, /MISSING_COLLECTION/);
+    assert.equal(manager.getRawDb().prepare('SELECT COUNT(*) AS count FROM orders').get().count, beforeOrderCount);
+
+    const missingMovement = JSON.parse(oldBackupJson);
+    assert.ok(missingMovement.orderMaterialUsages.length > 0);
+    missingMovement.orderMaterialUsages[0].sourceMovementId = 'MISSING-MOVEMENT-RESTORE';
+    const missingMovementResult = await call('system:restore', JSON.stringify(missingMovement));
+    assert.equal(missingMovementResult.success, false);
+    assert.match(missingMovementResult.error, /MISSING_SOURCE_MOVEMENT/);
+    assert.equal(manager.getRawDb().prepare('SELECT COUNT(*) AS count FROM orders').get().count, beforeOrderCount);
+
+    const invalidMethod = JSON.parse(oldBackupJson);
+    invalidMethod.expenses.push({ id: 'EXP-INVALID-RESTORE', category: 'تشغيل', amount: 1, expenseDate: '2026-08-19', paymentMethod: 'bitcoin', description: 'invalid', createdAt: new Date().toISOString() });
+    const invalidMethodResult = await call('system:restore', JSON.stringify(invalidMethod));
+    assert.equal(invalidMethodResult.success, false);
+    assert.match(invalidMethodResult.error, /INVALID_PAYMENT_METHOD|MISSING_EXPENSE_CASH/);
     assert.equal(manager.getRawDb().prepare('SELECT COUNT(*) AS count FROM orders').get().count, beforeOrderCount);
   });
 

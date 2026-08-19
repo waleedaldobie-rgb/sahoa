@@ -1,8 +1,9 @@
 import { AppData, UserPreferences, Customer, CustomerMeasurements, CustomerStyleDetails, Order, Invoice, FabricItem, AccessoryItem, ThobeType, ColorItem, NotificationItem, PaymentRecord, StockMovement, PurchaseRecord, PurchaseLine, ExpenseRecord, CashTransaction, OrderMaterialUsage, OrderEvent, MeasurementHistoryRecord, InventoryItemType } from '../types';
 import { checkAndSyncStockAlerts } from '../utils/stockAlerts';
 import { calculateStockBalance, round2 } from './shared/inventoryRules';
+import { assertSafeInitialOrderStatus } from '../domain/orderRules';
 import { calculateMaterialCost, calculateOrderAmounts } from './shared/orderRules';
-import { assertStoredPaymentAggregates, calculatePaymentUpdate } from '../domain/paymentRules';
+import { assertStoredPaymentAggregates, assertValidPaymentMethod, calculatePaymentUpdate } from '../domain/paymentRules';
 import { createSafeId } from '../domain/idGenerator';
 import { normalizePositiveAmount } from '../domain/amountRules';
 import { applyPaymentToDraft } from './adapters/paymentDraftAdapter';
@@ -611,6 +612,8 @@ export function initElectronMock() {
         const garmentCount = orderData.garmentCount || 1;
         const requiredMeters = garmentCount * rate;
         const orderNumber = orderData.orderNumber || nextMockOrderNumber(draft.orders);
+        const initialStatus = assertSafeInitialOrderStatus(orderData.status);
+        const initialPaymentMethod = assertValidPaymentMethod((orderData as any).initialPaymentMethod || 'cash');
         const amounts = calculateOrderAmounts(orderData.totalAmount || 0, orderData.paidAmount || 0);
         const { totalAmount, paidAmount, remainingAmount } = amounts;
         const orderId = orderData.id || createSafeId('ORD');
@@ -644,7 +647,7 @@ export function initElectronMock() {
         const materialCost = calculateOrderMaterialCost(materialUsages);
 
         const createdAt = new Date().toISOString();
-        const newOrder = buildOrderDraft(orderData, {
+        const newOrder = buildOrderDraft({ ...orderData, status: initialStatus, initialPaymentMethod }, {
           orderId,
           orderNumber,
           requiredMeters,
@@ -660,7 +663,7 @@ export function initElectronMock() {
         draft.orders = [newOrder, ...draft.orders];
 
         // Create invoice and initial payment through the isolated order adapter.
-        const { invoice: newInvoice, payment: initialPayment } = buildInitialInvoiceDraft(orderData, orderId, orderNumber, totalAmount, paidAmount);
+        const { invoice: newInvoice, payment: initialPayment } = buildInitialInvoiceDraft({ ...orderData, status: initialStatus, initialPaymentMethod }, orderId, orderNumber, totalAmount, paidAmount);
         const initialPaymentId = initialPayment?.id;
 
         draft.invoices = [newInvoice, ...draft.invoices];

@@ -3,6 +3,7 @@ import { AppData } from '../types';
 import { updateOrderMaterialsInDraft } from '../services/adapters/orderUpdateAdapter';
 import { applyPaymentToDraft } from '../services/adapters/paymentDraftAdapter';
 import { insertStockMovementInDraft } from '../services/adapters/inventoryMovementDraftAdapter';
+import { updateAccessoryInDraft, updateFabricInDraft } from '../services/adapters/inventoryCatalogDraftAdapter';
 
 function makeData(): AppData {
   return {
@@ -39,6 +40,20 @@ describe('Mock/Production business contract', () => {
     expect(draft.fabrics[0].quantityMeters).toBe(13);
     expect(draft.accessories[0].quantity).toBe(7);
     expect(draft.orderMaterialUsages.every((usage) => Boolean(usage.sourceMovementId))).toBe(true);
+  });
+
+  it('preserves catalog quantity in Mock and changes it only through stock movement', () => {
+    const draft = makeData();
+    const originalFabricQuantity = draft.fabrics[0].quantityMeters;
+    const originalAccessoryQuantity = draft.accessories[0].quantity;
+    updateFabricInDraft(draft, { ...draft.fabrics[0], quantityMeters: 999, sellingPrice: 25 });
+    updateAccessoryInDraft(draft, { ...draft.accessories[0], quantity: 999, sellingPrice: 5 });
+    expect(draft.fabrics[0].quantityMeters).toBe(originalFabricQuantity);
+    expect(draft.accessories[0].quantity).toBe(originalAccessoryQuantity);
+    expect(draft.stockMovements).toHaveLength(0);
+    insertStockMovementInDraft(draft, 'fabric', 'FAB-A', -2, 'sale', 'اختبار adjustment', { type: 'manual', id: 'ADJ-1' });
+    expect(draft.fabrics[0].quantityMeters).toBe(originalFabricQuantity - 2);
+    expect(draft.stockMovements).toHaveLength(1);
   });
 
   it('keeps payment aggregate derived from the payment ledger', () => {

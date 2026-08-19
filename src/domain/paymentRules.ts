@@ -1,6 +1,16 @@
 import { PaymentRecord } from '../types';
 import { assertValidOrderAmounts, calculateOrderAmounts, OrderAmounts } from './orderRules';
 import { round2 } from './inventoryRules';
+import { PaymentMethod } from '../types';
+
+export const PAYMENT_METHODS: readonly PaymentMethod[] = ['cash', 'card', 'transfer'];
+
+export function assertValidPaymentMethod(value: unknown): PaymentMethod {
+  if (typeof value !== 'string' || !PAYMENT_METHODS.includes(value as PaymentMethod)) {
+    throw new Error('طريقة الدفع غير صالحة؛ القيم المدعومة هي cash أو card أو transfer');
+  }
+  return value as PaymentMethod;
+}
 
 export interface PaymentCalculation extends OrderAmounts {
   numericAmount: number;
@@ -29,7 +39,8 @@ export function parsePaymentLedger(value?: string): PaymentRecord[] {
     if (!payment.id || !payment.invoiceId || !payment.orderId || !payment.paymentDate || !payment.method) {
       throw new Error(`بيانات الدفعة رقم ${index + 1} غير مكتملة`);
     }
-    return { ...payment, amount } as PaymentRecord;
+    const method = assertValidPaymentMethod(payment.method);
+    return { ...payment, amount, method } as PaymentRecord;
   });
 }
 

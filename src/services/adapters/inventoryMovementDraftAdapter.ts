@@ -9,6 +9,7 @@ import {
   CashTransaction
 } from '../../types';
 import { calculateStockBalance, round2 } from '../shared/inventoryRules';
+import { assertValidPaymentMethod } from '../../domain/paymentRules';
 import { findById, hasIdOrSourceId } from '../shared/idempotencyRules';
 import { createSafeId } from '../../domain/idGenerator';
 
@@ -55,6 +56,7 @@ export function insertStockMovementInDraft(
 
 export function createPurchaseInDraft(draft: AppData, payload: PurchasePayload): PurchaseRecord {
   const purchaseId = payload.id || createSafeId('PUR');
+  const paymentMethod = assertValidPaymentMethod(payload.paymentMethod ?? 'cash');
   const duplicate = findById(draft.purchases, purchaseId);
   if (duplicate) return duplicate;
   if (!payload.supplier?.trim()) throw new Error('اسم المورد مطلوب');
@@ -83,7 +85,7 @@ export function createPurchaseInDraft(draft: AppData, payload: PurchasePayload):
     invoiceNumber: payload.invoiceNumber || undefined,
     purchaseDate,
     totalAmount: round2(totalAmount),
-    paymentMethod: payload.paymentMethod || 'cash',
+    paymentMethod,
     notes: payload.notes || undefined,
     status: 'approved',
     lines: preparedLines,
@@ -98,7 +100,7 @@ export function createPurchaseInDraft(draft: AppData, payload: PurchasePayload):
       sourceId: purchaseId,
       referenceNumber: payload.invoiceNumber || purchaseId,
       amount: round2(totalAmount),
-      paymentMethod: payload.paymentMethod || 'cash',
+      paymentMethod,
       transactionDate: purchaseDate,
       description: `شراء مخزون من ${payload.supplier.trim()}`,
       notes: payload.notes || undefined,
