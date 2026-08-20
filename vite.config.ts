@@ -12,7 +12,7 @@ export default defineConfig(() => {
     process.env.ELECTRON_BUILD === 'true'
       ? './'
       : process.env.GITHUB_PAGES === 'true'
-        ? '/sahwa-tailoring-preview/'
+        ? '/sahoa/'
         : '/';
 
   return {
