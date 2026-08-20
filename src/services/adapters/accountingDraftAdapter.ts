@@ -3,6 +3,7 @@ import { normalizePositiveAmount } from '../../domain/amountRules';
 import { assertValidPaymentMethod } from '../../domain/paymentRules';
 import { createSafeId } from '../../domain/idGenerator';
 import { round2 } from '../../domain/inventoryRules';
+import { assertValidManualCashSourceType } from '../../domain/cashRules';
 import { findById, hasIdOrSourceId } from '../shared/idempotencyRules';
 
 type DraftPayload = Record<string, any>;
@@ -55,7 +56,7 @@ export function applyCashAdjustmentToDraft(draft: AppData, payload: DraftPayload
   const transaction: CashTransaction = {
     id,
     direction: payload.direction === 'out' ? 'out' : 'in',
-    sourceType: payload.sourceType || 'adjustment',
+    sourceType: assertValidManualCashSourceType(payload.sourceType || 'adjustment'),
     sourceId: payload.sourceId,
     referenceNumber: payload.referenceNumber,
     amount: round2(amount),

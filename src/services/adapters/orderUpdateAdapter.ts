@@ -34,8 +34,10 @@ export function updateOrderMaterialsInDraft(
   const oldUsages = (draft.orderMaterialUsages || []).filter((usage) => usage.orderId === existingOrder.id);
   const fabricChanged = existingOrder.fabricId !== updatedOrder.fabricId;
   const countChanged = existingOrder.garmentCount !== updatedOrder.garmentCount;
+  const consumptionChanged = Math.abs(Number(existingOrder.fabricConsumptionMeters || 0) - newMeters) > 0.0001;
   const materialChanged = fabricChanged
     || countChanged
+    || consumptionChanged
     || (updatedOrder.materialUsages !== undefined && materialSignature(oldUsages) !== materialSignature(updatedOrder.materialUsages || []));
   if (!materialChanged) return;
 
