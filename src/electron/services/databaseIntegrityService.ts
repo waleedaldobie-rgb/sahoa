@@ -95,7 +95,29 @@ export class DatabaseIntegrityService {
     }
 
     const movements = this.db.prepare('SELECT * FROM inventory_movements ORDER BY item_type, item_id, created_at, rowid').all() as any[];
+    const movementItemTables: Record<string, string> = { fabric: 'fabrics', accessory: 'accessories' };
+    const movementReferenceTables: Record<string, string> = {
+      order: 'orders', order_update: 'orders', order_delete: 'orders', order_cancel: 'orders', order_reactivate: 'orders', purchase: 'purchases'
+    };
     for (const movement of movements) {
+      const itemType = String(movement.item_type || '');
+      const itemTable = movementItemTables[itemType];
+      if (!itemTable) {
+        issue({ code: 'INVALID_MOVEMENT_ITEM_TYPE', table: 'inventory_movements', recordId: movement.id, field: 'item_type', expected: Object.keys(movementItemTables), actual: movement.item_type, reason: 'Inventory movement item_type is not supported', severity: 'critical' });
+      } else if (!this.db.prepare(`SELECT id FROM ${itemTable} WHERE id = ?`).get(movement.item_id)) {
+        issue({ code: 'ORPHAN_INVENTORY_MOVEMENT', table: 'inventory_movements', recordId: movement.id, field: 'item_id', expected: `${itemType}:${movement.item_id}`, actual: null, reason: 'Inventory movement points to a missing Fabric or Accessory', severity: 'critical' });
+      }
+
+      const referenceType = movement.reference_type ? String(movement.reference_type) : '';
+      const referenceId = movement.reference_id ? String(movement.reference_id) : '';
+      const referenceTable = movementReferenceTables[referenceType];
+      if (referenceTable && (!referenceId || !this.db.prepare(`SELECT id FROM ${referenceTable} WHERE id = ?`).get(referenceId))) {
+        issue({ code: 'ORPHAN_INVENTORY_REFERENCE', table: 'inventory_movements', recordId: movement.id, field: 'reference_id', expected: `${referenceType}:${referenceId || '<required>'}`, actual: null, reason: 'Inventory movement reference points to a missing Order or Purchase', severity: 'critical' });
+      }
+      if (movement.direction === 'sale' && (!referenceType || !referenceId)) {
+        issue({ code: 'MISSING_INVENTORY_REFERENCE', table: 'inventory_movements', recordId: movement.id, field: 'reference_id', expected: 'reference for sale movement', actual: { referenceType: movement.reference_type, referenceId: movement.reference_id }, reason: 'Sale movement is not traceable to its business operation', severity: 'high' });
+      }
+
       const quantity = Number(movement.quantity);
       const before = Number(movement.quantity_before);
       const after = Number(movement.quantity_after);
@@ -137,6 +159,13 @@ export class DatabaseIntegrityService {
     for (const purchase of purchases) {
       const sum = this.db.prepare('SELECT COALESCE(SUM(total_amount), 0) AS total FROM purchase_lines WHERE purchase_id = ?').get(purchase.id) as { total: number };
       if (!nearlyEqual(Number(purchase.total_amount), Number(sum.total))) issue({ code: 'PURCHASE_TOTAL_MISMATCH', table: 'purchases', recordId: purchase.id, field: 'total_amount', expected: sum.total, actual: purchase.total_amount, reason: 'Purchase total differs from its line totals' });
+      const cash = this.db.prepare(`
+        SELECT COALESCE(SUM(amount), 0) AS total, COUNT(*) AS count
+        FROM cash_transactions
+        WHERE source_type = 'purchase' AND direction = 'out' AND source_id = ?
+      `).get(purchase.id) as { total: number; count: number };
+      if (Number(cash.count) === 0) issue({ code: 'MISSING_PURCHASE_CASH', table: 'purchases', recordId: purchase.id, field: 'cash_ledger', expected: 'matching purchase cash outflow', actual: null, reason: 'Purchase has no matching cash ledger entry', severity: 'critical' });
+      else if (!nearlyEqual(Number(cash.total), Number(purchase.total_amount))) issue({ code: 'PURCHASE_CASH_MISMATCH', table: 'purchases', recordId: purchase.id, field: 'cash_ledger.amount', expected: purchase.total_amount, actual: cash.total, reason: 'Purchase cash ledger does not match purchase total', severity: 'critical' });
     }
 
     return { ok: issues.length === 0, checkedAt: new Date().toISOString(), issues };
@@ -192,9 +221,11 @@ export class DatabaseIntegrityService {
     }
 
     const invoiceOrderIds = new Set<string>();
+    const invoicesByOrder = new Map<string, any>();
     for (const invoice of (payload.invoices || [])) {
       if (invoiceOrderIds.has(String(invoice.orderId))) add({ code: 'DUPLICATE_INVOICE_ORDER', table: 'invoices', recordId: String(invoice.id), expected: 'one invoice per order', actual: invoice.orderId, reason: 'Backup contains multiple invoices for one order' });
       invoiceOrderIds.add(String(invoice.orderId));
+      invoicesByOrder.set(String(invoice.orderId), invoice);
       if (!payload.orders.some((order: any) => order.id === invoice.orderId)) add({ code: 'ORPHAN_INVOICE', table: 'invoices', recordId: invoice.id, expected: invoice.orderId, actual: null, reason: 'Invoice order is missing from backup' });
       try {
         if (!Array.isArray(invoice.payments)) {
@@ -203,13 +234,17 @@ export class DatabaseIntegrityService {
         }
         const payments = invoice.payments;
         const expected = summarizePaymentLedger(payments, invoice.totalAmount);
-        if (!nearlyEqual(Number(invoice.paidAmount), expected.paidAmount) || !nearlyEqual(Number(invoice.remainingAmount), expected.remainingAmount)) add({ code: 'INVOICE_PAYMENT_MISMATCH', table: 'invoices', recordId: invoice.id, expected: { paid: expected.paidAmount, remaining: expected.remainingAmount }, actual: { paid: invoice.paidAmount, remaining: invoice.remainingAmount }, reason: 'Backup invoice aggregates do not match payments', severity: 'critical' });
+        if (!nearlyEqual(Number(invoice.paidAmount), expected.paidAmount) || !nearlyEqual(Number(invoice.remainingAmount), expected.remainingAmount)) add({ code: 'INVOICE_PAYMENT_MISMATCH', table: 'invoices', recordId: invoice.id, expected: { paid: expected.paidAmount, remaining: expected.remainingAmount }, actual: { paid: invoice.paidAmount, remaining: invoice.remainingAmount }, reason: 'Backup invoice aggregates do not match the Invoice Payment Ledger', severity: 'critical' });
         const order = ordersById.get(String(invoice.orderId));
-        if (order && (!nearlyEqual(Number(order.totalAmount), Number(invoice.totalAmount)) || !nearlyEqual(Number(order.paidAmount), Number(invoice.paidAmount)) || !nearlyEqual(Number(order.remainingAmount), Number(invoice.remainingAmount)))) add({ code: 'INVOICE_ORDER_AGGREGATE_MISMATCH', table: 'invoices', recordId: invoice.id, expected: { total: order.totalAmount, paid: order.paidAmount, remaining: order.remainingAmount }, actual: { total: invoice.totalAmount, paid: invoice.paidAmount, remaining: invoice.remainingAmount }, reason: 'Invoice aggregate differs from its order', severity: 'critical' });
+        if (order && !nearlyEqual(Number(order.totalAmount), Number(invoice.totalAmount))) add({ code: 'INVOICE_ORDER_TOTAL_MISMATCH', table: 'invoices', recordId: invoice.id, expected: order.totalAmount, actual: invoice.totalAmount, reason: 'Invoice total differs from its order total', severity: 'critical' });
+        if (order && (!nearlyEqual(Number(order.paidAmount), expected.paidAmount) || !nearlyEqual(Number(order.remainingAmount), expected.remainingAmount))) add({ code: 'ORDER_PAYMENT_PROJECTION_MISMATCH', table: 'orders', recordId: order.id, expected: { paid: expected.paidAmount, remaining: expected.remainingAmount, source: 'invoice.paymentLedger' }, actual: { paid: order.paidAmount, remaining: order.remainingAmount }, reason: 'Order payment projections do not match the Invoice Payment Ledger', severity: 'critical' });
         for (const payment of payments) assertValidPaymentMethod(payment.method);
       } catch (error: any) {
         add({ code: 'INVALID_PAYMENT_LEDGER', table: 'invoices', recordId: invoice.id, expected: 'valid payments with supported methods', actual: error?.message || String(error), reason: 'Backup invoice payments are invalid', severity: 'critical' });
       }
+    }
+    for (const order of payload.orders) {
+      if (!invoicesByOrder.has(String(order.id))) add({ code: 'MISSING_ORDER_INVOICE', table: 'orders', recordId: order.id, expected: 'one invoice per order', actual: null, reason: 'Order has no Invoice record in the backup; payment truth cannot be reconstructed', severity: 'critical' });
     }
     for (const fabric of payload.fabrics) if (!Number.isFinite(Number(fabric.quantityMeters)) || Number(fabric.quantityMeters) < 0) add({ code: 'NEGATIVE_STOCK', table: 'fabrics', recordId: fabric.id, expected: '>= 0', actual: fabric.quantityMeters, reason: 'Backup fabric quantity is negative', severity: 'critical' });
     for (const accessory of payload.accessories) if (!Number.isFinite(Number(accessory.quantity)) || Number(accessory.quantity) < 0) add({ code: 'NEGATIVE_STOCK', table: 'accessories', recordId: accessory.id, expected: '>= 0', actual: accessory.quantity, reason: 'Backup accessory quantity is negative', severity: 'critical' });
@@ -274,6 +309,10 @@ export class DatabaseIntegrityService {
       for (const line of (purchase.lines || [])) {
         if (!Number.isFinite(Number(line.quantity)) || Number(line.quantity) <= 0 || !Number.isFinite(Number(line.unitPrice)) || Number(line.unitPrice) < 0 || !nearlyEqual(Number(line.totalAmount), Number(line.quantity) * Number(line.unitPrice))) add({ code: 'INVALID_PURCHASE_LINE', table: 'purchases', recordId: line.id, expected: 'positive quantity, non-negative price, total=quantity*price', actual: line, reason: 'Purchase line is not auditable', severity: 'critical' });
       }
+      const purchaseCash = (payload.cashTransactions || []).filter((cash: any) => cash.sourceType === 'purchase' && String(cash.sourceId) === String(purchase.id) && cash.direction === 'out');
+      const purchaseCashTotal = purchaseCash.reduce((sum: number, cash: any) => sum + Number(cash.amount || 0), 0);
+      if (purchaseCash.length === 0) add({ code: 'MISSING_PURCHASE_CASH', table: 'purchases', recordId: purchase.id, field: 'cashTransactions', expected: 'matching purchase cash outflow', actual: null, reason: 'Backup purchase has no matching cash ledger entry', severity: 'critical' });
+      else if (!nearlyEqual(Number(purchaseCashTotal), Number(purchase.totalAmount))) add({ code: 'PURCHASE_CASH_MISMATCH', table: 'purchases', recordId: purchase.id, field: 'cashTransactions.amount', expected: purchase.totalAmount, actual: purchaseCashTotal, reason: 'Backup purchase cash ledger does not match purchase total', severity: 'critical' });
     }
     for (const expense of payload.expenses) {
       try { assertValidPaymentMethod(expense.paymentMethod ?? 'cash'); } catch (error: any) { add({ code: 'INVALID_PAYMENT_METHOD', table: 'expenses', recordId: expense.id, field: 'paymentMethod', expected: ['cash', 'card', 'transfer'], actual: expense.paymentMethod, reason: error.message, severity: 'critical' }); }
