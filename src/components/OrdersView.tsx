@@ -78,7 +78,7 @@ export interface OrdersViewProps {
   accessories?: AccessoryItem[];
   thobeTypes: ThobeType[];
   userPreferences?: UserPreferences;
-  onSaveOrder: (order: Order) => void;
+  onSaveOrder: (order: Order) => Promise<boolean | void> | boolean | void;
   onSaveCustomer?: (customer: Customer) => Promise<void> | void;
   onUpdateOrderStatus: (orderId: string, newStatus: OrderStatus) => void;
   onDeleteOrder?: (orderId: string) => void;
@@ -111,6 +111,7 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(initialSelectedOrder || null);
+  const [measurementDraft, setMeasurementDraft] = useState<Order | null>(initialSelectedOrder || null);
   const [isDetailModalOpen, setIsDetailModalOpen] = useState(!!initialSelectedOrder);
   const [isNewOrderModalOpen, setIsNewOrderModalOpen] = useState(!!openNewOrderTrigger);
   const [orderToDelete, setOrderToDelete] = useState<Order | null>(null);
@@ -118,6 +119,10 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
   const [isSubmittingOrder, setIsSubmittingOrder] = useState(false);
   const [orderEvents, setOrderEvents] = useState<OrderEvent[]>([]);
   const [isEventsLoading, setIsEventsLoading] = useState(false);
+
+  useEffect(() => {
+    setMeasurementDraft(selectedOrder);
+  }, [selectedOrder?.id]);
 
   // Print Mode State
   const [printableOrder, setPrintableOrder] = useState<Order | null>(null);
@@ -452,6 +457,14 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
       case 'ready': return 'الطلب جاهز للاستلام';
       case 'delivered': return 'تم تسليم الطلب بنجاح';
     }
+  };
+
+  const handleSaveMeasurementDraft = async () => {
+    if (!selectedOrder || !measurementDraft) return;
+    const saved = await onSaveOrder(measurementDraft);
+    if (saved === false) return;
+    setSelectedOrder(measurementDraft);
+    showToast('تم تحديث المقاسات بنجاح', 'success');
   };
 
   const handleQuickStatusChange = (order: Order, nextStatus: OrderStatus) => {
@@ -1172,15 +1185,15 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
             ) : detailTab === 'measurements' ? (
               <>
                 <MeasurementsTableForm
-                  measurements={selectedOrder.measurements}
-                  onChange={(m) => onSaveOrder({ ...selectedOrder, measurements: m })}
-                  styleDetails={selectedOrder.styleDetails}
-                  onStyleChange={(s) => onSaveOrder({ ...selectedOrder, styleDetails: s })}
+                  measurements={(measurementDraft || selectedOrder).measurements}
+                  onChange={(m) => setMeasurementDraft((current) => ({ ...(current || selectedOrder), measurements: m }))}
+                  styleDetails={(measurementDraft || selectedOrder).styleDetails}
+                  onStyleChange={(s) => setMeasurementDraft((current) => ({ ...(current || selectedOrder), styleDetails: s }))}
                   customerName={selectedOrder.customerName}
                   customerPhone={selectedOrder.customerPhone}
                   draftScope={selectedOrder.id}
                   saveLabel="تحديث المقاسات"
-                  onSave={() => showToast('تم تحديث المقاسات بنجاح', 'success')}
+                  onSave={() => void handleSaveMeasurementDraft()}
                 />
 
                 <div className="mt-6 rounded-2xl border border-[#D9D9D9] bg-white p-5 shadow-sm">
@@ -1189,11 +1202,11 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
                     <label className="text-sm font-black text-[#111111]">ملاحظات الخياط</label>
                   </div>
                   <textarea
-                    value={selectedOrder.styleDetails?.tailorNotes || ''}
-                    onChange={(e) => onSaveOrder({
-                      ...selectedOrder,
-                      styleDetails: { ...selectedOrder.styleDetails, tailorNotes: e.target.value }
-                    })}
+                    value={(measurementDraft || selectedOrder).styleDetails?.tailorNotes || ''}
+                    onChange={(e) => setMeasurementDraft((current) => ({
+                      ...(current || selectedOrder),
+                      styleDetails: { ...(current || selectedOrder).styleDetails, tailorNotes: e.target.value }
+                    }))}
                     placeholder="اكتب التعليمات الفنية الخاصة بالخياط أو المقص دار..."
                     rows={4}
                     className="w-full rounded-xl border-2 border-[#E5E7EB] bg-[#FAFAF8] px-4 py-3 text-sm font-bold text-[#111111] outline-none transition focus:border-[#111111] resize-y"

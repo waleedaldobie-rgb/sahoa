@@ -339,14 +339,14 @@ export default function App() {
   };
 
   // 2. Orders
-  const handleSaveOrder = async (order: Order) => {
+  const handleSaveOrder = async (order: Order): Promise<boolean> => {
     const validationErrors = validateEntityErrors('order', order);
     if (validationErrors.length > 0) {
       showToast(validationErrors.join('\n'), 'danger');
-      return;
+      return false;
     }
 
-    await executeCrud('جاري حفظ بيانات الطلب واستقطاع الأقمشة...', async () => {
+    const result = await executeCrud('جاري حفظ بيانات الطلب واستقطاع الأقمشة...', async () => {
       let alerts: string[] = [];
       if (window.electronAPI.createOrder && window.electronAPI.updateOrder) {
         const exists = data?.orders.some((o) => o.id === order.id);
@@ -357,7 +357,7 @@ export default function App() {
         }
         alerts = await loadAppData();
       } else {
-        if (!data) return;
+        if (!data) return false;
         const exists = data.orders.some((o) => o.id === order.id);
         const updatedOrders = exists
           ? data.orders.map((o) => (o.id === order.id ? order : o))
@@ -408,7 +408,9 @@ export default function App() {
       } else {
         showToast('تم حفظ الطلب بنجاح وخصم القماش من المخزون', 'success');
       }
+      return true;
     });
+    return result === true;
   };
 
   const handleUpdateOrderStatus = async (orderId: string, newStatus: OrderStatus) => {
@@ -519,31 +521,37 @@ export default function App() {
   };
 
   // 4. Purchases, Expenses & Cash Ledger
-  const handleCreatePurchase = async (payload: any) => {
-    await executeCrud('جاري اعتماد المشتريات وتحديث المخزون والصندوق...', async () => {
+  const handleCreatePurchase = async (payload: any): Promise<boolean> => {
+    const result = await executeCrud('جاري اعتماد المشتريات وتحديث المخزون والصندوق...', async () => {
       if (!window.electronAPI.createPurchase) throw new Error('وظيفة المشتريات غير متاحة في هذه النسخة');
       await window.electronAPI.createPurchase(payload);
       await refreshSlices(['purchases', 'stockMovements', 'cashTransactions', 'fabrics', 'accessories', 'notifications']);
       showToast('تم اعتماد المشتريات وتحديث المخزون والصندوق بنجاح', 'success');
+      return true;
     });
+    return result === true;
   };
 
-  const handleCreateExpense = async (payload: any) => {
-    await executeCrud('جاري تسجيل المصروف...', async () => {
+  const handleCreateExpense = async (payload: any): Promise<boolean> => {
+    const result = await executeCrud('جاري تسجيل المصروف...', async () => {
       if (!window.electronAPI.createExpense) throw new Error('وظيفة المصروفات غير متاحة في هذه النسخة');
       await window.electronAPI.createExpense(payload);
       await refreshSlices(['expenses', 'cashTransactions']);
       showToast('تم تسجيل المصروف في الصندوق بنجاح', 'success');
+      return true;
     });
+    return result === true;
   };
 
-  const handleCreateCashAdjustment = async (payload: any) => {
-    await executeCrud('جاري تسجيل الحركة المالية...', async () => {
+  const handleCreateCashAdjustment = async (payload: any): Promise<boolean> => {
+    const result = await executeCrud('جاري تسجيل الحركة المالية...', async () => {
       if (!window.electronAPI.createCashAdjustment) throw new Error('وظيفة الصندوق غير متاحة في هذه النسخة');
       await window.electronAPI.createCashAdjustment(payload);
       await refreshSlices(['cashTransactions']);
       showToast('تم تسجيل الحركة المالية بنجاح', 'success');
+      return true;
     });
+    return result === true;
   };
 
   // 5. Inventory Updaters

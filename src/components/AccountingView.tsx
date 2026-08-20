@@ -1,7 +1,8 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import { ArrowDownLeft, ArrowUpRight, Banknote, ClipboardList, FilePlus2, PackagePlus, Plus, ReceiptText, WalletCards } from 'lucide-react';
 import { AccessoryItem, CashTransaction, ExpenseRecord, FabricItem, PaymentMethod, PurchaseLine, PurchaseRecord } from '../types';
 import { calculateCashDrawerSummary } from '../domain/cashRules';
+import { createSafeId } from '../domain/idGenerator';
 import { Badge, Button, Card, EmptyState, Input, Select } from './ui';
 
 interface AccountingViewProps {
@@ -10,9 +11,9 @@ interface AccountingViewProps {
   purchases: PurchaseRecord[];
   expenses: ExpenseRecord[];
   cashTransactions: CashTransaction[];
-  onCreatePurchase: (payload: any) => Promise<void> | void;
-  onCreateExpense: (payload: any) => Promise<void> | void;
-  onCreateCashAdjustment: (payload: any) => Promise<void> | void;
+  onCreatePurchase: (payload: any) => Promise<boolean | void> | boolean | void;
+  onCreateExpense: (payload: any) => Promise<boolean | void> | boolean | void;
+  onCreateCashAdjustment: (payload: any) => Promise<boolean | void> | boolean | void;
   showToast: (message: string, type: 'success' | 'danger' | 'warning' | 'info') => void;
 }
 
@@ -37,6 +38,7 @@ export const AccountingView: React.FC<AccountingViewProps> = ({
   const [lineQuantity, setLineQuantity] = useState('');
   const [lineUnitPrice, setLineUnitPrice] = useState('');
   const [purchaseLines, setPurchaseLines] = useState<DraftLine[]>([]);
+  const purchaseOperationIdRef = useRef<string | null>(null);
 
   const [expenseCategory, setExpenseCategory] = useState('تشغيل');
   const [expenseAmount, setExpenseAmount] = useState('');
@@ -44,6 +46,7 @@ export const AccountingView: React.FC<AccountingViewProps> = ({
   const [expenseMethod, setExpenseMethod] = useState<PaymentMethod>('cash');
   const [expenseDescription, setExpenseDescription] = useState('');
   const [expenseNotes, setExpenseNotes] = useState('');
+  const expenseOperationIdRef = useRef<string | null>(null);
 
   const [cashDirection, setCashDirection] = useState<'in' | 'out'>('in');
   const [cashSourceType, setCashSourceType] = useState<'opening_balance' | 'adjustment' | 'withdrawal'>('adjustment');
@@ -53,6 +56,7 @@ export const AccountingView: React.FC<AccountingViewProps> = ({
   const [cashReferenceNumber, setCashReferenceNumber] = useState('');
   const [cashDescription, setCashDescription] = useState('');
   const [cashNotes, setCashNotes] = useState('');
+  const cashOperationIdRef = useRef<string | null>(null);
 
   const itemOptions = lineType === 'fabric' ? fabrics : accessories;
   const selectedItem = itemOptions.find((item) => item.id === lineItemId);
@@ -77,7 +81,11 @@ export const AccountingView: React.FC<AccountingViewProps> = ({
       showToast('أدخل المورد وأضف صنفاً واحداً على الأقل', 'danger');
       return;
     }
-    await onCreatePurchase({ supplier, invoiceNumber, purchaseDate, paymentMethod: purchaseMethod, notes: purchaseNotes, lines: purchaseLines });
+    const operationId = purchaseOperationIdRef.current || createSafeId('PUR');
+    purchaseOperationIdRef.current = operationId;
+    const saved = await onCreatePurchase({ id: operationId, supplier, invoiceNumber, purchaseDate, paymentMethod: purchaseMethod, notes: purchaseNotes, lines: purchaseLines });
+    if (saved === false) return;
+    purchaseOperationIdRef.current = null;
     setSupplier(''); setInvoiceNumber(''); setPurchaseNotes(''); setPurchaseLines([]); setPurchaseDate(today());
   };
 
@@ -87,7 +95,11 @@ export const AccountingView: React.FC<AccountingViewProps> = ({
       showToast('أدخل وصف المصروف ومبلغاً صحيحاً', 'danger');
       return;
     }
-    await onCreateExpense({ category: expenseCategory, amount, expenseDate, paymentMethod: expenseMethod, description: expenseDescription, notes: expenseNotes });
+    const operationId = expenseOperationIdRef.current || createSafeId('EXP');
+    expenseOperationIdRef.current = operationId;
+    const saved = await onCreateExpense({ id: operationId, category: expenseCategory, amount, expenseDate, paymentMethod: expenseMethod, description: expenseDescription, notes: expenseNotes });
+    if (saved === false) return;
+    expenseOperationIdRef.current = null;
     setExpenseAmount(''); setExpenseDescription(''); setExpenseNotes('');
   };
 
@@ -97,7 +109,11 @@ export const AccountingView: React.FC<AccountingViewProps> = ({
       showToast('أدخل وصف الحركة ومبلغاً صحيحاً', 'danger');
       return;
     }
-    await onCreateCashAdjustment({ direction: cashDirection, sourceType: cashSourceType, amount, transactionDate: cashDate, paymentMethod: cashMethod, referenceNumber: cashReferenceNumber.trim() || undefined, description: cashDescription, notes: cashNotes });
+    const operationId = cashOperationIdRef.current || createSafeId('CASH');
+    cashOperationIdRef.current = operationId;
+    const saved = await onCreateCashAdjustment({ id: operationId, direction: cashDirection, sourceType: cashSourceType, amount, transactionDate: cashDate, paymentMethod: cashMethod, referenceNumber: cashReferenceNumber.trim() || undefined, description: cashDescription, notes: cashNotes });
+    if (saved === false) return;
+    cashOperationIdRef.current = null;
     setCashAmount(''); setCashReferenceNumber(''); setCashDescription(''); setCashNotes('');
   };
 

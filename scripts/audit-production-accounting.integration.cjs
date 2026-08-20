@@ -5,6 +5,7 @@ const path = require('node:path');
 const { app, BrowserWindow } = require('electron');
 const { SahwaDatabaseManager } = require('../dist-electron/db.js');
 const { registerIpcHandlers } = require('../dist-electron/ipcHandlers.js');
+const XLSX = require('xlsx');
 
 const issueCodes = (report) => report.issues.map((issue) => issue.code);
 
@@ -32,7 +33,7 @@ const issueCodes = (report) => report.issues.map((issue) => issue.code);
 
     await call('createFabric', {
       id: 'AUDIT-FABRIC', name: 'Audit Fabric', color: 'White', colorHex: '#fff',
-      purchasePrice: 10, sellingPrice: 20, quantityMeters: 5, minStockMeters: 1
+      purchasePrice: 10, sellingPrice: 20, quantityMeters: 20, minStockMeters: 1
     });
     await call('createAccessory', {
       id: 'AUDIT-ACCESSORY', name: 'Audit Accessory', category: 'Audit',
@@ -74,7 +75,7 @@ const issueCodes = (report) => report.issues.map((issue) => issue.code);
     await call('createOrder', {
       id: 'AUDIT-ORDER', orderNumber: 'AUDIT-ORDER-1', customerId: 'AUDIT-CUSTOMER', customerName: 'Audit Customer', customerPhone: '0500000001',
       thobeTypeName: 'ثوب', fabricId: 'AUDIT-FABRIC', fabricName: 'Audit Fabric', fabricColor: 'White', garmentCount: 1,
-      orderDate: '2026-08-20', deliveryDate: '2026-08-25', status: 'new', totalAmount: 100, paidAmount: 100,
+      orderDate: '2026-08-19', deliveryDate: '2026-08-25', status: 'new', totalAmount: 100, paidAmount: 100,
       initialPaymentMethod: 'cash', measurements: {}, styleDetails: {}
     });
     raw.prepare("UPDATE invoices SET payment_status = 'unpaid' WHERE order_id = ?").run('AUDIT-ORDER');
@@ -83,6 +84,21 @@ const issueCodes = (report) => report.issues.map((issue) => issue.code);
     assert.ok(issueCodes(report).includes('INVOICE_STATUS_MISMATCH'), JSON.stringify(report.issues));
 
     raw.prepare("UPDATE invoices SET payment_status = 'paid' WHERE order_id = ?").run('AUDIT-ORDER');
+
+    await call('createOrder', {
+      id: 'AUDIT-OLD-ORDER', orderNumber: 'AUDIT-OLD-1', customerId: 'AUDIT-CUSTOMER', customerName: 'Audit Customer', customerPhone: '0500000001',
+      thobeTypeName: 'ثوب', fabricId: 'AUDIT-FABRIC', fabricName: 'Audit Fabric', fabricColor: 'White', garmentCount: 1,
+      orderDate: '2026-08-01', deliveryDate: '2026-08-25', status: 'new', totalAmount: 200, paidAmount: 0,
+      initialPaymentMethod: 'cash', measurements: {}, styleDetails: {}
+    });
+    await call('addPayment', 'INV-AUDIT-OLD-1', 50, 'cash', 'تحصيل داخل الفترة', 'AUDIT-OLD-PAY');
+    const reportBuffer = await manager.generateExcelReport('2026-08-20', '2026-08-20');
+    const workbook = XLSX.read(reportBuffer, { type: 'buffer' });
+    const summaryRows = XLSX.utils.sheet_to_json(workbook.Sheets['ملخص المحاسبة']);
+    const summary = new Map(summaryRows.map((row) => [row['البيان'], row['القيمة']]));
+    assert.equal(Number(summary.get('إجمالي المبيعات')), 0, 'old order must not become current-period sales');
+    assert.equal(Number(summary.get('إجمالي التحصيل')), 50, 'collection date must drive period collections');
+    assert.equal(Number(summary.get('المبالغ المتبقية')), 150, 'open balances must include active orders regardless of order date');
     raw.prepare('DELETE FROM cash_transactions WHERE id = ?').run('AUDIT-EXPENSE-CASH');
     raw.prepare(`
       INSERT INTO cash_transactions
