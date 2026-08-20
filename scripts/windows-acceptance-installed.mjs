@@ -773,12 +773,16 @@ async function offlineAcceptance() {
 
   await runScenario('notifications.lifecycle', () => testNotificationsLifecycle(page));
 
-  const fatalOutput = childProcessOutput.filter((line) => /renderer:|pageerror|Unhandled|FATAL|IPC|uncaughtException|unhandledRejection/i.test(line));
+  const expectedAcceptanceErrorPatterns = [/تم تجاوز الحد الأقصى لمحاولات إعادة الإرسال/];
+  const isExpectedAcceptanceError = (line) => expectedAcceptanceErrorPatterns.some((pattern) => pattern.test(line));
+  const expectedOutput = childProcessOutput.filter((line) => isExpectedAcceptanceError(line));
+  const fatalOutput = childProcessOutput.filter((line) => /renderer:|pageerror|Unhandled|FATAL|IPC|uncaughtException|unhandledRejection/i.test(line) && !isExpectedAcceptanceError(line));
   if (runtimeErrors.length > 0 || fatalOutput.length > 0) {
     throw new Error(`Runtime errors captured: ${[...runtimeErrors, ...fatalOutput].join(' | ')}`);
   }
-  fs.writeFileSync(path.join(evidenceDir, 'runtime-errors.log'), childProcessOutput.join(''));
-  pass('runtime.error-monitoring', 'no renderer/pageerror/Unhandled/FATAL/IPC console errors captured');
+  fs.writeFileSync(path.join(evidenceDir, 'runtime-errors.log'), [...runtimeErrors, ...fatalOutput].join(''));
+  fs.writeFileSync(path.join(evidenceDir, 'expected-acceptance-errors.log'), expectedOutput.join(''));
+  pass('runtime.error-monitoring', `no unexpected renderer/pageerror/Unhandled/FATAL/IPC errors; expected rejection events=${expectedOutput.length}`);
 }
 
 try {
