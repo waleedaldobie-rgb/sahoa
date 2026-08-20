@@ -4,6 +4,7 @@ import { updateOrderMaterialsInDraft } from '../services/adapters/orderUpdateAda
 import { applyPaymentToDraft } from '../services/adapters/paymentDraftAdapter';
 import { insertStockMovementInDraft } from '../services/adapters/inventoryMovementDraftAdapter';
 import { updateAccessoryInDraft, updateFabricInDraft } from '../services/adapters/inventoryCatalogDraftAdapter';
+import { applyCashAdjustmentToDraft } from '../services/adapters/accountingDraftAdapter';
 
 function makeData(): AppData {
   return {
@@ -40,6 +41,25 @@ describe('Mock/Production business contract', () => {
     expect(draft.fabrics[0].quantityMeters).toBe(13);
     expect(draft.accessories[0].quantity).toBe(7);
     expect(draft.orderMaterialUsages.every((usage) => Boolean(usage.sourceMovementId))).toBe(true);
+  });
+
+  it('rebuilds active material usage when the fabric consumption rate changes without a garment-count change', () => {
+    const draft = makeData();
+    const order = { ...draft.orders[0], status: 'new' as const };
+    draft.orders[0] = order;
+    updateOrderMaterialsInDraft(draft, order, { ...order, garmentCount: 1, materialUsages: [{ itemType: 'accessory' as const, itemId: 'ACC-A', itemName: 'زر', quantity: 2, unit: 'حبة', unitCostAtUsage: 2 }] }, 7);
+    expect(draft.fabrics[0].quantityMeters).toBe(16.5);
+    expect(draft.orderMaterialUsages.find((usage) => usage.itemType === 'fabric')?.quantity).toBe(7);
+    expect(draft.orderMaterialUsages.find((usage) => usage.itemType === 'fabric')?.sourceMovementId).toBeTruthy();
+  });
+
+  it('rejects protected source types from Mock manual cash adjustments', () => {
+    const draft = makeData();
+    expect(() => applyCashAdjustmentToDraft(draft, {
+      sourceType: 'customer_payment', sourceId: 'FORGED', direction: 'in', amount: 10,
+      paymentMethod: 'cash', description: 'forged'
+    })).toThrow();
+    expect(draft.cashTransactions).toHaveLength(0);
   });
 
   it('preserves catalog quantity in Mock and changes it only through stock movement', () => {

@@ -1,4 +1,14 @@
-import { CashTransaction } from '../types';
+import { CashSourceType, CashTransaction } from '../types';
+
+export type ManualCashSourceType = Extract<CashSourceType, 'opening_balance' | 'adjustment' | 'withdrawal'>;
+export const MANUAL_CASH_SOURCE_TYPES: readonly ManualCashSourceType[] = ['opening_balance', 'adjustment', 'withdrawal'];
+
+export function assertValidManualCashSourceType(value: unknown): ManualCashSourceType {
+  if (typeof value !== 'string' || !MANUAL_CASH_SOURCE_TYPES.includes(value as ManualCashSourceType)) {
+    throw new Error('مصدر الحركة اليدوية غير صالح؛ استخدم opening_balance أو adjustment أو withdrawal');
+  }
+  return value as ManualCashSourceType;
+}
 
 export interface CashDrawerSummary {
   openingBalance: number;

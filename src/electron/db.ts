@@ -401,7 +401,10 @@ export class SahwaDatabaseManager {
       }
 
       // 2. Pre-Restore Safety Rolling Backup
-      await this.backupDatabase('pre_restore');
+      const preRestoreBackup = await this.backupDatabase('pre_restore');
+      if (!preRestoreBackup.success) {
+        return { success: false, error: `تعذر إنشاء نسخة أمان قبل الاستعادة: ${preRestoreBackup.error || 'سبب غير معروف'}` };
+      }
 
       // 3. Perform Transactional Wipe & Insert
       const db = this.getRawDb();
@@ -456,7 +459,7 @@ export class SahwaDatabaseManager {
           fabStmt.run(
             f.id, f.name, f.color, f.colorHex || '#ffffff',
             f.purchasePrice || 0, f.sellingPrice || 0, f.quantityMeters || 0,
-            f.minStockMeters || 10, new Date().toISOString()
+            f.minStockMeters || 10, f.createdAt || new Date().toISOString()
           );
         }
 
@@ -466,7 +469,8 @@ export class SahwaDatabaseManager {
           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         `);
         for (const a of (parsed.accessories as AccessoryItem[])) {
-          accStmt.run(a.id, a.name, a.category, a.quantity || 0, a.minStock || 5, a.unit || 'حبة', a.purchasePrice || 0, a.sellingPrice || 0, new Date().toISOString());
+                      accStmt.run(a.id, a.name, a.category, a.quantity || 0, a.minStock || 5, a.unit || 'حبة', a.purchasePrice || 0, a.sellingPrice || 0, a.createdAt || new Date().toISOString());
+
         }
 
         // Restore Dress Types
@@ -694,7 +698,8 @@ export class SahwaDatabaseManager {
       purchasePrice: f.purchase_price,
       sellingPrice: f.selling_price,
       quantityMeters: f.quantity_meters,
-      minStockMeters: f.min_stock_meters
+      minStockMeters: f.min_stock_meters,
+      createdAt: f.created_at
     }));
 
     const accessories = rawAccessories.map(a => ({
@@ -705,7 +710,8 @@ export class SahwaDatabaseManager {
       minStock: a.min_stock,
       unit: a.unit,
       purchasePrice: a.purchase_price || 0,
-      sellingPrice: a.selling_price || 0
+      sellingPrice: a.selling_price || 0,
+      createdAt: a.created_at
     }));
 
     const thobeTypes = rawThobeTypes.map(t => ({
@@ -822,8 +828,12 @@ export class SahwaDatabaseManager {
   public async generateExcelReport(startDate?: string, endDate?: string): Promise<Buffer> {
     const XLSX = await import('xlsx');
     const db = this.getRawDb();
-    const dateClause = startDate && endDate ? ' WHERE o.order_date >= ? AND o.order_date <= ?' : '';
-    const dateParams = startDate && endDate ? [startDate, endDate] : [];
+    const hasDateRange = Boolean(startDate && endDate);
+    const dateClause = hasDateRange
+      ? ` WHERE (\n          (o.order_date >= ? AND o.order_date <= ?)\n          OR EXISTS (\n            SELECT 1 FROM cash_transactions ct\n            WHERE ct.source_type = 'customer_payment'\n              AND ct.direction = 'in'\n              AND ct.order_id = o.id\n              AND ct.transaction_date >= ?\n              AND ct.transaction_date <= ?\n          )\n        )`
+      : '';
+    const orderDateParams = hasDateRange ? [startDate, endDate, startDate, endDate] : [];
+    const ledgerDateParams = hasDateRange ? [startDate, endDate] : [];
 
     const orders = db.prepare(`
       SELECT o.*,
@@ -833,15 +843,16 @@ export class SahwaDatabaseManager {
       ${dateClause}
       GROUP BY o.id
       ORDER BY o.order_date DESC
-    `).all(...dateParams) as any[];
-    const purchases = db.prepare(`SELECT * FROM purchases${startDate && endDate ? ' WHERE purchase_date >= ? AND purchase_date <= ?' : ''}`).all(...dateParams) as any[];
-    const expenses = db.prepare(`SELECT * FROM expenses${startDate && endDate ? ' WHERE expense_date >= ? AND expense_date <= ?' : ''}`).all(...dateParams) as any[];
-    const cashTransactions = db.prepare(`SELECT * FROM cash_transactions${startDate && endDate ? ' WHERE transaction_date >= ? AND transaction_date <= ?' : ''}`).all(...dateParams) as any[];
+    `).all(...orderDateParams) as any[];
+    const purchases = db.prepare(`SELECT * FROM purchases${hasDateRange ? ' WHERE purchase_date >= ? AND purchase_date <= ?' : ''}`).all(...ledgerDateParams) as any[];
+    const expenses = db.prepare(`SELECT * FROM expenses${hasDateRange ? ' WHERE expense_date >= ? AND expense_date <= ?' : ''}`).all(...ledgerDateParams) as any[];
+    const cashTransactions = db.prepare(`SELECT * FROM cash_transactions${hasDateRange ? ' WHERE transaction_date >= ? AND transaction_date <= ?' : ''}`).all(...ledgerDateParams) as any[];
     const fabrics = db.prepare('SELECT * FROM fabrics ORDER BY name').all() as any[];
     const accessories = db.prepare('SELECT * FROM accessories ORDER BY name').all() as any[];
 
     const activeOrders = orders.filter((order) => order.status !== 'cancelled');
-    const totalSales = activeOrders.reduce((sum, order) => sum + (order.total_amount || 0), 0);
+    const salesOrders = activeOrders.filter((order) => !hasDateRange || (order.order_date >= startDate! && order.order_date <= endDate!));
+    const totalSales = salesOrders.reduce((sum, order) => sum + (order.total_amount || 0), 0);
     const customerPayments = cashTransactions.filter((transaction) => transaction.direction === 'in' && transaction.source_type === 'customer_payment');
     const totalPaid = customerPayments.reduce((sum, transaction) => sum + (transaction.amount || 0), 0);
     const paidByOrder = new Map<string, number>();
@@ -851,7 +862,7 @@ export class SahwaDatabaseManager {
     const totalRemaining = activeOrders.reduce((sum, order) => sum + (order.remaining_amount || 0), 0);
     const totalPurchases = purchases.reduce((sum, purchase) => sum + (purchase.total_amount || 0), 0);
     const totalExpenses = expenses.reduce((sum, expense) => sum + (expense.amount || 0), 0);
-    const totalCost = activeOrders.reduce((sum, order) => sum + (order.material_cost || 0), 0);
+    const totalCost = salesOrders.reduce((sum, order) => sum + (order.material_cost || 0), 0);
     const inventoryValue = fabrics.reduce((sum, fabric) => sum + (fabric.quantity_meters * (fabric.purchase_price || 0)), 0)
       + accessories.reduce((sum, accessory) => sum + (accessory.quantity * (accessory.purchase_price || 0)), 0);
     const lowStockItems = fabrics.filter((fabric) => fabric.quantity_meters <= fabric.min_stock_meters).length

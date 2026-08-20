@@ -51,24 +51,26 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ data, dataRevision, sh
       return true;
     };
 
-    const filteredOrders = orders.filter((order) => isDateInSelectedPeriod(order.orderDate));
+    const filteredCash = (cashTransactions || []).filter((transaction) => isDateInSelectedPeriod(transaction.transactionDate));
+    const filteredOrders = orders.filter((order) => isDateInSelectedPeriod(order.orderDate) || filteredCash.some((transaction) => transaction.sourceType === 'customer_payment' && transaction.orderId === order.id));
     const filteredPurchases = (purchases || []).filter((purchase) => isDateInSelectedPeriod(purchase.purchaseDate));
     const filteredExpenses = (expenses || []).filter((expense) => isDateInSelectedPeriod(expense.expenseDate));
-    const filteredCash = (cashTransactions || []).filter((transaction) => isDateInSelectedPeriod(transaction.transactionDate));
     const filteredMovements = (stockMovements || []).filter((movement) => isDateInSelectedPeriod(movement.createdAt));
 
-    const totalOrdersCount = filteredOrders.length;
-    const totalSales = filteredOrders.filter((order) => order.status !== 'cancelled').reduce((sum, order) => sum + (order.totalAmount || 0), 0);
-    const deliveredOrders = filteredOrders.filter((order) => order.status === 'delivered');
+    const salesOrders = filteredOrders.filter((order) => isDateInSelectedPeriod(order.orderDate));
+    const activeOrders = filteredOrders.filter((order) => order.status !== 'cancelled');
+    const totalOrdersCount = salesOrders.length;
+    const totalSales = salesOrders.filter((order) => order.status !== 'cancelled').reduce((sum, order) => sum + (order.totalAmount || 0), 0);
+    const deliveredOrders = salesOrders.filter((order) => order.status === 'delivered');
     const actualRevenue = deliveredOrders.reduce((sum, order) => sum + (order.totalAmount || 0), 0);
     const collectedAmount = filteredCash
       .filter((transaction) => transaction.direction === 'in' && transaction.sourceType === 'customer_payment')
       .reduce((sum, transaction) => sum + transaction.amount, 0);
-    const remainingAmount = filteredOrders.reduce((sum, order) => sum + (order.remainingAmount || 0), 0);
+    const remainingAmount = activeOrders.reduce((sum, order) => sum + (order.remainingAmount || 0), 0);
     const totalPurchases = filteredPurchases.reduce((sum, purchase) => sum + (purchase.totalAmount || 0), 0);
     const totalExpenses = filteredExpenses.reduce((sum, expense) => sum + (expense.amount || 0), 0);
 
-    const materialCost = filteredOrders.filter((order) => order.status !== 'cancelled').reduce((sum, order) => {
+    const materialCost = salesOrders.filter((order) => order.status !== 'cancelled').reduce((sum, order) => {
       if (typeof order.materialCost === 'number') return sum + order.materialCost;
       const buyPrice = order.fabricBuyPriceAtOrder !== undefined && order.fabricBuyPriceAtOrder > 0 ? order.fabricBuyPriceAtOrder : (fabrics.find((fabric) => fabric.id === order.fabricId)?.purchasePrice || 0);
       const consumption = order.fabricConsumptionMeters !== undefined && order.fabricConsumptionMeters > 0 ? order.fabricConsumptionMeters : (order.garmentCount || 1) * 3.5;
