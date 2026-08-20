@@ -4,10 +4,10 @@ export interface DatabaseSettings {
   autoBackupIntervalHours: number; // default 1 hour
   maxBackupFiles: number; // default 14
   lastBackupTimestamp?: string;
-  schemaVersion: number; // current: 9
+  schemaVersion: number; // current: 10
 }
 
-export const CURRENT_SCHEMA_VERSION = 9;
+export const CURRENT_SCHEMA_VERSION = 10;
 
 export const CREATE_TABLES_SQL = `
 -- Enable PRAGMA FKs and WAL
@@ -104,6 +104,9 @@ CREATE TABLE IF NOT EXISTS orders (
   total_amount REAL NOT NULL DEFAULT 0,
   paid_amount REAL NOT NULL DEFAULT 0,
   remaining_amount REAL NOT NULL DEFAULT 0,
+  cash_received REAL NOT NULL DEFAULT 0,
+  overpayment_amount REAL NOT NULL DEFAULT 0,
+  cancellation_writeoff_amount REAL NOT NULL DEFAULT 0,
   is_custom_measurement INTEGER NOT NULL DEFAULT 0,
   measurements_json TEXT NOT NULL,
   style_details_json TEXT NOT NULL,
@@ -127,9 +130,29 @@ CREATE TABLE IF NOT EXISTS invoices (
   total_amount REAL NOT NULL DEFAULT 0,
   paid_amount REAL NOT NULL DEFAULT 0,
   remaining_amount REAL NOT NULL DEFAULT 0,
+  cash_received REAL NOT NULL DEFAULT 0,
+  overpayment_amount REAL NOT NULL DEFAULT 0,
+  cancellation_writeoff_amount REAL NOT NULL DEFAULT 0,
   payment_status TEXT NOT NULL DEFAULT 'unpaid',
   payments_json TEXT NOT NULL DEFAULT '[]',
   FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE CASCADE
+);
+
+-- Customer credit / refund-liability audit ledger. Entries are append-only.
+CREATE TABLE IF NOT EXISTS customer_credits (
+  id TEXT PRIMARY KEY,
+  customer_id TEXT NOT NULL,
+  order_id TEXT,
+  invoice_id TEXT,
+  payment_id TEXT,
+  entry_type TEXT NOT NULL CHECK (entry_type IN ('created', 'applied', 'refunded')),
+  amount REAL NOT NULL CHECK (amount >= 0),
+  reference_id TEXT,
+  notes TEXT,
+  created_at TEXT NOT NULL,
+  FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE RESTRICT,
+  FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE SET NULL,
+  FOREIGN KEY (invoice_id) REFERENCES invoices(id) ON DELETE SET NULL
 );
 
 -- Notifications
@@ -263,6 +286,9 @@ CREATE INDEX IF NOT EXISTS idx_cash_transactions_date ON cash_transactions(trans
 CREATE INDEX IF NOT EXISTS idx_cash_transactions_source ON cash_transactions(source_type, source_id);
 CREATE INDEX IF NOT EXISTS idx_order_material_usages_order ON order_material_usages(order_id);
 CREATE INDEX IF NOT EXISTS idx_order_events_order_date ON order_events(order_id, created_at);
-CREATE INDEX IF NOT EXISTS idx_order_events_created_at ON order_events(created_at);
-CREATE INDEX IF NOT EXISTS idx_order_events_type ON order_events(event_type);
+  CREATE INDEX IF NOT EXISTS idx_order_events_created_at ON order_events(created_at);
+  CREATE INDEX IF NOT EXISTS idx_order_events_type ON order_events(event_type);
+  CREATE INDEX IF NOT EXISTS idx_customer_credits_customer_created ON customer_credits(customer_id, created_at);
+  CREATE INDEX IF NOT EXISTS idx_customer_credits_source ON customer_credits(payment_id, entry_type);
+
 `;

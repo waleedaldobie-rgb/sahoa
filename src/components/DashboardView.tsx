@@ -1,5 +1,6 @@
 import React, { useMemo } from 'react';
 import { AppData, Order } from '../types';
+import { formatReportStatus } from '../domain/reportMetrics';
 import { DataRevision } from '../state/appDataStore';
 import { getCachedDerivedValue } from '../services/derivedDataCache';
 import { Card, Badge, Button, EmptyState } from './ui';
@@ -34,6 +35,8 @@ interface DashboardSummary {
   processingCount: number;
   readyCount: number;
   deliveredCount: number;
+  cancelledCount: number;
+  settledByCancellationCount: number;
   dueOrders: Order[];
   lowStockFabrics: AppData['fabrics'];
   lowStockAccessories: AppData['accessories'];
@@ -81,7 +84,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
   const summary = useMemo<DashboardSummary>(() => getCachedDerivedValue(cacheKey, () => {
     const dueOrders = data.orders
-      .filter((order) => order.status !== 'delivered' && order.deliveryDate <= todayStr)
+      .filter((order) => order.status !== 'delivered' && order.status !== 'cancelled' && order.deliveryDate <= todayStr)
       .sort((a, b) => a.deliveryDate.localeCompare(b.deliveryDate));
 
     return {
@@ -89,6 +92,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       processingCount: data.orders.filter((order) => order.status === 'processing').length,
       readyCount: data.orders.filter((order) => order.status === 'ready').length,
       deliveredCount: data.orders.filter((order) => order.status === 'delivered').length,
+      cancelledCount: data.orders.filter((order) => order.status === 'cancelled').length,
+      settledByCancellationCount: data.orders.filter((order) => order.status === 'cancelled' && Number(order.cancellationWriteoffAmount || 0) > 0).length,
       dueOrders,
       lowStockFabrics: data.fabrics.filter((item) => item.quantityMeters <= item.minStockMeters),
       lowStockAccessories: data.accessories.filter((item) => item.quantity <= item.minStock),
@@ -98,16 +103,15 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     };
   }), [cacheKey, data, todayStr]);
 
-  const getStatusBadge = (status: Order['status']) => {
-    switch (status) {
-      case 'new':
-        return <Badge variant="amber">جديد</Badge>;
-      case 'processing':
-        return <Badge variant="slate">تحت التنفيذ</Badge>;
-      case 'ready':
-        return <Badge variant="emerald">جاهز للتسليم</Badge>;
-      case 'delivered':
-        return <Badge variant="slate">تم التسليم</Badge>;
+  const getStatusBadge = (order: Order) => {
+    if (order.status === 'cancelled') {
+      return <Badge variant={Number(order.cancellationWriteoffAmount || 0) > 0 ? 'amber' : 'red'}>{formatReportStatus(Number(order.cancellationWriteoffAmount || 0) > 0 ? 'settled_by_cancellation' : 'cancelled')}</Badge>;
+    }
+    switch (order.status) {
+      case 'new': return <Badge variant="amber">جديد</Badge>;
+      case 'processing': return <Badge variant="slate">تحت التنفيذ</Badge>;
+      case 'ready': return <Badge variant="emerald">جاهز للتسليم</Badge>;
+      case 'delivered': return <Badge variant="slate">تم التسليم</Badge>;
     }
   };
 
@@ -142,6 +146,14 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       count: summary.newCount,
       description: 'بانتظار التجهيز والقص',
       icon: <Scissors className="h-6 w-6" />,
+      tone: 'neutral'
+    },
+    {
+      id: 'cancelled',
+      label: 'ملغاة / مسواة',
+      count: summary.cancelledCount,
+      description: summary.settledByCancellationCount > 0 ? `${summary.settledByCancellationCount} بتسوية غير نقدية` : 'مستبعدة من الإجراءات التشغيلية',
+      icon: <CircleAlert className="h-6 w-6" />,
       tone: 'neutral'
     }
   ] as const;
@@ -254,7 +266,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                       <span className={`rounded-md px-2 py-0.5 font-mono text-[11px] font-black ${overdue ? 'bg-rose-50 text-rose-600' : 'bg-amber-50 text-amber-700'}`}>
                         {overdue ? 'متأخر' : 'اليوم'} · {order.deliveryDate}
                       </span>
-                      {getStatusBadge(order.status)}
+                      {getStatusBadge(order)}
                     </div>
                   </button>
                 );
@@ -349,8 +361,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                     <td><div className="font-black text-[var(--color-text-token)]">{order.customerName}</div><div className="mt-0.5 font-mono text-[10px] font-bold text-[var(--color-text-muted-token)]">{order.customerPhone}</div></td>
                     <td className="font-bold text-[var(--color-text-muted-token)]">{order.thobeTypeName}</td>
                     <td className="font-mono font-black text-[var(--color-text-muted-token)]">{order.deliveryDate}</td>
-                    <td className="font-black">{order.remainingAmount > 0 ? <span className="font-mono text-rose-600">{order.remainingAmount} ر.س</span> : <Badge variant="emerald">مدفوع بالكامل</Badge>}</td>
-                    <td>{getStatusBadge(order.status)}</td>
+                    <td className="font-black">{order.status === 'cancelled' ? getStatusBadge(order) : order.remainingAmount > 0 ? <span className="font-mono text-rose-600">{order.remainingAmount} ر.س</span> : <Badge variant="emerald">مدفوع</Badge>}</td>
+                    <td>{getStatusBadge(order)}</td>
                     <td className="text-center"><Button variant="secondary" size="sm" onClick={() => onSelectOrder(order)}>عرض</Button></td>
                   </tr>
                 ))}

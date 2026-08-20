@@ -1,6 +1,6 @@
 import React, { useMemo, useRef, useState } from 'react';
 import { ArrowDownLeft, ArrowUpRight, Banknote, ClipboardList, FilePlus2, PackagePlus, Plus, ReceiptText, WalletCards } from 'lucide-react';
-import { AccessoryItem, CashTransaction, ExpenseRecord, FabricItem, PaymentMethod, PurchaseLine, PurchaseRecord } from '../types';
+import { AccessoryItem, CashTransaction, CustomerCreditRecord, ExpenseRecord, FabricItem, Invoice, PaymentMethod, PurchaseLine, PurchaseRecord } from '../types';
 import { calculateCashDrawerSummary } from '../domain/cashRules';
 import { createSafeId } from '../domain/idGenerator';
 import { Badge, Button, Card, EmptyState, Input, Select } from './ui';
@@ -11,6 +11,8 @@ interface AccountingViewProps {
   purchases: PurchaseRecord[];
   expenses: ExpenseRecord[];
   cashTransactions: CashTransaction[];
+  invoices: Invoice[];
+  customerCredits: CustomerCreditRecord[];
   onCreatePurchase: (payload: any) => Promise<boolean | void> | boolean | void;
   onCreateExpense: (payload: any) => Promise<boolean | void> | boolean | void;
   onCreateCashAdjustment: (payload: any) => Promise<boolean | void> | boolean | void;
@@ -25,7 +27,7 @@ const money = (value: number) => `${Number(value || 0).toLocaleString('ar-SA', {
 const paymentLabel: Record<PaymentMethod, string> = { cash: 'نقدي', card: 'بطاقة', transfer: 'تحويل' };
 
 export const AccountingView: React.FC<AccountingViewProps> = ({
-  fabrics, accessories, purchases, expenses, cashTransactions, onCreatePurchase, onCreateExpense, onCreateCashAdjustment, showToast
+  fabrics, accessories, purchases, expenses, cashTransactions, invoices, customerCredits, onCreatePurchase, onCreateExpense, onCreateCashAdjustment, showToast
 }) => {
   const [tab, setTab] = useState<AccountingTab>('purchases');
   const [supplier, setSupplier] = useState('');
@@ -62,6 +64,9 @@ export const AccountingView: React.FC<AccountingViewProps> = ({
   const selectedItem = itemOptions.find((item) => item.id === lineItemId);
   const purchaseTotal = purchaseLines.reduce((sum, line) => sum + line.totalAmount, 0);
   const cashSummary = useMemo(() => calculateCashDrawerSummary(cashTransactions), [cashTransactions]);
+  const appliedCustomerPayments = useMemo(() => invoices.reduce((sum, invoice) => sum + invoice.payments.reduce((subtotal, payment) => subtotal + Number(payment.amount || 0), 0), 0), [invoices]);
+  const cashReceivedFromCustomers = useMemo(() => cashTransactions.filter((transaction) => transaction.direction === 'in' && transaction.sourceType === 'customer_payment').reduce((sum, transaction) => sum + Number(transaction.amount || 0), 0), [cashTransactions]);
+  const customerCreditLiability = useMemo(() => customerCredits.reduce((sum, credit) => sum + (credit.entryType === 'created' ? credit.amount : -credit.amount), 0), [customerCredits]);
 
   const addLine = () => {
     const quantity = Number(lineQuantity);
@@ -161,7 +166,7 @@ export const AccountingView: React.FC<AccountingViewProps> = ({
       </div>}
 
       {tab === 'cash' && <div className="space-y-6">
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4"><Card title="الرصيد الافتتاحي" headerIcon={<WalletCards className="w-5 h-5" />}><p className="text-2xl font-black">{money(cashSummary.openingBalance)}</p></Card><Card title="إجمالي الدخل" headerIcon={<ArrowDownLeft className="w-5 h-5" />}><p className="text-2xl font-black text-emerald-700">{money(cashSummary.income)}</p></Card><Card title="إجمالي الخارج" headerIcon={<ArrowUpRight className="w-5 h-5" />}><p className="text-2xl font-black text-rose-700">{money(cashSummary.out)}</p></Card><Card title="الرصيد الحالي" headerIcon={<Banknote className="w-5 h-5" />}><p className="text-2xl font-black">{money(cashSummary.balance)}</p></Card></div>
+        <div className="grid grid-cols-2 lg:grid-cols-7 gap-4"><Card title="الرصيد الافتتاحي" headerIcon={<WalletCards className="w-5 h-5" />}><p className="text-2xl font-black">{money(cashSummary.openingBalance)}</p></Card><Card title="إجمالي الدخل" headerIcon={<ArrowDownLeft className="w-5 h-5" />}><p className="text-2xl font-black text-emerald-700">{money(cashSummary.income)}</p></Card><Card title="النقد المستلم من العملاء" headerIcon={<Banknote className="w-5 h-5" />}><p className="text-2xl font-black text-emerald-700">{money(cashReceivedFromCustomers)}</p></Card><Card title="التحصيل المطبق" headerIcon={<ClipboardList className="w-5 h-5" />}><p className="text-2xl font-black">{money(appliedCustomerPayments)}</p></Card><Card title="التزام ائتمان العملاء" headerIcon={<WalletCards className="w-5 h-5" />}><p className="text-2xl font-black text-amber-700">{money(customerCreditLiability)}</p></Card><Card title="إجمالي الخارج" headerIcon={<ArrowUpRight className="w-5 h-5" />}><p className="text-2xl font-black text-rose-700">{money(cashSummary.out)}</p></Card><Card title="الرصيد الحالي" headerIcon={<Banknote className="w-5 h-5" />}><p className="text-2xl font-black">{money(cashSummary.balance)}</p></Card></div>
         <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,.75fr)_minmax(0,1.25fr)] gap-6"><Card title="إضافة حركة مسموحة" subtitle="للبداية أو السحب أو التسوية فقط" headerIcon={<Plus className="w-5 h-5" />}><div className="space-y-4"><Select label="الاتجاه" value={cashDirection} onChange={(e) => setCashDirection(e.target.value as 'in' | 'out')}><option value="in">دخل</option><option value="out">خرج</option></Select><Select label="المصدر" value={cashSourceType} onChange={(e) => setCashSourceType(e.target.value as 'opening_balance' | 'adjustment' | 'withdrawal')}><option value="opening_balance">رصيد افتتاحي</option><option value="adjustment">تسوية مالية</option><option value="withdrawal">سحب</option></Select><Input label="المبلغ" type="number" min="0" step="0.01" value={cashAmount} onChange={(e) => setCashAmount(e.target.value)} /><Input label="التاريخ" type="date" value={cashDate} onChange={(e) => setCashDate(e.target.value)} /><Select label="طريقة الدفع" value={cashMethod} onChange={(e) => setCashMethod(e.target.value as PaymentMethod)}><option value="cash">نقدي</option><option value="card">بطاقة</option><option value="transfer">تحويل</option></Select><Input label="المرجع" value={cashReferenceNumber} onChange={(e) => setCashReferenceNumber(e.target.value)} placeholder="رقم سند أو مرجع داخلي (اختياري)" /><Input label="الوصف" value={cashDescription} onChange={(e) => setCashDescription(e.target.value)} /><Input label="ملاحظات" value={cashNotes} onChange={(e) => setCashNotes(e.target.value)} /><div className="flex justify-end"><Button type="button" onClick={saveCashAdjustment}>حفظ الحركة</Button></div></div></Card><Card title="سجل الصندوق الموحد" subtitle="الدفعات والمشتريات والمصروفات والتسويات في سجل واحد" headerIcon={<Banknote className="w-5 h-5" />}><div className="overflow-x-auto"><table className="sahwa-table w-full text-sm text-right"><thead className="bg-slate-50 text-xs font-black"><tr><th className="p-3">التاريخ</th><th className="p-3">المصدر</th><th className="p-3">المرجع</th><th className="p-3">الوصف</th><th className="p-3">الطريقة</th><th className="p-3">المبلغ</th></tr></thead><tbody>{cashTransactions.length === 0 ? <tr><td colSpan={6} className="p-8 text-center text-slate-400 font-bold">لا توجد حركات مالية بعد</td></tr> : cashTransactions.map((tx) => <tr key={tx.id} className="border-t border-slate-100"><td className="p-3">{tx.transactionDate}</td><td className="p-3"><Badge variant={tx.direction === 'in' ? 'emerald' : 'red'}>{tx.sourceType === 'customer_payment' ? 'دفعة عميل' : tx.sourceType === 'purchase' ? 'شراء' : tx.sourceType === 'expense' ? 'مصروف' : tx.sourceType === 'opening_balance' ? 'افتتاحي' : tx.sourceType === 'withdrawal' ? 'سحب' : 'تسوية'}</Badge></td><td className="p-3 font-mono text-xs text-slate-600">{tx.referenceNumber || '—'}</td><td className="p-3 font-bold">{tx.description}</td><td className="p-3">{paymentLabel[tx.paymentMethod]}</td><td className={`p-3 font-black ${tx.direction === 'in' ? 'text-emerald-700' : 'text-rose-700'}`}>{tx.direction === 'in' ? '+' : '-'} {money(tx.amount)}</td></tr>)}</tbody></table></div></Card></div>
       </div>}
     </div>

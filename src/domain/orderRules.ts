@@ -1,6 +1,7 @@
 import { OrderMaterialUsage } from '../types';
 import { round2 } from './inventoryRules';
-import { OrderStatus } from '../types';
+import { OrderStatus, PaymentSettlementStatus } from '../types';
+import { calculatePaymentSettlement } from './paymentSettlementRules';
 
 export const ORDER_STATUSES: readonly OrderStatus[] = ['new', 'processing', 'ready', 'delivered', 'cancelled'];
 
@@ -24,6 +25,67 @@ export interface OrderAmounts {
   paidAmount: number;
   remainingAmount: number;
   paymentStatus: 'paid' | 'partial' | 'unpaid';
+}
+
+export interface CancellationSettlementResult {
+  remainingAmount: number;
+  cancellationWriteoffAmount: number;
+  paymentStatus: Extract<PaymentSettlementStatus, 'paid' | 'settled_by_cancellation'>;
+}
+
+export function assertCancelledOrderFinancialImmutable(
+  existing: Record<string, unknown>,
+  next: Record<string, unknown>
+): void {
+  const financialFields = [
+    'total_amount',
+    'paid_amount',
+    'remaining_amount',
+    'cash_received',
+    'overpayment_amount',
+    'cancellation_writeoff_amount',
+    'totalAmount',
+    'paidAmount',
+    'remainingAmount',
+    'cashReceived',
+    'overpaymentAmount',
+    'cancellationWriteoffAmount'
+  ];
+  for (const field of financialFields) {
+    const counterpart = field.includes('_')
+      ? field.replace(/_([a-z])/g, (_, letter) => letter.toUpperCase())
+      : field.replace(/[A-Z]/g, (letter) => `_${letter.toLowerCase()}`);
+    const existingValue = existing[field] ?? existing[counterpart] ?? 0;
+    const nextValue = next[field] ?? next[counterpart] ?? 0;
+    if (Math.abs(Number(existingValue) - Number(nextValue)) > 0.0001) {
+      throw new Error('لا يمكن تعديل الحقول المالية لطلب ملغى');
+    }
+  }
+}
+
+export function calculateCancellationSettlement(input: {
+  invoiceTotal: unknown;
+  appliedPaid: unknown;
+  cashReceived: unknown;
+  cancellationWriteoffAmount: unknown;
+  customerId?: string | null;
+}): CancellationSettlementResult {
+  const result = calculatePaymentSettlement({
+    invoiceTotal: input.invoiceTotal,
+    appliedPaid: input.appliedPaid,
+    cashReceived: input.cashReceived,
+    cancellationWriteoff: input.cancellationWriteoffAmount,
+    cancelled: true,
+    customerId: input.customerId
+  });
+  if (result.paymentStatus !== 'paid' && result.paymentStatus !== 'settled_by_cancellation') {
+    throw new Error('حالة التسوية بعد الإلغاء غير صالحة');
+  }
+  return {
+    remainingAmount: result.remainingAmount,
+    cancellationWriteoffAmount: result.cancellationWriteoffAmount,
+    paymentStatus: result.paymentStatus
+  };
 }
 
 export function assertValidOrderAmounts(totalAmount: unknown, paidAmount: unknown): { total: number; paid: number } {

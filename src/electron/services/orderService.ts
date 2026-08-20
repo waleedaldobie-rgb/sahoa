@@ -2,9 +2,12 @@ import { Order, OrderMaterialUsage, PaymentRecord, StockMovement } from '../../t
 import { normalizeMeasurements, normalizeStyleDetails } from '../../services/shared/measurementDefaults';
 import { round2 } from '../../services/shared/inventoryRules';
 import { assertSafeInitialOrderStatus, assertValidOrderAmounts, calculateMaterialCost, calculateOrderAmounts, materialSignature } from '../../services/shared/orderRules';
+import { assertCancelledOrderFinancialImmutable } from '../../domain/orderRules';
 import { assertStoredPaymentAggregates, assertValidPaymentMethod, parsePaymentLedger } from '../../domain/paymentRules';
+import { calculatePaymentSettlement } from '../../domain/paymentSettlementRules';
 import { createSafeId } from '../../domain/idGenerator';
 import { CashRepository } from '../repositories/cashRepository';
+import { CustomerCreditRepository } from '../repositories/customerCreditRepository';
 import { OrderEventRepository } from '../repositories/orderEventRepository';
 import { OrderRepository } from '../repositories/orderRepository';
 import { OrderWriteRepository } from '../repositories/orderWriteRepository';
@@ -27,6 +30,7 @@ export class OrderService {
     private readonly orderWriteRepository: OrderWriteRepository,
     private readonly inventoryService: InventoryService,
     private readonly cashRepository: CashRepository,
+    private readonly customerCreditRepository: CustomerCreditRepository,
     private readonly eventRepository: OrderEventRepository,
     private readonly invoiceRepository: InvoiceRepository,
     private readonly db: { transaction<T>(callback: () => T): () => T }
@@ -54,13 +58,22 @@ export class OrderService {
     if (!Number.isFinite(rate) || rate <= 0) throw new Error('معدل استهلاك القماش غير صالح');
     const garmentCount = Number(orderData.garmentCount ?? 1);
     if (!Number.isInteger(garmentCount) || garmentCount < 1) throw new Error('عدد الثياب يجب أن يكون عدداً صحيحاً لا يقل عن 1');
-    const { total: validatedTotal, paid: validatedPaid } = assertValidOrderAmounts(orderData.totalAmount ?? 0, orderData.paidAmount ?? 0);
+    const requestedCashReceived = Number(orderData.cashReceived ?? orderData.paidAmount ?? 0);
+    if (!Number.isFinite(requestedCashReceived) || requestedCashReceived < 0) throw new Error('النقد المستلم غير صالح');
+    const requestedAppliedPaid = Math.min(requestedCashReceived, Number(orderData.totalAmount ?? 0));
+    const { total: validatedTotal, paid: validatedPaid } = assertValidOrderAmounts(orderData.totalAmount ?? 0, requestedAppliedPaid);
     const requiredMeters = garmentCount * rate;
     const tx = this.db.transaction(() => {
       const orderId = orderData.id || createSafeId('ORD');
       const orderNumber = orderData.orderNumber || this.orderRepository.nextOrderNumber();
       const amounts = calculateOrderAmounts(validatedTotal, validatedPaid);
       const { totalAmount, paidAmount, remainingAmount } = amounts;
+      const settlement = calculatePaymentSettlement({
+        invoiceTotal: totalAmount,
+        appliedPaid: paidAmount,
+        cashReceived: requestedCashReceived,
+        customerId: orderData.customerId
+      });
       const orderDate = orderData.orderDate || new Date().toISOString().slice(0, 10);
       const initialStatus = assertSafeInitialOrderStatus(orderData.status);
       const paymentMethod = assertValidPaymentMethod((orderData as any).initialPaymentMethod ?? 'cash');
@@ -96,6 +109,9 @@ export class OrderService {
         totalAmount,
         paidAmount,
         remainingAmount,
+        cashReceived: settlement.cashReceived,
+        overpaymentAmount: settlement.overpaymentAmount,
+        cancellationWriteoffAmount: 0,
         isCustomMeasurement: Boolean(orderData.isCustomMeasurement),
         measurementsJson: JSON.stringify(normalizeMeasurements(orderData.measurements)),
         styleDetailsJson: JSON.stringify(normalizeStyleDetails(orderData.styleDetails)),
@@ -149,12 +165,14 @@ export class OrderService {
       }
 
       const invId = `INV-${orderNumber}`;
-      const paymentId = paidAmount > 0 ? createSafeId('PAY') : undefined;
-      const initialPayments = paidAmount > 0 ? [{
+      const paymentId = settlement.cashReceived > 0 ? createSafeId('PAY') : undefined;
+      const initialPayments = paymentId ? [{
         id: paymentId,
         invoiceId: invId,
         orderId,
         amount: paidAmount,
+        cashReceived: settlement.cashReceived,
+        overpaymentAmount: settlement.overpaymentAmount,
         paymentDate: orderDate,
         method: paymentMethod,
         note: 'دفعة أولى عند إنشاء الطلب'
@@ -169,11 +187,14 @@ export class OrderService {
         totalAmount,
         paidAmount,
         remainingAmount,
-        paymentStatus: remainingAmount <= 0 ? 'paid' : paidAmount > 0 ? 'partial' : 'unpaid',
+        cashReceived: settlement.cashReceived,
+        overpaymentAmount: settlement.overpaymentAmount,
+        cancellationWriteoffAmount: 0,
+        paymentStatus: settlement.paymentStatus,
         paymentsJson: JSON.stringify(initialPayments)
       });
 
-      if (paidAmount > 0 && paymentId) {
+      if (paymentId) {
         this.cashRepository.insert({
           id: `CASH-PAY-${paymentId}`,
           direction: 'in',
@@ -181,10 +202,25 @@ export class OrderService {
           sourceId: paymentId,
           orderId,
           referenceNumber: orderNumber,
-          amount: paidAmount,
+          amount: settlement.cashReceived,
           paymentMethod: paymentMethod as any,
           transactionDate: orderDate,
           description: `دفعة أولى للطلب #${orderNumber}`,
+          createdAt
+        });
+      }
+
+      if (settlement.overpaymentAmount > 0 && orderData.customerId && paymentId) {
+        this.customerCreditRepository.insert({
+          id: `CREDIT-${paymentId}`,
+          customerId: orderData.customerId,
+          orderId,
+          invoiceId: invId,
+          paymentId,
+          entryType: 'created',
+          amount: settlement.overpaymentAmount,
+          referenceId: paymentId,
+          notes: `زيادة دفعة أولية للطلب #${orderNumber}`,
           createdAt
         });
       }
@@ -198,7 +234,14 @@ export class OrderService {
         description: `تم إنشاء الطلب #${orderNumber} وتسجيل الفاتورة${paidAmount > 0 ? ' والدفعة الأولى' : ''}.`,
         toStatus: initialStatus,
         actor: 'النظام',
-        metadata: { materialCost, paidAmount, remainingAmount },
+        metadata: {
+          materialCost,
+          paidAmount,
+          cashReceived: settlement.cashReceived,
+          overpaymentAmount: settlement.overpaymentAmount,
+          remainingAmount,
+          paymentStatus: settlement.paymentStatus
+        },
         createdAt
       });
       return { orderId, orderNumber, remainingAmount, materialUsages, materialCost, profit: round2(totalAmount - materialCost) };
@@ -215,7 +258,23 @@ export class OrderService {
       const invoice = this.invoiceRepository.findByOrderId(updatedOrder.id);
       if (!invoice) throw new Error('لا توجد فاتورة مرتبطة بالطلب');
       const existingPayments = parsePaymentLedger(invoice.payments_json);
-      const ledger = assertStoredPaymentAggregates(invoice.total_amount, invoice.paid_amount, invoice.remaining_amount, existingPayments);
+      const ledger = assertStoredPaymentAggregates(
+        invoice.total_amount,
+        invoice.paid_amount,
+        invoice.remaining_amount,
+        existingPayments,
+        invoice.cancellation_writeoff_amount
+      );
+      if (existing.status === 'cancelled') {
+        assertCancelledOrderFinancialImmutable(existing, {
+          totalAmount: updatedOrder.totalAmount ?? existing.total_amount,
+          paidAmount: existing.paid_amount,
+          remainingAmount: existing.remaining_amount,
+          cashReceived: existing.cash_received,
+          overpaymentAmount: existing.overpayment_amount,
+          cancellationWriteoffAmount: existing.cancellation_writeoff_amount
+        });
+      }
       const { total: validatedTotal } = assertValidOrderAmounts(updatedOrder.totalAmount ?? existing.total_amount, ledger.paidAmount);
 
       const rate = Number(fabricConsumptionRate || 3.5);
@@ -287,7 +346,16 @@ export class OrderService {
 
       const totalAmount = validatedTotal;
       const paidAmount = ledger.paidAmount;
-      const remainingAmount = calculateOrderAmounts(totalAmount, paidAmount).remainingAmount;
+      const ledgerCashReceived = round2(existingPayments.reduce((sum, payment) => sum + Number(payment.cashReceived ?? payment.amount), 0));
+      const settlement = calculatePaymentSettlement({
+        invoiceTotal: totalAmount,
+        appliedPaid: paidAmount,
+        cashReceived: ledgerCashReceived,
+        cancellationWriteoff: Number(invoice.cancellation_writeoff_amount || 0),
+        cancelled: existing.status === 'cancelled',
+        customerId: existing.customer_id
+      });
+      const remainingAmount = settlement.remainingAmount;
       if (Math.abs(Number(updatedOrder.paidAmount ?? paidAmount) - paidAmount) > 0.0001) {
         throw new Error('لا يمكن تعديل المبلغ المدفوع من خلال تحديث الطلب؛ استخدم مسار الدفعات');
       }
@@ -297,10 +365,21 @@ export class OrderService {
         fabricId: updatedOrder.fabricId, fabricName: updatedOrder.fabricName || 'قماش', fabricColor: updatedOrder.fabricColor || 'أبيض',
         garmentCount, fabricConsumptionMeters: newMeters, deliveryDate: updatedOrder.deliveryDate,
         status: existing.status, totalAmount: validatedTotal, paidAmount: ledger.paidAmount, remainingAmount,
+        cashReceived: settlement.cashReceived, overpaymentAmount: settlement.overpaymentAmount,
+        cancellationWriteoffAmount: settlement.cancellationWriteoffAmount,
         measurementsJson: JSON.stringify(normalizeMeasurements(updatedOrder.measurements)),
         styleDetailsJson: JSON.stringify(normalizeStyleDetails(updatedOrder.styleDetails)), notes: updatedOrder.notes || '', updatedAt: new Date().toISOString()
       });
-      this.invoiceRepository.updateAmounts(updatedOrder.id, totalAmount, paidAmount, remainingAmount, calculateOrderAmounts(totalAmount, paidAmount).paymentStatus);
+      this.invoiceRepository.updateAmounts(
+        updatedOrder.id,
+        totalAmount,
+        paidAmount,
+        remainingAmount,
+        settlement.paymentStatus,
+        settlement.cashReceived,
+        settlement.overpaymentAmount,
+        settlement.cancellationWriteoffAmount
+      );
     });
 
     updateTx();
@@ -324,21 +403,8 @@ export class OrderService {
 
       const invoice = this.invoiceRepository.findByOrderId(orderId);
       if (invoice) {
-        const ledgerPayments = this.cashRepository.listByOrderId(orderId);
-        for (const payment of ledgerPayments) {
-          const sourceId = payment.source_id || payment.id;
-          const reversalId = `CASH-REV-${sourceId}`;
-          if (!this.cashRepository.findById(reversalId)) {
-            this.cashRepository.insert({
-              id: reversalId, direction: 'out', sourceType: 'adjustment', sourceId,
-              orderId, referenceNumber: order.order_number, amount: Number(payment.amount), paymentMethod: payment.payment_method,
-              transactionDate: new Date().toISOString().slice(0, 10), description: `عكس دفعة بسبب حذف الطلب #${order.order_number}`,
-              createdAt: new Date().toISOString()
-            });
-          }
-        }
+        throw new Error('لا يمكن حذف طلب له سجل مالي؛ استخدم مسار الإلغاء أو الأرشفة دون عكس نقدي تلقائي');
       }
-      this.invoiceRepository.deleteByOrderId(orderId);
       this.orderWriteRepository.deleteMaterialUsages(orderId);
       this.orderWriteRepository.delete(orderId);
     });

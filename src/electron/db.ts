@@ -2,10 +2,11 @@ import Database from 'better-sqlite3';
 import fs from 'fs';
 import path from 'path';
 import { CREATE_TABLES_SQL, CURRENT_SCHEMA_VERSION, DatabaseSettings } from './schema';
-import { Customer, Order, OrderEvent, FabricItem, AccessoryItem, ThobeType, ColorItem, NotificationItem, Invoice, UserPreferences } from '../types';
+import { Customer, Order, OrderEvent, FabricItem, AccessoryItem, ThobeType, ColorItem, NotificationItem, Invoice, UserPreferences, CustomerCreditRecord } from '../types';
 import { DEFAULT_MEASUREMENTS, DEFAULT_STYLE_DETAILS, normalizeMeasurements, normalizeStyleDetails } from '../services/shared/measurementDefaults';
 import { MIGRATIONS } from './migrations';
 import { BACKUP_SCHEMA_VERSION, DatabaseIntegrityService } from './services/databaseIntegrityService';
+import { calculateReportProjection, formatReportStatus } from '../domain/reportMetrics';
 
 const parseMeasurementsJson = (value?: string) => {
   try { return normalizeMeasurements(JSON.parse(value || '{}')); }
@@ -410,6 +411,7 @@ export class SahwaDatabaseManager {
       const db = this.getRawDb();
       const restoreTx = db.transaction(() => {
         // Clear existing tables. New ledgers are cleared first so restore remains atomic and FK-safe.
+        db.prepare('DELETE FROM customer_credits').run();
         db.prepare('DELETE FROM order_events').run();
         db.prepare('DELETE FROM order_material_usages').run();
         db.prepare('DELETE FROM purchase_lines').run();
@@ -498,14 +500,18 @@ export class SahwaDatabaseManager {
             thobe_type_id, thobe_type_name, fabric_id, fabric_name, fabric_color,
             fabric_consumption_meters, fabric_buy_price_at_order, garment_count,
             order_date, delivery_date, status, total_amount, paid_amount, remaining_amount,
+            cash_received, overpayment_amount, cancellation_writeoff_amount,
             is_custom_measurement, measurements_json, style_details_json, notes, created_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `);
 
         for (const o of (parsed.orders as Order[])) {
           const total = o.totalAmount || 0;
           const paid = o.paidAmount || 0;
-          const remaining = total - paid;
+          const remaining = o.remainingAmount ?? Math.max(0, total - paid);
+          const cashReceived = o.cashReceived ?? paid;
+          const overpaymentAmount = o.overpaymentAmount ?? 0;
+          const cancellationWriteoffAmount = o.cancellationWriteoffAmount ?? 0;
 
           ordStmt.run(
             o.id, o.orderNumber, o.customerId, o.customerName, o.customerPhone,
@@ -513,7 +519,8 @@ export class SahwaDatabaseManager {
             o.fabricName || 'قماش', o.fabricColor || 'أبيض',
             o.fabricConsumptionMeters || 3.5, o.fabricBuyPriceAtOrder || 0,
             o.garmentCount || 1, o.orderDate, o.deliveryDate, o.status || 'new',
-            total, paid, remaining, o.isCustomMeasurement ? 1 : 0,
+            total, paid, remaining, cashReceived, overpaymentAmount, cancellationWriteoffAmount,
+            o.isCustomMeasurement ? 1 : 0,
             JSON.stringify(normalizeMeasurements(o.measurements)), JSON.stringify(normalizeStyleDetails(o.styleDetails)),
             o.notes || '', o.createdAt || new Date().toISOString()
           );
@@ -524,15 +531,35 @@ export class SahwaDatabaseManager {
           const invStmt = db.prepare(`
             INSERT INTO invoices (
               id, invoice_number, order_id, customer_name, customer_phone,
-              order_date, total_amount, paid_amount, remaining_amount, payment_status, payments_json
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+              order_date, total_amount, paid_amount, remaining_amount,
+              cash_received, overpayment_amount, cancellation_writeoff_amount,
+              payment_status, payments_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
           `);
           for (const inv of (parsed.invoices as Invoice[])) {
-            const rem = (inv.totalAmount || 0) - (inv.paidAmount || 0);
+            const rem = inv.remainingAmount ?? Math.max(0, (inv.totalAmount || 0) - (inv.paidAmount || 0) - (inv.cancellationWriteoffAmount || 0));
             invStmt.run(
               inv.id, inv.invoiceNumber, inv.orderId, inv.customerName, inv.customerPhone,
               inv.orderDate, inv.totalAmount || 0, inv.paidAmount || 0, rem,
-              inv.paymentStatus || 'unpaid', JSON.stringify(inv.payments || [])
+              inv.cashReceived ?? inv.paidAmount ?? 0, inv.overpaymentAmount || 0,
+              inv.cancellationWriteoffAmount || 0, inv.paymentStatus || 'unpaid', JSON.stringify(inv.payments || [])
+            );
+          }
+        }
+
+        // Restore customer credit / refund-liability audit ledger.
+        if (Array.isArray(parsed.customerCredits)) {
+          const creditStmt = db.prepare(`
+            INSERT INTO customer_credits (
+              id, customer_id, order_id, invoice_id, payment_id, entry_type,
+              amount, reference_id, notes, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `);
+          for (const credit of parsed.customerCredits as CustomerCreditRecord[]) {
+            creditStmt.run(
+              credit.id, credit.customerId, credit.orderId || null, credit.invoiceId || null,
+              credit.paymentId || null, credit.entryType, credit.amount,
+              credit.referenceId || null, credit.notes || null, credit.createdAt || new Date().toISOString()
             );
           }
         }
@@ -658,6 +685,7 @@ export class SahwaDatabaseManager {
     const rawCashTransactions = db.prepare('SELECT * FROM cash_transactions').all() as any[];
     const rawOrderMaterialUsages = db.prepare('SELECT * FROM order_material_usages').all() as any[];
     const rawOrderEvents = db.prepare('SELECT * FROM order_events ORDER BY created_at DESC').all() as any[];
+    const rawCustomerCredits = db.prepare('SELECT * FROM customer_credits ORDER BY created_at ASC').all() as any[];
 
     const purchaseLinesMap = new Map<string, any[]>();
     for (const line of rawPurchaseLines) {
@@ -747,6 +775,9 @@ export class SahwaDatabaseManager {
       totalAmount: o.total_amount,
       paidAmount: o.paid_amount,
       remainingAmount: o.remaining_amount,
+      cashReceived: o.cash_received,
+      overpaymentAmount: o.overpayment_amount,
+      cancellationWriteoffAmount: o.cancellation_writeoff_amount,
       isCustomMeasurement: Boolean(o.is_custom_measurement),
       measurements: parseMeasurementsJson(o.measurements_json),
       styleDetails: parseStyleDetailsJson(o.style_details_json),
@@ -764,6 +795,9 @@ export class SahwaDatabaseManager {
       totalAmount: i.total_amount,
       paidAmount: i.paid_amount,
       remainingAmount: i.remaining_amount,
+      cashReceived: i.cash_received,
+      overpaymentAmount: i.overpayment_amount,
+      cancellationWriteoffAmount: i.cancellation_writeoff_amount,
       paymentStatus: i.payment_status,
       payments: JSON.parse(i.payments_json || '[]')
     }));
@@ -813,12 +847,18 @@ export class SahwaDatabaseManager {
       fromStatus: e.from_status || undefined, toStatus: e.to_status || undefined, actor: e.actor || undefined,
       metadata: e.metadata_json ? JSON.parse(e.metadata_json) : undefined, createdAt: e.created_at
     }));
+    const customerCredits = rawCustomerCredits.map(c => ({
+      id: c.id, customerId: c.customer_id, orderId: c.order_id || undefined,
+      invoiceId: c.invoice_id || undefined, paymentId: c.payment_id || undefined,
+      entryType: c.entry_type, amount: c.amount, referenceId: c.reference_id || undefined,
+      notes: c.notes || undefined, createdAt: c.created_at
+    }));
 
     return {
       backupSchemaVersion: BACKUP_SCHEMA_VERSION,
       schemaVersion: CURRENT_SCHEMA_VERSION,
       customers, fabrics, accessories, thobeTypes, colors, orders, invoices, notifications,
-      stockMovements, purchases, expenses, cashTransactions, orderMaterialUsages, orderEvents
+      stockMovements, purchases, expenses, cashTransactions, orderMaterialUsages, orderEvents, customerCredits
     };
   }
 
@@ -827,79 +867,77 @@ export class SahwaDatabaseManager {
    */
   public async generateExcelReport(startDate?: string, endDate?: string): Promise<Buffer> {
     const XLSX = await import('xlsx');
-    const db = this.getRawDb();
-    const hasDateRange = Boolean(startDate && endDate);
-    const dateClause = hasDateRange
-      ? ` WHERE (\n          (o.order_date >= ? AND o.order_date <= ?)\n          OR EXISTS (\n            SELECT 1 FROM cash_transactions ct\n            WHERE ct.source_type = 'customer_payment'\n              AND ct.direction = 'in'\n              AND ct.order_id = o.id\n              AND ct.transaction_date >= ?\n              AND ct.transaction_date <= ?\n          )\n        )`
-      : '';
-    const orderDateParams = hasDateRange ? [startDate, endDate, startDate, endDate] : [];
-    const ledgerDateParams = hasDateRange ? [startDate, endDate] : [];
-
-    const orders = db.prepare(`
-      SELECT o.*,
-        COALESCE(SUM(omu.total_cost), o.fabric_consumption_meters * o.fabric_buy_price_at_order) AS material_cost
-      FROM orders o
-      LEFT JOIN order_material_usages omu ON omu.order_id = o.id
-      ${dateClause}
-      GROUP BY o.id
-      ORDER BY o.order_date DESC
-    `).all(...orderDateParams) as any[];
-    const purchases = db.prepare(`SELECT * FROM purchases${hasDateRange ? ' WHERE purchase_date >= ? AND purchase_date <= ?' : ''}`).all(...ledgerDateParams) as any[];
-    const expenses = db.prepare(`SELECT * FROM expenses${hasDateRange ? ' WHERE expense_date >= ? AND expense_date <= ?' : ''}`).all(...ledgerDateParams) as any[];
-    const cashTransactions = db.prepare(`SELECT * FROM cash_transactions${hasDateRange ? ' WHERE transaction_date >= ? AND transaction_date <= ?' : ''}`).all(...ledgerDateParams) as any[];
-    const fabrics = db.prepare('SELECT * FROM fabrics ORDER BY name').all() as any[];
-    const accessories = db.prepare('SELECT * FROM accessories ORDER BY name').all() as any[];
-
-    const activeOrders = orders.filter((order) => order.status !== 'cancelled');
-    const salesOrders = activeOrders.filter((order) => !hasDateRange || (order.order_date >= startDate! && order.order_date <= endDate!));
-    const totalSales = salesOrders.reduce((sum, order) => sum + (order.total_amount || 0), 0);
-    const customerPayments = cashTransactions.filter((transaction) => transaction.direction === 'in' && transaction.source_type === 'customer_payment');
-    const totalPaid = customerPayments.reduce((sum, transaction) => sum + (transaction.amount || 0), 0);
-    const paidByOrder = new Map<string, number>();
-    for (const transaction of customerPayments) {
-      if (transaction.order_id) paidByOrder.set(transaction.order_id, (paidByOrder.get(transaction.order_id) || 0) + (transaction.amount || 0));
+    const data = this.exportFullDataAsJson() as any;
+    const materialCostByOrder = new Map<string, number>();
+    for (const usage of data.orderMaterialUsages || []) {
+      materialCostByOrder.set(usage.orderId, (materialCostByOrder.get(usage.orderId) || 0) + Number(usage.totalCost || 0));
     }
-    const totalRemaining = activeOrders.reduce((sum, order) => sum + (order.remaining_amount || 0), 0);
-    const totalPurchases = purchases.reduce((sum, purchase) => sum + (purchase.total_amount || 0), 0);
-    const totalExpenses = expenses.reduce((sum, expense) => sum + (expense.amount || 0), 0);
-    const totalCost = salesOrders.reduce((sum, order) => sum + (order.material_cost || 0), 0);
-    const inventoryValue = fabrics.reduce((sum, fabric) => sum + (fabric.quantity_meters * (fabric.purchase_price || 0)), 0)
-      + accessories.reduce((sum, accessory) => sum + (accessory.quantity * (accessory.purchase_price || 0)), 0);
-    const lowStockItems = fabrics.filter((fabric) => fabric.quantity_meters <= fabric.min_stock_meters).length
-      + accessories.filter((accessory) => accessory.quantity <= accessory.min_stock).length;
-
-    const orderRows = orders.map((order, index) => ({
-      'م': index + 1,
-      'رقم الطلب': order.order_number,
-      'اسم العميل': order.customer_name,
-      'رقم الجوال': order.customer_phone,
-      'نوع الثوب': order.thobe_type_name,
-      'القماش واللون': `${order.fabric_name} (${order.fabric_color})`,
-      'تاريخ الطلب': order.order_date,
-      'تاريخ التسليم': order.delivery_date,
-      'حالة الطلب': order.status === 'delivered' ? 'مُسلم' : order.status === 'ready' ? 'جاهز' : 'قيد التنفيذ',
-      'الإجمالي (ر.س)': order.total_amount,
-      'المدفوع في الفترة (ر.س)': paidByOrder.get(order.id) || 0,
-      'المتبقي (ر.س)': order.remaining_amount
+    const orders = (data.orders || []).map((order: any) => ({
+      ...order,
+      materialCost: materialCostByOrder.get(order.id) || (Number(order.fabricConsumptionMeters || 0) * Number(order.fabricBuyPriceAtOrder || 0))
     }));
-
+    const projection = calculateReportProjection({
+      orders,
+      invoices: data.invoices || [],
+      cashTransactions: data.cashTransactions || [],
+      customerCredits: data.customerCredits || [],
+      purchases: data.purchases || [],
+      expenses: data.expenses || [],
+      stockMovements: data.stockMovements || [],
+      orderEvents: data.orderEvents || [],
+      startDate,
+      endDate
+    });
+    const statusLabel = (status: string) => status === 'cancelled' ? 'ملغى' : status === 'delivered' ? 'مُسلم' : status === 'ready' ? 'جاهز' : status === 'processing' ? 'تحت التنفيذ' : 'جديد';
+    const orderRows = projection.details.map((detail, index) => ({
+      'م': index + 1,
+      'رقم الطلب': detail.order.orderNumber,
+      'اسم العميل': detail.order.customerName,
+      'رقم الجوال': detail.order.customerPhone,
+      'نوع الثوب': detail.order.thobeTypeName,
+      'القماش واللون': detail.order.fabricName + ' (' + detail.order.fabricColor + ')',
+      'تاريخ الطلب': detail.order.orderDate,
+      'تاريخ التسليم': detail.order.deliveryDate,
+      'حالة الطلب': statusLabel(detail.order.status),
+      'حالة التسوية': formatReportStatus(detail.settlementStatus),
+      'داخل المبيعات': detail.includedInSales ? 'نعم' : 'لا',
+      'داخل الإيراد المعترف به': detail.includedInRecognizedRevenue ? 'نعم' : 'لا',
+      'applied_paid (ر.س)': detail.appliedPaid,
+      'cash_received (ر.س)': detail.cashReceived,
+      'overpayment (ر.س)': detail.overpaymentAmount,
+      'cancellation writeoff (ر.س)': detail.cancellationWriteoffAmount,
+      'الإجمالي (ر.س)': detail.order.totalAmount,
+      'المتبقي (ر.س)': detail.order.remainingAmount,
+      'تكلفة المواد (ر.س)': detail.order.materialCost || 0,
+      'الربح المعترف به (ر.س)': detail.includedInRecognizedRevenue ? Number(detail.order.totalAmount || 0) - Number(detail.order.materialCost || 0) : 0
+    }));
     const summaryRows = [
-      { البيان: 'إجمالي المبيعات', القيمة: totalSales },
-      { البيان: 'إجمالي التحصيل', القيمة: totalPaid },
-      { البيان: 'المبالغ المتبقية', القيمة: totalRemaining },
-      { البيان: 'إجمالي المشتريات', القيمة: totalPurchases },
-      { البيان: 'إجمالي المصروفات', القيمة: totalExpenses },
-      { البيان: 'تكلفة المواد', القيمة: totalCost },
-      { البيان: 'صافي الربح', القيمة: totalSales - totalCost - totalExpenses },
-      { البيان: 'قيمة المخزون', القيمة: inventoryValue },
-      { البيان: 'أصناف منخفضة المخزون', القيمة: lowStockItems }
+      { البيان: 'Sales booked', القيمة: projection.salesBooked },
+      { البيان: 'Recognized revenue', القيمة: projection.recognizedRevenue },
+      { البيان: 'Applied collected', القيمة: projection.appliedCollected },
+      { البيان: 'Cash received', القيمة: projection.cashReceived },
+      { البيان: 'Overpayment created', القيمة: projection.overpaymentCreated },
+      { البيان: 'Overpayment applied', القيمة: projection.overpaymentApplied },
+      { البيان: 'Overpayment refunded', القيمة: projection.overpaymentRefunded },
+      { البيان: 'Closing customer credit liability', القيمة: projection.closingCustomerCreditLiability },
+      { البيان: 'Cancellation Writeoff (Non-Cash Settlement)', القيمة: projection.cancellationWriteoff },
+      { البيان: 'Active outstanding balance', القيمة: projection.activeOutstanding },
+      { البيان: 'إجمالي المشتريات', القيمة: projection.totalPurchases },
+      { البيان: 'إجمالي المصروفات', القيمة: projection.totalExpenses },
+      { البيان: 'تكلفة المواد المعترف بها', القيمة: projection.recognizedMaterialCost },
+      { البيان: 'صافي الربح', القيمة: projection.netProfit },
+      { البيان: 'الطلبات الملغاة', القيمة: projection.cancelledOrdersCount },
+      { البيان: 'الطلبات المسواة بالإلغاء', القيمة: projection.settledByCancellationCount }
     ];
-
+    const fabrics = data.fabrics || [];
+    const accessories = data.accessories || [];
     const inventoryRows = [
-      ...fabrics.map((fabric) => ({ النوع: 'قماش', الصنف: fabric.name, الكمية: fabric.quantity_meters, الوحدة: 'متر', 'سعر الشراء': fabric.purchase_price || 0, 'قيمة المخزون': fabric.quantity_meters * (fabric.purchase_price || 0) })),
-      ...accessories.map((accessory) => ({ النوع: 'مستلزم', الصنف: accessory.name, الكمية: accessory.quantity, الوحدة: accessory.unit, 'سعر الشراء': accessory.purchase_price || 0, 'قيمة المخزون': accessory.quantity * (accessory.purchase_price || 0) }))
+      ...fabrics.map((fabric: any) => ({ النوع: 'قماش', الصنف: fabric.name, الكمية: fabric.quantityMeters, الوحدة: 'متر', 'سعر الشراء': fabric.purchasePrice || 0, 'قيمة المخزون': fabric.quantityMeters * (fabric.purchasePrice || 0) })),
+      ...accessories.map((accessory: any) => ({ النوع: 'مستلزم', الصنف: accessory.name, الكمية: accessory.quantity, الوحدة: accessory.unit, 'سعر الشراء': accessory.purchasePrice || 0, 'قيمة المخزون': accessory.quantity * (accessory.purchasePrice || 0) }))
     ];
-
+    const lowStockItems = fabrics.filter((fabric: any) => fabric.quantityMeters <= fabric.minStockMeters).length + accessories.filter((accessory: any) => accessory.quantity <= accessory.minStock).length;
+    summaryRows.push({ البيان: 'قيمة المخزون', القيمة: inventoryRows.reduce((sum, row) => sum + Number(row['قيمة المخزون'] || 0), 0) });
+    summaryRows.push({ البيان: 'أصناف منخفضة المخزون', القيمة: lowStockItems });
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(orderRows), 'تقرير المبيعات');
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(summaryRows), 'ملخص المحاسبة');

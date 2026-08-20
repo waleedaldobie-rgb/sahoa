@@ -1,5 +1,6 @@
 import { AppData, Order, OrderMaterialUsage, OrderMaterialUsageInput, StockMovement } from '../../types';
 import { calculateMaterialCost, calculateOrderAmounts } from '../../domain/orderRules';
+import { calculatePaymentUpdate } from '../../domain/paymentRules';
 import { createSafeId } from '../../domain/idGenerator';
 import { normalizeMeasurements, normalizeStyleDetails } from '../shared/measurementDefaults';
 import { round2 } from '../shared/inventoryRules';
@@ -18,6 +19,8 @@ type OrderBuildContext = {
   garmentCount: number;
   totalAmount: number;
   paidAmount: number;
+  cashReceived: number;
+  overpaymentAmount: number;
   materialUsages: OrderMaterialUsage[];
   materialCost: number;
   createdAt: string;
@@ -88,6 +91,8 @@ export function buildOrderDraft(orderData: Partial<Order>, context: OrderBuildCo
     garmentCount,
     totalAmount,
     paidAmount,
+    cashReceived,
+    overpaymentAmount,
     materialUsages,
     materialCost,
     createdAt
@@ -117,6 +122,8 @@ export function buildOrderDraft(orderData: Partial<Order>, context: OrderBuildCo
     totalAmount,
     paidAmount,
     remainingAmount: round2(totalAmount - paidAmount),
+    cashReceived,
+    overpaymentAmount,
     isCustomMeasurement: Boolean(orderData.isCustomMeasurement),
     measurements: normalizeMeasurements(orderData.measurements),
     styleDetails: normalizeStyleDetails(orderData.styleDetails),
@@ -133,16 +140,19 @@ export function buildInitialInvoiceDraft(
   paidAmount: number
 ) {
   const invoiceId = `INV-${orderNumber}`;
-  const paymentStatus = calculateOrderAmounts(totalAmount, paidAmount).paymentStatus;
-  const paymentId = paidAmount > 0
-    ? createSafeId('PAY')
-    : undefined;
-  const payment = paidAmount > 0 && paymentId
+  const settlement = paidAmount > 0
+    ? calculatePaymentUpdate(totalAmount, 0, totalAmount, paidAmount)
+    : { numericAmount: 0, cashReceived: 0, overpaymentAmount: 0, ...calculateOrderAmounts(totalAmount, 0) };
+  const paymentStatus = settlement.paymentStatus;
+  const paymentId = settlement.cashReceived > 0 ? createSafeId('PAY') : undefined;
+  const payment = paymentId
     ? {
         id: paymentId,
         invoiceId,
         orderId,
-        amount: paidAmount,
+        amount: settlement.numericAmount,
+        cashReceived: settlement.cashReceived,
+        overpaymentAmount: settlement.overpaymentAmount,
         paymentDate: orderData.orderDate || new Date().toISOString().slice(0, 10),
         method: orderData.initialPaymentMethod || 'cash',
         note: 'دفعة أولى عند إنشاء الطلب'
@@ -158,11 +168,14 @@ export function buildInitialInvoiceDraft(
       customerPhone: orderData.customerPhone || '',
       orderDate: orderData.orderDate || new Date().toISOString().slice(0, 10),
       totalAmount,
-      paidAmount,
-      remainingAmount: calculateOrderAmounts(totalAmount, paidAmount).remainingAmount,
+      paidAmount: settlement.paidAmount,
+      remainingAmount: settlement.remainingAmount,
       paymentStatus,
+      cashReceived: settlement.cashReceived,
+      overpaymentAmount: settlement.overpaymentAmount,
       payments: payment ? [payment] : []
     },
-    payment
+    payment,
+    settlement
   };
 }

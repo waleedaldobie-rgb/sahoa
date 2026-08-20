@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { AppData } from '../types';
+import { calculateReportProjection, formatReportStatus } from '../domain/reportMetrics';
 import { DataRevision } from '../state/appDataStore';
 import { getCachedDerivedValue } from '../services/derivedDataCache';
 import { Button, Badge, EmptyState } from './ui';
@@ -29,7 +30,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ data, dataRevision, sh
   });
   const [endDate, setEndDate] = useState(() => new Date().toISOString().split('T')[0]);
 
-  const { orders, fabrics, accessories, purchases, expenses, cashTransactions, stockMovements } = data;
+  const { orders, invoices, fabrics, accessories, purchases, expenses, cashTransactions, stockMovements, customerCredits, orderEvents } = data;
   const reportCacheKey = `reports:${dataRevision.global}:${periodFilter}:${startDate}:${endDate}`;
   const inventoryStats = React.useMemo(() => getCachedDerivedValue(`inventory:${dataRevision.inventory}`, () => ({
     inventoryValue: fabrics.reduce((sum, fabric) => sum + (fabric.quantityMeters * (fabric.purchasePrice || 0)), 0) + accessories.reduce((sum, accessory) => sum + (accessory.quantity * (accessory.purchasePrice || 0)), 0),
@@ -40,81 +41,80 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ data, dataRevision, sh
   })), [accessories, dataRevision.inventory, fabrics]);
 
   const reportStats = React.useMemo(() => getCachedDerivedValue(reportCacheKey, () => {
-    const isDateInSelectedPeriod = (value: string) => {
-      const date = new Date(value);
-      const now = new Date();
-      if (periodFilter === 'today') return value.slice(0, 10) === now.toISOString().slice(0, 10);
-      if (periodFilter === 'week') return date >= new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-      if (periodFilter === 'month') return date.getMonth() === now.getMonth() && date.getFullYear() === now.getFullYear();
-      if (periodFilter === 'year') return date.getFullYear() === now.getFullYear();
-      if (periodFilter === 'custom') return value.slice(0, 10) >= startDate && value.slice(0, 10) <= endDate;
-      return true;
-    };
-
-    const filteredCash = (cashTransactions || []).filter((transaction) => isDateInSelectedPeriod(transaction.transactionDate));
-    const filteredOrders = orders.filter((order) => isDateInSelectedPeriod(order.orderDate) || filteredCash.some((transaction) => transaction.sourceType === 'customer_payment' && transaction.orderId === order.id));
-    const filteredPurchases = (purchases || []).filter((purchase) => isDateInSelectedPeriod(purchase.purchaseDate));
-    const filteredExpenses = (expenses || []).filter((expense) => isDateInSelectedPeriod(expense.expenseDate));
-    const filteredMovements = (stockMovements || []).filter((movement) => isDateInSelectedPeriod(movement.createdAt));
-
-    const salesOrders = filteredOrders.filter((order) => isDateInSelectedPeriod(order.orderDate));
-    const activeOrders = filteredOrders.filter((order) => order.status !== 'cancelled');
-    const totalOrdersCount = salesOrders.length;
-    const totalSales = salesOrders.filter((order) => order.status !== 'cancelled').reduce((sum, order) => sum + (order.totalAmount || 0), 0);
-    const deliveredOrders = salesOrders.filter((order) => order.status === 'delivered');
-    const actualRevenue = deliveredOrders.reduce((sum, order) => sum + (order.totalAmount || 0), 0);
-    const collectedAmount = filteredCash
-      .filter((transaction) => transaction.direction === 'in' && transaction.sourceType === 'customer_payment')
-      .reduce((sum, transaction) => sum + transaction.amount, 0);
-    const remainingAmount = activeOrders.reduce((sum, order) => sum + (order.remainingAmount || 0), 0);
-    const totalPurchases = filteredPurchases.reduce((sum, purchase) => sum + (purchase.totalAmount || 0), 0);
-    const totalExpenses = filteredExpenses.reduce((sum, expense) => sum + (expense.amount || 0), 0);
-
-    const materialCost = salesOrders.filter((order) => order.status !== 'cancelled').reduce((sum, order) => {
-      if (typeof order.materialCost === 'number') return sum + order.materialCost;
-      const buyPrice = order.fabricBuyPriceAtOrder !== undefined && order.fabricBuyPriceAtOrder > 0 ? order.fabricBuyPriceAtOrder : (fabrics.find((fabric) => fabric.id === order.fabricId)?.purchasePrice || 0);
-      const consumption = order.fabricConsumptionMeters !== undefined && order.fabricConsumptionMeters > 0 ? order.fabricConsumptionMeters : (order.garmentCount || 1) * 3.5;
-      return sum + (buyPrice * consumption);
-    }, 0);
-    const grossProfit = totalSales - materialCost;
-    const netProfit = grossProfit - totalExpenses;
-    const avgOrderValue = totalOrdersCount > 0 ? Math.round(totalSales / totalOrdersCount) : 0;
-    const { inventoryValue, lowStockItems } = inventoryStats;
-    const consumptionByItem = filteredMovements.filter((movement) => movement.direction === 'sale').reduce((result: Record<string, number>, movement) => {
+    const now = new Date();
+    const today = now.toISOString().slice(0, 10);
+    const range = periodFilter === 'today'
+      ? { startDate: today, endDate: today }
+      : periodFilter === 'week'
+        ? { startDate: new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10), endDate: today }
+        : periodFilter === 'month'
+          ? { startDate: new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10), endDate: today }
+          : periodFilter === 'year'
+            ? { startDate: `${now.getFullYear()}-01-01`, endDate: `${now.getFullYear()}-12-31` }
+            : { startDate, endDate };
+    const projection = calculateReportProjection({
+      orders,
+      invoices,
+      cashTransactions,
+      customerCredits,
+      purchases,
+      expenses,
+      stockMovements,
+      orderEvents,
+      ...range
+    });
+    const consumptionByItem = projection.filteredMovements.filter((movement) => movement.direction === 'sale').reduce((result: Record<string, number>, movement) => {
       result[movement.itemName] = (result[movement.itemName] || 0) + movement.quantity;
       return result;
     }, {} as Record<string, number>);
     const topConsumption = Object.entries(consumptionByItem).sort(([, first], [, second]) => Number(second) - Number(first)).slice(0, 5);
-
     return {
-      filteredOrders,
-      filteredCash,
-      filteredMovements,
-      totalOrdersCount,
-      totalSales,
-      actualRevenue,
-      collectedAmount,
-      remainingAmount,
-      totalPurchases,
-      totalExpenses,
-      materialCost,
-      grossProfit,
-      netProfit,
-      avgOrderValue,
-      inventoryValue,
-      lowStockItems,
+      projection,
+      filteredOrders: projection.details.map((row) => row.order),
+      filteredCash: projection.filteredCash,
+      filteredMovements: projection.filteredMovements,
+      totalOrdersCount: projection.totalOrdersCount,
+      cancelledOrdersCount: projection.cancelledOrdersCount,
+      settledByCancellationCount: projection.settledByCancellationCount,
+      totalSales: projection.salesBooked,
+      actualRevenue: projection.recognizedRevenue,
+      collectedAmount: projection.appliedCollected,
+      cashReceived: projection.cashReceived,
+      overpaymentCreated: projection.overpaymentCreated,
+      overpaymentApplied: projection.overpaymentApplied,
+      overpaymentRefunded: projection.overpaymentRefunded,
+      closingCustomerCreditLiability: projection.closingCustomerCreditLiability,
+      cancellationWriteoff: projection.cancellationWriteoff,
+      remainingAmount: projection.activeOutstanding,
+      totalPurchases: projection.totalPurchases,
+      totalExpenses: projection.totalExpenses,
+      materialCost: projection.recognizedMaterialCost,
+      grossProfit: projection.grossProfit,
+      netProfit: projection.netProfit,
+      avgOrderValue: projection.totalOrdersCount > 0 ? Math.round(projection.salesBooked / projection.totalOrdersCount) : 0,
+      inventoryValue: inventoryStats.inventoryValue,
+      lowStockItems: inventoryStats.lowStockItems,
       topConsumption
     };
-  }), [inventoryStats, reportCacheKey]);
+  }), [customerCredits, expenses, invoices, inventoryStats, orderEvents, orders, periodFilter, purchases, reportCacheKey, startDate, endDate, stockMovements, cashTransactions]);
 
   const {
+    projection,
     filteredOrders,
     filteredCash,
     filteredMovements,
     totalOrdersCount,
+    cancelledOrdersCount,
+    settledByCancellationCount,
     totalSales,
     actualRevenue,
     collectedAmount,
+    cashReceived,
+    overpaymentCreated,
+    overpaymentApplied,
+    overpaymentRefunded,
+    closingCustomerCreditLiability,
+    cancellationWriteoff,
     remainingAmount,
     totalPurchases,
     totalExpenses,
@@ -126,6 +126,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ data, dataRevision, sh
     lowStockItems,
     topConsumption
   } = reportStats;
+  const reportDetails = projection.details;
 
   const getExportDateRange = () => {
     const now = new Date();
@@ -165,22 +166,30 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ data, dataRevision, sh
   // Export to CSV using standard browser Blob APIs
   const handleExportCSV = () => {
     try {
-      const headers = ['م', 'رقم الطلب', 'اسم العميل', 'رقم الجوال', 'نوع الثوب', 'القماش', 'تاريخ الطلب', 'الحالة', 'الإجمالي (ر.س)', 'المدفوع (ر.س)', 'المتبقي (ر.س)', 'تكلفة المواد (ر.س)', 'الربح (ر.س)'];
-      const rows = filteredOrders.map((ord, idx) => [
-        idx + 1,
-        ord.orderNumber,
-        `"${ord.customerName}"`,
-        ord.customerPhone,
-        `"${ord.thobeTypeName}"`,
-        `"${ord.fabricName}"`,
-        ord.orderDate,
-        ord.status === 'delivered' ? 'مُسلم' : ord.status === 'ready' ? 'جاهز' : 'قيد التنفيذ',
-        ord.totalAmount,
-        ord.paidAmount,
-        ord.remainingAmount,
-        ord.materialCost || 0,
-        (ord.totalAmount || 0) - (ord.materialCost || 0)
-      ]);
+      const headers = ['م', 'رقم الطلب', 'اسم العميل', 'رقم الجوال', 'نوع الثوب', 'القماش', 'تاريخ الطلب', 'الحالة', 'حالة التسوية', 'داخل المبيعات', 'applied_paid (ر.س)', 'cash_received (ر.س)', 'overpayment (ر.س)', 'cancellation writeoff (ر.س)', 'الإجمالي (ر.س)', 'المتبقي (ر.س)', 'تكلفة المواد (ر.س)', 'الربح المعترف به (ر.س)'];
+      const rows = reportDetails.map((detail, idx) => {
+        const ord = detail.order;
+        return [
+          idx + 1,
+          ord.orderNumber,
+          `"${ord.customerName}"`,
+          ord.customerPhone,
+          `"${ord.thobeTypeName}"`,
+          `"${ord.fabricName}"`,
+          ord.orderDate,
+          ord.status === 'cancelled' ? 'ملغى' : ord.status === 'delivered' ? 'مُسلم' : ord.status === 'ready' ? 'جاهز' : ord.status === 'processing' ? 'تحت التنفيذ' : 'جديد',
+          formatReportStatus(detail.settlementStatus),
+          detail.includedInSales ? 'نعم' : 'لا',
+          detail.appliedPaid,
+          detail.cashReceived,
+          detail.overpaymentAmount,
+          detail.cancellationWriteoffAmount,
+          ord.totalAmount,
+          ord.remainingAmount,
+          ord.materialCost || 0,
+          detail.includedInRecognizedRevenue ? (ord.totalAmount || 0) - (ord.materialCost || 0) : 0
+        ];
+      });
 
       const csvContent = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
       const blob = new Blob(['\ufeff' + csvContent], { type: 'text/csv;charset=utf-8;' });
@@ -357,7 +366,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ data, dataRevision, sh
             </div>
           </div>
           <div className="text-2xl font-black text-emerald-700 font-mono">{actualRevenue} ر.س</div>
-          <span className="text-[11px] text-slate-400 font-medium block mt-1">من الطلبات المُسلّمة فعلياً</span>
+          <span className="text-[11px] text-slate-400 font-medium block mt-1">recognized_revenue حسب تاريخ التسليم</span>
         </div>
 
         {/* 3. Fabric Cost */}
@@ -381,7 +390,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ data, dataRevision, sh
             </div>
           </div>
           <div className="text-2xl font-black text-emerald-700 font-mono">{Math.round(netProfit)} ر.س</div>
-          <span className="text-[11px] text-slate-400 font-medium block mt-1">المبيعات - تكلفة المواد - المصروفات</span>
+          <span className="text-[11px] text-slate-400 font-medium block mt-1">recognized revenue - المواد - المصروفات</span>
         </div>
 
         {/* 5. Average Order Value */}
@@ -399,9 +408,13 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ data, dataRevision, sh
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {[
-          ['إجمالي المبيعات', totalSales, 'كل الطلبات غير الملغاة', 'text-slate-900'],
-          ['إجمالي التحصيل', collectedAmount, 'الدفعات المسجلة', 'text-emerald-700'],
-          ['المبالغ المتبقية', remainingAmount, 'على الطلبات في الفترة', 'text-amber-700'],
+          ['المبيعات المسجلة', totalSales, 'الطلبات غير الملغاة حسب تاريخ الطلب', 'text-slate-900'],
+          ['الإيراد المعترف به', actualRevenue, 'الطلبات المُسلّمة حسب تاريخ التسليم', 'text-emerald-700'],
+          ['التحصيل المطبق', collectedAmount, 'applied_paid حسب تاريخ الدفعة', 'text-emerald-700'],
+          ['النقد المستلم', cashReceived, 'يشمل overpayment كنقد فقط', 'text-slate-900'],
+          ['التزام ائتمان العملاء', closingCustomerCreditLiability, 'created - applied - refunded', 'text-amber-700'],
+          ['تسوية الإلغاء غير النقدية', cancellationWriteoff, 'لا تدخل في الربح أو النقد', 'text-amber-700'],
+          ['المبالغ المتبقية', remainingAmount, 'على الطلبات النشطة', 'text-amber-700'],
           ['إجمالي المشتريات', totalPurchases, 'مخزون تم اعتماده', 'text-rose-700'],
           ['إجمالي المصروفات', totalExpenses, 'خارج الصندوق', 'text-rose-700'],
           ['قيمة المخزون', inventoryValue, 'بسعر الشراء الحالي', 'text-slate-900']
@@ -426,7 +439,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ data, dataRevision, sh
         </div>
         <div className="bg-white rounded-2xl shadow-sm border border-[#DEDEDA] overflow-hidden">
           <div className="p-5 border-b border-[#DEDEDA] bg-[#F0F0EE]/40"><h3 className="text-base font-black text-slate-900">ملخص الفترة</h3><p className="text-xs text-slate-500 mt-1">المبيعات ناقص المواد والمصروفات</p></div>
-          <div className="p-5 grid grid-cols-2 gap-4 text-sm"><div><span className="text-slate-500 font-bold">الربح الإجمالي</span><p className="font-black text-lg mt-1">{Math.round(grossProfit)} ر.س</p></div><div><span className="text-slate-500 font-bold">صافي الربح</span><p className={`font-black text-lg mt-1 ${netProfit >= 0 ? 'text-emerald-700' : 'text-rose-700'}`}>{Math.round(netProfit)} ر.س</p></div><div><span className="text-slate-500 font-bold">حركات الصندوق</span><p className="font-black text-lg mt-1">{filteredCash.length}</p></div><div><span className="text-slate-500 font-bold">حركات المخزون</span><p className="font-black text-lg mt-1">{filteredMovements.length}</p></div></div>
+          <div className="p-5 grid grid-cols-2 gap-4 text-sm"><div><span className="text-slate-500 font-bold">الربح الإجمالي المعترف به</span><p className="font-black text-lg mt-1">{Math.round(grossProfit)} ر.س</p></div><div><span className="text-slate-500 font-bold">صافي الربح</span><p className={`font-black text-lg mt-1 ${netProfit >= 0 ? 'text-emerald-700' : 'text-rose-700'}`}>{Math.round(netProfit)} ر.س</p></div><div><span className="text-slate-500 font-bold">التزام ائتمان العملاء</span><p className="font-black text-lg mt-1">{closingCustomerCreditLiability} ر.س</p></div><div><span className="text-slate-500 font-bold">تسوية الإلغاء غير النقدية</span><p className="font-black text-lg mt-1">{cancellationWriteoff} ر.س</p></div><div><span className="text-slate-500 font-bold">حركات الصندوق</span><p className="font-black text-lg mt-1">{filteredCash.length}</p></div><div><span className="text-slate-500 font-bold">حركات المخزون</span><p className="font-black text-lg mt-1">{filteredMovements.length}</p></div></div>
         </div>
       </div>
 
@@ -474,7 +487,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ data, dataRevision, sh
                     <td className="p-3.5 text-slate-600 font-mono">{ord.deliveryDate}</td>
                     <td className="p-3.5">
                       <Badge variant={ord.status === 'delivered' ? 'emerald' : ord.status === 'ready' ? 'amber' : 'slate'}>
-                        {ord.status === 'delivered' ? 'مُسلم' : ord.status === 'ready' ? 'جاهز' : 'قيد التنفيذ'}
+                        {formatReportStatus(reportDetails.find((detail) => detail.order.id === ord.id)?.settlementStatus || 'none')}
                       </Badge>
                     </td>
                     <td className="p-3.5 text-left pl-6 font-black text-slate-900 font-mono text-sm">

@@ -4,7 +4,10 @@ import { OrderRepository } from '../repositories/orderRepository';
 import { OrderWriteRepository } from '../repositories/orderWriteRepository';
 import { InventoryService } from './inventoryService';
 import { createSafeId } from '../../domain/idGenerator';
-import { assertValidOrderStatus } from '../../domain/orderRules';
+import { assertValidOrderStatus, calculateCancellationSettlement } from '../../domain/orderRules';
+import { assertStoredPaymentAggregates, parsePaymentLedger } from '../../domain/paymentRules';
+import { round2 } from '../../domain/inventoryRules';
+import { InvoiceRepository } from '../repositories/invoiceRepository';
 
 const ALLOWED_TRANSITIONS: Record<string, string[]> = {
   new: ['processing', 'cancelled'],
@@ -20,6 +23,7 @@ export class OrderStatusService {
     private readonly orderWriteRepository: OrderWriteRepository,
     private readonly inventoryService: InventoryService,
     private readonly eventRepository: OrderEventRepository,
+    private readonly invoiceRepository: InvoiceRepository,
     private readonly db: { transaction<T>(callback: () => T): () => T }
   ) {}
 
@@ -34,7 +38,35 @@ export class OrderStatusService {
       }
 
       const materials = this.orderRepository.listMaterialUsages(orderId);
+      const previousRemainingAmount = Number(order.remaining_amount || 0);
+      let cancellationWriteoffAmount = 0;
+      let cancellationPaymentStatus: 'paid' | 'settled_by_cancellation' | undefined;
       if (validatedStatus === 'cancelled') {
+        const invoice = this.invoiceRepository.findByOrderId(orderId);
+        if (invoice) {
+          const payments = parsePaymentLedger(invoice.payments_json);
+          const ledger = assertStoredPaymentAggregates(
+            invoice.total_amount,
+            invoice.paid_amount,
+            invoice.remaining_amount,
+            payments,
+            invoice.cancellation_writeoff_amount
+          );
+          const cashReceived = round2(payments.reduce((sum, payment) => sum + Number(payment.cashReceived ?? payment.amount), 0));
+          const overpaymentAmount = round2(payments.reduce((sum, payment) => sum + Number(payment.overpaymentAmount ?? Math.max(0, Number(payment.cashReceived ?? payment.amount) - payment.amount)), 0));
+          const settlement = calculateCancellationSettlement({
+            invoiceTotal: invoice.total_amount,
+            appliedPaid: ledger.paidAmount,
+            cashReceived,
+            cancellationWriteoffAmount: Math.max(0, Number(invoice.total_amount) - ledger.paidAmount),
+            customerId: order.customer_id
+          });
+          cancellationWriteoffAmount = settlement.cancellationWriteoffAmount;
+          cancellationPaymentStatus = settlement.paymentStatus;
+          this.orderWriteRepository.updatePayment(orderId, ledger.paidAmount, settlement.remainingAmount, cashReceived, overpaymentAmount, cancellationWriteoffAmount);
+          this.invoiceRepository.updateAmounts(orderId, invoice.total_amount, ledger.paidAmount, settlement.remainingAmount, settlement.paymentStatus, cashReceived, overpaymentAmount, cancellationWriteoffAmount);
+        }
+
         for (const material of materials) {
           if (material.item_id) {
             this.inventoryService.recordMovement(material.item_type, material.item_id, material.quantity, 'return', 'إرجاع مواد بسبب إلغاء الطلب', {
@@ -64,6 +96,12 @@ export class OrderStatusService {
         fromStatus: order.status,
         toStatus: validatedStatus,
         actor: 'النظام',
+        metadata: validatedStatus === 'cancelled' ? {
+          previousRemainingAmount,
+          cancellationWriteoffAmount,
+          paymentStatus: cancellationPaymentStatus || 'paid',
+          cashReversalCreated: false
+        } : undefined,
         createdAt: updatedAt
       };
       this.eventRepository.insert(event);

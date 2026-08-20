@@ -19,17 +19,48 @@ export class InvoiceRepository {
     this.db.prepare('DELETE FROM invoices WHERE order_id = ?').run(orderId);
   }
 
-  updateAmounts(orderId: string, totalAmount: number, paidAmount: number, remainingAmount: number, paymentStatus: string): void {
+  updateAmounts(
+    orderId: string,
+    totalAmount: number,
+    paidAmount: number,
+    remainingAmount: number,
+    paymentStatus: string,
+    cashReceived = 0,
+    overpaymentAmount = 0,
+    cancellationWriteoffAmount = 0
+  ): void {
     this.db.prepare(`
-      UPDATE invoices SET total_amount = ?, paid_amount = ?, remaining_amount = ?, payment_status = ?
+      UPDATE invoices SET
+        total_amount = ?, paid_amount = ?, remaining_amount = ?,
+        cash_received = ?, overpayment_amount = ?, cancellation_writeoff_amount = ?,
+        payment_status = ?
       WHERE order_id = ?
-    `).run(totalAmount, paidAmount, remainingAmount, paymentStatus, orderId);
+    `).run(
+      totalAmount,
+      paidAmount,
+      remainingAmount,
+      cashReceived,
+      overpaymentAmount,
+      cancellationWriteoffAmount,
+      paymentStatus,
+      orderId
+    );
   }
 
-  updatePayment(id: string, paidAmount: number, remainingAmount: number, paymentStatus: string, paymentsJson: string): void {
+  updatePayment(
+    id: string,
+    paidAmount: number,
+    remainingAmount: number,
+    paymentStatus: string,
+    paymentsJson: string,
+    cashReceived = 0,
+    overpaymentAmount = 0
+  ): void {
     this.db.prepare(`
-      UPDATE invoices SET paid_amount = ?, remaining_amount = ?, payment_status = ?, payments_json = ?
+      UPDATE invoices SET
+        paid_amount = ?, remaining_amount = ?, cash_received = ?,
+        overpayment_amount = ?, payment_status = ?, payments_json = ?
       WHERE id = ?
-    `).run(paidAmount, remainingAmount, paymentStatus, paymentsJson, id);
+    `).run(paidAmount, remainingAmount, cashReceived, overpaymentAmount, paymentStatus, paymentsJson, id);
   }
 }

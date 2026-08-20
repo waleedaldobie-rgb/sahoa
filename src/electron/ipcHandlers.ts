@@ -24,6 +24,7 @@ import { round2 } from '../domain/inventoryRules';
 import { assertValidManualCashSourceType } from '../domain/cashRules';
 import { CustomerRepository } from './repositories/customerRepository';
 import { CashRepository } from './repositories/cashRepository';
+import { CustomerCreditRepository } from './repositories/customerCreditRepository';
 import { CustomerService } from './services/customerService';
 import { InventoryRepository } from './repositories/inventoryRepository';
 import { InventoryService } from './services/inventoryService';
@@ -142,6 +143,7 @@ export function registerIpcHandlers(dbManager: SahwaDatabaseManager) {
   const customerRepository = new CustomerRepository(db);
   const customerService = new CustomerService(customerRepository, db);
   const cashRepository = new CashRepository(db);
+  const customerCreditRepository = new CustomerCreditRepository(db);
   const inventoryRepository = new InventoryRepository(db);
   const inventoryService = new InventoryService(inventoryRepository, db);
   const orderEventRepository = new OrderEventRepository(db);
@@ -150,11 +152,11 @@ export function registerIpcHandlers(dbManager: SahwaDatabaseManager) {
   const orderRepository = new OrderRepository(db);
   const orderWriteRepository = new OrderWriteRepository(db);
   const invoiceRepository = new InvoiceRepository(db);
-  const paymentService = new PaymentService(invoiceRepository, orderWriteRepository, cashRepository, orderEventRepository, db);
-  const orderStatusService = new OrderStatusService(orderRepository, orderWriteRepository, inventoryService, orderEventRepository, db);
+  const paymentService = new PaymentService(invoiceRepository, orderWriteRepository, cashRepository, customerCreditRepository, orderEventRepository, db);
+  const orderStatusService = new OrderStatusService(orderRepository, orderWriteRepository, inventoryService, orderEventRepository, invoiceRepository, db);
   const notificationRepository = new NotificationRepository(db);
   const whatsappService = new WhatsAppService(notificationRepository, orderRepository, orderEventRepository);
-  const orderService = new OrderService(orderRepository, orderWriteRepository, inventoryService, cashRepository, orderEventRepository, invoiceRepository, db);
+  const orderService = new OrderService(orderRepository, orderWriteRepository, inventoryService, cashRepository, customerCreditRepository, orderEventRepository, invoiceRepository, db);
   const fabricRepository = new FabricRepository(db);
   const accessoryRepository = new AccessoryRepository(db);
   const thobeTypeRepository = new ThobeTypeRepository(db);
@@ -329,6 +331,9 @@ export function registerIpcHandlers(dbManager: SahwaDatabaseManager) {
         totalAmount: o.total_amount,
         paidAmount: o.paid_amount,
         remainingAmount: o.remaining_amount,
+        cashReceived: o.cash_received,
+        overpaymentAmount: o.overpayment_amount,
+        cancellationWriteoffAmount: o.cancellation_writeoff_amount,
         isCustomMeasurement: Boolean(o.is_custom_measurement),
         measurements: parseMeasurementsJson(o.measurements_json),
         styleDetails: parseStyleDetailsJson(o.style_details_json),
@@ -387,6 +392,9 @@ export function registerIpcHandlers(dbManager: SahwaDatabaseManager) {
       totalAmount: i.total_amount,
       paidAmount: i.paid_amount,
       remainingAmount: i.remaining_amount,
+      cashReceived: i.cash_received,
+      overpaymentAmount: i.overpayment_amount,
+      cancellationWriteoffAmount: i.cancellation_writeoff_amount,
       paymentStatus: i.payment_status,
       payments: JSON.parse(i.payments_json || '[]')
     }));

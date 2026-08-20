@@ -53,7 +53,7 @@ describe('inventory and accounting atomic flows', () => {
 
   it('snapshots material cost, consumes accessory stock and makes payment idempotent', async () => {
     const order = await window.electronAPI.createOrder({
-      id: 'ORD-TEST-ACCOUNTING', customerName: 'عميل اختبار', fabricId: 'FAB-A', fabricName: 'قماش اختبار', garmentCount: 1,
+      id: 'ORD-TEST-ACCOUNTING', customerId: 'CUST-ACCOUNTING', customerName: 'عميل اختبار', fabricId: 'FAB-A', fabricName: 'قماش اختبار', garmentCount: 1,
       totalAmount: 300, paidAmount: 100, orderDate: '2026-08-13', measurements: { ...DEFAULT_MEASUREMENTS }, styleDetails: { ...DEFAULT_STYLE_DETAILS },
       materialUsages: [{ itemType: 'accessory', itemId: 'ACC-A', itemName: 'سحاب اختبار', quantity: 2, unit: 'حبة', unitCostAtUsage: 2 }]
     });

@@ -181,7 +181,7 @@ describe('db.transaction - Atomic Operations & Rollback Tests', () => {
     expect(fab?.quantityMeters).toBe(50);
   });
 
-  it('5. Deleting an active order atomically restores fabric meters', async () => {
+  it('5. Rejects deleting an active order with an invoice without changing stock or financial history', async () => {
     // First, create an order deducting 7 meters (leaving 43m)
     const order = await window.electronAPI.createOrder({
       customerId: 'CUST-001',
@@ -195,18 +195,15 @@ describe('db.transaction - Atomic Operations & Rollback Tests', () => {
     expect(data.fabrics[0].quantityMeters).toBe(43);
     expect(data.orders.length).toBe(1);
 
-    // Delete the order
-    const success = await window.electronAPI.deleteOrder(order.id);
-    expect(success).toBe(true);
+    await expect(window.electronAPI.deleteOrder(order.id)).rejects.toThrow(/لا يمكن حذف طلب له فاتورة/);
 
-    // Verify fabric stock was restored back to 50m and order/invoice removed
     data = await window.electronAPI.getData();
-    expect(data.orders.length).toBe(0);
-    expect(data.invoices.length).toBe(0);
-    expect(data.fabrics[0].quantityMeters).toBe(50);
+    expect(data.orders.length).toBe(1);
+    expect(data.invoices.length).toBe(1);
+    expect(data.fabrics[0].quantityMeters).toBe(43);
   });
 
-  it('6. Cancelling an order restores fabric stock, and deleting a cancelled order avoids double restoration', async () => {
+  it('6. Cancelling an order restores fabric stock, and deleting a cancelled order is rejected without reversal', async () => {
     // 1. Create order (deducts 7m -> stock 43m)
     const order = await window.electronAPI.createOrder({
       customerId: 'CUST-001',
@@ -222,10 +219,13 @@ describe('db.transaction - Atomic Operations & Rollback Tests', () => {
     expect(data.fabrics[0].quantityMeters).toBe(50);
     expect(data.orders[0].status).toBe('cancelled');
 
-    // 3. Deleting a cancelled order should NOT restore fabric again
-    await window.electronAPI.deleteOrder(order.id);
+    // 3. Deleting a cancelled order with an invoice is rejected; no reversal is created.
+    await expect(window.electronAPI.deleteOrder(order.id)).rejects.toThrow(/لا يمكن حذف طلب له فاتورة/);
     data = await window.electronAPI.getData();
-    expect(data.fabrics[0].quantityMeters).toBe(50); // Remains 50m!
+    expect(data.fabrics[0].quantityMeters).toBe(50);
+    expect(data.orders).toHaveLength(1);
+    expect(data.invoices).toHaveLength(1);
+    expect(data.cashTransactions.filter((transaction) => transaction.sourceType === 'adjustment')).toHaveLength(0);
   });
 
   it('7. Triggers stock alert notification automatically when stock falls below minStockMeters', async () => {
