@@ -2,6 +2,7 @@ import { _electron as electron, expect } from '@playwright/test';
 import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
+import { DatabaseSync } from 'node:sqlite';
 
 const executablePath = process.env.SAHWA_EXE;
 const testData = process.env.SAHWA_TEST_DATA || path.join(process.cwd(), 'windows-acceptance-data');
@@ -77,6 +78,33 @@ function assert(condition, message) {
   if (!condition) throw new Error(message);
 }
 
+function fail(id, error) {
+  const detail = error instanceof Error ? error.message : String(error);
+  results.push({ id, status: 'FAIL', detail });
+  console.error(`ACCEPTANCE_FAIL=${id} ${detail}`);
+}
+
+function notTestable(id, detail) {
+  results.push({ id, status: 'NOT_TESTABLE', detail });
+  console.warn(`ACCEPTANCE_NOT_TESTABLE=${id} ${detail}`);
+}
+
+async function runScenario(id, fn) {
+  try {
+    const detail = await fn();
+    pass(id, detail || 'scenario passed');
+  } catch (error) {
+    fail(id, error);
+  }
+}
+
+function assertNoAcceptanceFailures() {
+  const nonPass = results.filter((item) => item.status !== 'PASS');
+  if (nonPass.length > 0) {
+    throw new Error(`Acceptance contains non-PASS results: ${nonPass.map((item) => item.id).join(', ')}`);
+  }
+}
+
 async function waitForToast(pageRef, pattern, type = 'success') {
   const toast = pageRef.getByRole(type === 'danger' ? 'alert' : 'status').filter({ hasText: pattern });
   try {
@@ -114,11 +142,11 @@ async function attachRuntimeMonitoring(appRef, pageRef) {
   child?.stderr?.on('data', (chunk) => childProcessOutput.push(`[stderr] ${chunk.toString()}`));
 }
 
-async function launchApp({ forceWhatsAppFailure = false } = {}) {
+async function launchApp({ forceWhatsAppFailure = false, dataDir = testData } = {}) {
   const automationEnv = {
     ...process.env,
-    APPDATA: path.join(testData, 'AppData', 'Roaming'),
-    LOCALAPPDATA: path.join(testData, 'AppData', 'Local'),
+    APPDATA: path.join(dataDir, 'AppData', 'Roaming'),
+    LOCALAPPDATA: path.join(dataDir, 'AppData', 'Local'),
     SAHWA_UI_AUTOMATION: '1',
     ...(forceWhatsAppFailure ? { SAHWA_FORCE_WHATSAPP_FAILURE: '1' } : {})
   };
@@ -260,6 +288,116 @@ async function verifyInvoiceAndPayment(pageRef, order) {
   pass('payment.create', 'registered payment and reconciled invoice');
 }
 
+async function createAcceptanceOrder(pageRef, baseOrder, id, totalAmount, orderDate) {
+  const created = await pageRef.evaluate(async ({ baseOrder: source, id: orderId, total, date }) => {
+    return window.electronAPI.createOrder({
+      id: orderId,
+      customerId: source.customerId,
+      customerName: source.customerName,
+      customerPhone: source.customerPhone,
+      thobeTypeName: source.thobeTypeName,
+      fabricId: source.fabricId,
+      fabricName: source.fabricName,
+      fabricColor: source.fabricColor,
+      garmentCount: 1,
+      totalAmount: total,
+      paidAmount: 0,
+      orderDate: date,
+      deliveryDate: date,
+      measurements: source.measurements,
+      styleDetails: source.styleDetails,
+      materialUsages: []
+    });
+  }, { baseOrder, id, total: totalAmount, date: orderDate });
+  assert(created?.id, 'Acceptance order was not created through the packaged IPC bridge.');
+  return created;
+}
+
+async function verifyCustomerCreditAndRefund(pageRef, sourceOrder) {
+  const creditSourceOrder = await createAcceptanceOrder(pageRef, sourceOrder, `WIN-CREDIT-SOURCE-${Date.now()}`, 100, '2026-08-20');
+  const sourceDataBefore = await getDataSnapshot(pageRef);
+  const sourceInvoice = sourceDataBefore.invoices.find((invoice) => invoice.orderId === creditSourceOrder.id);
+  assert(sourceInvoice, 'Source invoice was not found for Customer Credit acceptance.');
+
+  await pageRef.evaluate(async ({ invoiceId }) => {
+    await window.electronAPI.addPayment(invoiceId, 120, 'cash', 'Windows Customer Credit overpayment', `WIN-CREDIT-OVERPAY-${Date.now()}`);
+  }, { invoiceId: sourceInvoice.id });
+
+  const afterOverpayment = await getDataSnapshot(pageRef);
+  const sourceAfterOverpayment = afterOverpayment.invoices.find((invoice) => invoice.id === sourceInvoice.id);
+  const sourceCredit = await pageRef.evaluate((customerId) => window.electronAPI.customerCredits.summary(customerId), creditSourceOrder.customerId);
+  assert(Number(sourceAfterOverpayment.cashReceived) === Number(sourceAfterOverpayment.appliedPaid || sourceAfterOverpayment.paidAmount) + 20, 'Cash received/applied split was not preserved for overpayment.');
+  assert(Number(sourceCredit.availableBalance) === 20, `Expected 20 riyals customer credit, got ${sourceCredit.availableBalance}.`);
+  pass('customer-credit.overpayment', 'created liability without increasing recognized revenue or applied collection');
+
+  const laterOrder = await createAcceptanceOrder(pageRef, creditSourceOrder, `WIN-CREDIT-LATER-${Date.now()}`, 20, '2026-08-21');
+  const laterData = await getDataSnapshot(pageRef);
+  const laterInvoice = laterData.invoices.find((invoice) => invoice.orderId === laterOrder.id);
+  assert(laterInvoice, 'Later invoice was not generated for Customer Credit apply.');
+  const applyRequest = {
+    customerId: creditSourceOrder.customerId,
+    targetInvoiceId: laterInvoice.id,
+    amount: 20,
+    idempotencyKey: `WIN-CREDIT-APPLY-${Date.now()}`,
+    reason: 'Windows acceptance later invoice apply',
+    actorId: 'windows-acceptance'
+  };
+  const applied = await pageRef.evaluate((request) => window.electronAPI.customerCredits.apply(request), applyRequest);
+  assert(applied.entryType === 'applied' && applied.method === 'customer_credit', 'Credit apply must be a non-cash applied entry.');
+  assert(Number(applied.balanceAfter) === 0, 'Customer Credit balance was not reduced to zero after apply.');
+  const replay = await pageRef.evaluate((request) => window.electronAPI.customerCredits.apply(request), applyRequest);
+  assert(replay.idempotent === true, 'Repeated Customer Credit apply was not idempotent.');
+  const afterApplyData = await getDataSnapshot(pageRef);
+  const appliedLaterInvoice = afterApplyData.invoices.find((invoice) => invoice.id === laterInvoice.id);
+  assert(Number(appliedLaterInvoice.cashReceived || 0) === 0, 'Non-cash Customer Credit apply changed cash_received.');
+  pass('customer-credit.apply-fifo-idempotency', 'applied credit to a later invoice without cash movement and replayed idempotently');
+
+  const refundOrder = await createAcceptanceOrder(pageRef, creditSourceOrder, `WIN-CREDIT-REFUND-${Date.now()}`, 30, '2026-08-22');
+  const refundData = await getDataSnapshot(pageRef);
+  const refundInvoice = refundData.invoices.find((invoice) => invoice.orderId === refundOrder.id);
+  assert(refundInvoice, 'Refund fixture invoice was not generated.');
+  await pageRef.evaluate(async ({ invoiceId }) => {
+    await window.electronAPI.addPayment(invoiceId, 40, 'cash', 'Windows Customer Credit refund fixture', `WIN-CREDIT-REFUND-SEED-${Date.now()}`);
+  }, { invoiceId: refundInvoice.id });
+  await openTab(pageRef, 'العملاء والمقاسات', 'إدارة العملاء والمقاسات');
+  await expect.poll(async () => Number((await pageRef.evaluate((customerId) => window.electronAPI.customerCredits.summary(customerId), creditSourceOrder.customerId)).availableBalance) > 0, { timeout: 20_000, message: 'Customer Credit ledger was not refreshed in CustomersView.' }).toBe(true);
+  const refundButton = pageRef.getByTestId(`customer-credit-refund-${creditSourceOrder.customerId}`);
+  await expect(refundButton).toBeVisible({ timeout: 20_000 });
+  const cashCountBefore = (await getDataSnapshot(pageRef)).cashTransactions.length;
+  await refundButton.click();
+  await expect(pageRef.getByTestId('customer-credit-refund-form')).toBeVisible();
+  await pageRef.getByLabel('المبلغ المسترد (ر.س) *').fill('5');
+  await pageRef.getByLabel('طريقة الاسترداد *').selectOption('cash');
+  await expect(pageRef.getByTestId('customer-credit-cash-warning')).toBeVisible();
+  await pageRef.getByLabel('سبب الاسترداد *').fill('Windows cash customer credit refund');
+  await pageRef.getByRole('button', { name: 'مراجعة الاسترداد', exact: true }).click();
+  await expect(pageRef.getByTestId('customer-credit-refund-confirmation')).toBeVisible();
+  await pageRef.getByRole('button', { name: 'تأكيد التنفيذ', exact: true }).click();
+  await expect(pageRef.getByTestId('customer-credit-refund-result')).toBeVisible({ timeout: 20_000 });
+  const afterCashRefund = await getDataSnapshot(pageRef);
+  assert(afterCashRefund.cashTransactions.length === cashCountBefore + 1, 'Cash refund did not create exactly one cash outflow.');
+  await pageRef.getByRole('button', { name: 'إغلاق', exact: true }).click();
+
+  await expect.poll(async () => Number((await pageRef.evaluate((customerId) => window.electronAPI.customerCredits.summary(customerId), creditSourceOrder.customerId)).availableBalance) > 0, { timeout: 20_000, message: 'Customer credit state was not available after cash refund.' }).toBe(true);
+  const nonCashRefundButton = pageRef.getByTestId(`customer-credit-refund-${creditSourceOrder.customerId}`);
+  await nonCashRefundButton.click();
+  await pageRef.getByTestId('customer-credit-refund-form').waitFor({ state: 'visible' });
+  await pageRef.getByLabel('المبلغ المسترد (ر.س) *').fill('5');
+  await pageRef.getByLabel('طريقة الاسترداد *').selectOption('card');
+  await expect(pageRef.getByTestId('customer-credit-noncash-note')).toBeVisible();
+  await pageRef.getByLabel('سبب الاسترداد *').fill('Windows non-cash customer credit refund');
+  await pageRef.getByRole('button', { name: 'مراجعة الاسترداد', exact: true }).click();
+  await pageRef.getByRole('button', { name: 'تأكيد التنفيذ', exact: true }).click();
+  await expect(pageRef.getByTestId('customer-credit-refund-result')).toBeVisible({ timeout: 20_000 });
+  const afterNonCashRefund = await getDataSnapshot(pageRef);
+  assert(afterNonCashRefund.cashTransactions.length === cashCountBefore + 1, 'Non-cash refund changed Cash Drawer.');
+  const creditHistory = await pageRef.evaluate((customerId) => window.electronAPI.customerCredits.list(customerId), creditSourceOrder.customerId);
+  assert(creditHistory.some((entry) => entry.entryType === 'refunded' && entry.method === 'cash'), 'Cash refund ledger entry is missing.');
+  assert(creditHistory.some((entry) => entry.entryType === 'refunded' && entry.method === 'card'), 'Non-cash refund ledger entry is missing.');
+  pass('customer-credit.refund-cash-noncash', 'validated refund modal, cash outflow, non-cash isolation, and ledger audit');
+  await pageRef.getByRole('button', { name: 'إغلاق', exact: true }).click();
+}
+
 async function testAccountingAndStock(pageRef, fabric) {
   await openTab(pageRef, 'المخزون والأصناف', 'المخزون والأصناف');
   await pageRef.getByRole('button', { name: 'حركة المخزون', exact: true }).click();
@@ -307,6 +445,35 @@ async function testAccountingAndStock(pageRef, fabric) {
   assert(data.cashTransactions.some((item) => item.referenceNumber === 'CASH-WIN-001'), 'Cash adjustment missing from local data.');
   assert(data.stockMovements.length > 0, 'Stock movements missing from local data.');
   pass('accounting.local-data', 'purchases, expenses, cash, and stock movement data verified');
+}
+
+async function verifyCsvAndReportingViews(pageRef) {
+  await openTab(pageRef, 'التقارير والإحصائيات', 'التقارير والإحصائيات المالية');
+  const reportText = await pageRef.getByRole('main').innerText();
+  assert(reportText.includes('المبيعات المسجلة'), 'Reports do not show sales_booked presentation.');
+  assert(reportText.includes('recognized_revenue حسب تاريخ التسليم'), 'Reports do not show recognized_revenue presentation.');
+  assert(reportText.includes('applied_paid') || reportText.includes('المطبق'), 'Reports do not show applied settlement.');
+  assert(reportText.includes('cash_received') || reportText.includes('النقد'), 'Reports do not show cash received.');
+  await pageRef.screenshot({ path: path.join(evidenceDir, 'reports-formula-matrix.png'), fullPage: true });
+  pass('reports.formula-separation', 'sales_booked, recognized_revenue, applied collection, and cash are visible separately');
+
+  const downloadPromise = pageRef.waitForEvent('download');
+  await pageRef.getByRole('button', { name: 'تصدير CSV (Blob)', exact: true }).click();
+  const download = await downloadPromise;
+  const csvPath = path.join(evidenceDir, 'windows-acceptance-report.csv');
+  await download.saveAs(csvPath);
+  const csv = fs.readFileSync(csvPath, 'utf8');
+  for (const header of ['applied_paid', 'cash_received', 'overpayment', 'cancellation writeoff']) {
+    assert(csv.includes(header), `CSV is missing settlement column: ${header}`);
+  }
+  fs.writeFileSync(path.join(evidenceDir, 'csv-evidence.json'), JSON.stringify({ path: csvPath, bytes: fs.statSync(csvPath).size, headers: ['applied_paid', 'cash_received', 'overpayment', 'cancellation writeoff'] }, null, 2));
+  pass('reports.csv-export', `CSV exported and settlement columns verified (${fs.statSync(csvPath).size} bytes)`);
+
+  await openTab(pageRef, 'المحاسبة والمشتريات', 'المحاسبة والتدفقات المالية');
+  const accountingText = await pageRef.getByRole('main').innerText();
+  assert(accountingText.includes('Customer Credit Refunds'), 'AccountingView does not show the separated Customer Credit refunds section.');
+  await pageRef.screenshot({ path: path.join(evidenceDir, 'accounting-credit-separation.png'), fullPage: true });
+  pass('accounting.credit-separation', 'AccountingView shows cash, applied collection, and Customer Credit refunds separately');
 }
 
 async function exportExcelAndBackup(pageRef) {
@@ -392,6 +559,126 @@ async function verifyStorageAndPersistence(pageRef) {
   pass('data.persistence', 'customer, measurements, order, invoice, accounting, and stock data persisted');
 }
 
+async function testLegacyMigration() {
+  await closeApp();
+  const legacyRoot = path.join(testData, 'legacy-schema-v5');
+  fs.rmSync(legacyRoot, { recursive: true, force: true });
+  fs.mkdirSync(legacyRoot, { recursive: true });
+
+  await launchApp({ dataDir: legacyRoot });
+  const storage = await page.evaluate(() => window.electronAPI.automationStorageInfo());
+  await closeApp();
+  fs.mkdirSync(path.dirname(storage.databasePath), { recursive: true });
+  fs.rmSync(storage.databasePath, { force: true });
+
+  const legacyDb = new DatabaseSync(storage.databasePath);
+  legacyDb.exec(`
+    PRAGMA foreign_keys = ON;
+    CREATE TABLE system_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+    INSERT INTO system_settings(key, value) VALUES ('schemaVersion', '5');
+    INSERT INTO system_settings(key, value) VALUES ('fabricConsumptionRatePerGarment', '3.5');
+    CREATE TABLE customers (id TEXT PRIMARY KEY, name TEXT NOT NULL, phone TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT, measurements_json TEXT, style_details_json TEXT);
+    CREATE TABLE orders (
+      id TEXT PRIMARY KEY, order_number TEXT NOT NULL UNIQUE, customer_id TEXT NOT NULL, customer_name TEXT NOT NULL,
+      customer_phone TEXT NOT NULL, thobe_type_name TEXT NOT NULL, fabric_name TEXT NOT NULL, fabric_color TEXT NOT NULL,
+      garment_count INTEGER NOT NULL DEFAULT 1, order_date TEXT NOT NULL, delivery_date TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'new', total_amount REAL NOT NULL DEFAULT 0, paid_amount REAL NOT NULL DEFAULT 0,
+      remaining_amount REAL NOT NULL DEFAULT 0, measurements_json TEXT NOT NULL, style_details_json TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    );
+    CREATE TABLE invoices (
+      id TEXT PRIMARY KEY, invoice_number TEXT NOT NULL UNIQUE, order_id TEXT NOT NULL, customer_name TEXT NOT NULL,
+      customer_phone TEXT NOT NULL, order_date TEXT NOT NULL, total_amount REAL NOT NULL DEFAULT 0,
+      paid_amount REAL NOT NULL DEFAULT 0, remaining_amount REAL NOT NULL DEFAULT 0,
+      payment_status TEXT NOT NULL DEFAULT 'unpaid', payments_json TEXT NOT NULL DEFAULT '[]'
+    );
+    CREATE TABLE notifications (
+      id TEXT PRIMARY KEY, type TEXT NOT NULL, title TEXT NOT NULL, message TEXT NOT NULL, date TEXT NOT NULL,
+      read INTEGER NOT NULL DEFAULT 0, customer_phone TEXT, order_id TEXT
+    );
+    INSERT INTO customers(id, name, phone, created_at) VALUES ('LEGACY-CUST-1', 'Legacy Acceptance Customer', '0500000999', '2026-01-01');
+    INSERT INTO orders(id, order_number, customer_id, customer_name, customer_phone, thobe_type_name, fabric_name, fabric_color, order_date, delivery_date, status, total_amount, paid_amount, remaining_amount, measurements_json, style_details_json, created_at)
+      VALUES ('LEGACY-ORDER-1', 'LEGACY-0001', 'LEGACY-CUST-1', 'Legacy Acceptance Customer', '0500000999', 'ثوب', 'Legacy Fabric', 'كحلي', '2026-01-01', '2026-01-02', 'new', 100, 20, 80, '{}', '{}', '2026-01-01');
+    INSERT INTO invoices(id, invoice_number, order_id, customer_name, customer_phone, order_date, total_amount, paid_amount, remaining_amount, payment_status, payments_json)
+      VALUES ('LEGACY-INVOICE-1', 'LEGACY-INV-1', 'LEGACY-ORDER-1', 'Legacy Acceptance Customer', '0500000999', '2026-01-01', 100, 20, 80, 'partial', '[]');
+    INSERT INTO notifications(id, type, title, message, date, read) VALUES ('LEGACY-NOTIFICATION-1', 'legacy', 'Legacy', 'Legacy notification', '2026-01-01', 0);
+  `);
+  const beforeCounts = {
+    customers: Number(legacyDb.prepare('SELECT COUNT(*) AS count FROM customers').get().count),
+    orders: Number(legacyDb.prepare('SELECT COUNT(*) AS count FROM orders').get().count),
+    invoices: Number(legacyDb.prepare('SELECT COUNT(*) AS count FROM invoices').get().count),
+    notifications: Number(legacyDb.prepare('SELECT COUNT(*) AS count FROM notifications').get().count)
+  };
+  legacyDb.close();
+
+  await launchApp({ dataDir: legacyRoot });
+  await waitForAppReady(page);
+  const settings = await page.evaluate(() => window.electronAPI.getSettings());
+  assert(Number(settings.schemaVersion) === 14, `Legacy fixture did not migrate to schemaVersion=14: ${settings.schemaVersion}`);
+  await closeApp();
+
+  const migratedDb = new DatabaseSync(storage.databasePath);
+  const columns = (table) => migratedDb.prepare(`PRAGMA table_info(${table})`).all().map((row) => row.name);
+  const indexes = migratedDb.prepare("SELECT name FROM sqlite_master WHERE type = 'index'").all().map((row) => row.name);
+  for (const column of ['cash_received', 'overpayment_amount', 'cancellation_writeoff_amount']) {
+    assert(columns('orders').includes(column), `Migration 010 missing orders.${column}`);
+    assert(columns('invoices').includes(column), `Migration 010 missing invoices.${column}`);
+  }
+  for (const column of ['operation_id', 'idempotency_key', 'source_entry_id', 'target_invoice_id', 'method', 'actor_id', 'reason', 'occurred_at', 'balance_after']) {
+    assert(columns('customer_credits').includes(column), `Migration 011 missing customer_credits.${column}`);
+  }
+  for (const column of ['status', 'source', 'source_id', 'read_at', 'archived_at', 'retry_count', 'last_error', 'retry_history_json', 'created_at', 'updated_at']) {
+    assert(columns('notifications').includes(column), `Migration 014 missing notifications.${column}`);
+  }
+  for (const indexName of ['idx_customer_credits_idempotency', 'idx_customer_credits_operation_entry', 'idx_customer_credits_source_entry', 'idx_notifications_source_source_id', 'idx_notifications_active_created']) {
+    assert(indexes.includes(indexName), `Expected migration index is missing: ${indexName}`);
+  }
+  const afterCounts = {
+    customers: Number(migratedDb.prepare('SELECT COUNT(*) AS count FROM customers').get().count),
+    orders: Number(migratedDb.prepare('SELECT COUNT(*) AS count FROM orders').get().count),
+    invoices: Number(migratedDb.prepare('SELECT COUNT(*) AS count FROM invoices').get().count),
+    notifications: Number(migratedDb.prepare('SELECT COUNT(*) AS count FROM notifications').get().count)
+  };
+  assert(JSON.stringify(beforeCounts) === JSON.stringify(afterCounts), `Legacy row counts changed during migration: before=${JSON.stringify(beforeCounts)} after=${JSON.stringify(afterCounts)}`);
+  const legacyCreditRows = Number(migratedDb.prepare('SELECT COUNT(*) AS count FROM customer_credits').get().count);
+  assert(legacyCreditRows === 0, 'Legacy migration unexpectedly backfilled customer_credits rows.');
+  const verifiedColumns = { orders: columns('orders'), invoices: columns('invoices'), customer_credits: columns('customer_credits'), notifications: columns('notifications') };
+  migratedDb.close();
+  fs.writeFileSync(path.join(evidenceDir, 'legacy-migration-evidence.json'), JSON.stringify({ storage, beforeCounts, afterCounts, schemaVersion: settings.schemaVersion, verifiedColumns, verifiedIndexes: indexes }, null, 2));
+  pass('legacy.schema-v5-migration', 'schemaVersion=5 fixture upgraded to 14 with additive columns/indexes, unchanged rows, and no credit backfill');
+}
+
+async function testNotificationsLifecycle(pageRef) {
+  const failedNotifications = await pageRef.evaluate(() => window.electronAPI.notifications.list(true));
+  const failedNotification = failedNotifications.find((item) => item.status === 'failed' && item.source === 'whatsapp');
+  assert(failedNotification, 'Forced WhatsApp failure did not create a failed notification.');
+  assert(Number(failedNotification.retryCount) === 0, 'New failed notification must start with retryCount=0.');
+  let retryCount = 0;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const retry = await pageRef.evaluate((id) => window.electronAPI.notifications.retry(id), failedNotification.id);
+    retryCount = Number(retry.retryCount);
+    assert(retry.status === 'retry', `Notification retry ${attempt + 1} did not enter retry status.`);
+  }
+  let retryCapRejected = false;
+  try {
+    await pageRef.evaluate((id) => window.electronAPI.notifications.retry(id), failedNotification.id);
+  } catch (error) {
+    retryCapRejected = /تجاوز|maximum|retry/i.test(String(error));
+  }
+  assert(retryCapRejected, 'Fourth notification retry was not rejected by the retry cap.');
+  const marked = await pageRef.evaluate(() => window.electronAPI.notifications.markAllRead());
+  assert(Number(marked.updated) >= 1, 'markAllRead did not update the failed WhatsApp notification.');
+  const archived = await pageRef.evaluate(() => window.electronAPI.notifications.clearAll());
+  assert(Number(archived.archived) >= 1, 'clearAll did not archive notifications.');
+  const archivedNotifications = await pageRef.evaluate(() => window.electronAPI.notifications.list(true));
+  const archivedNotification = archivedNotifications.find((item) => item.id === failedNotification.id);
+  assert(archivedNotification?.archivedAt, 'Archived notification was not retained with archivedAt.');
+  const activeNotifications = await pageRef.evaluate(() => window.electronAPI.notifications.list(false));
+  assert(!activeNotifications.some((item) => item.id === failedNotification.id), 'Archived notification remained in active list.');
+  fs.writeFileSync(path.join(evidenceDir, 'notifications-lifecycle.json'), JSON.stringify({ failedNotification, retryCount, archivedNotification, activeCount: activeNotifications.length }, null, 2));
+  return 'failed, retry cap, read, and archive lifecycle verified without deletion';
+}
+
 async function offlineAcceptance() {
   const before = await waitForReachability('https://example.com');
   enableOfflineNetwork();
@@ -463,6 +750,8 @@ async function offlineAcceptance() {
   assert(!page.isClosed(), 'Application crashed after WhatsApp failure.');
   pass('offline.whatsapp-failure', 'failure toast shown without application crash');
 
+  await runScenario('notifications.lifecycle', () => testNotificationsLifecycle(page));
+
   const fatalOutput = childProcessOutput.filter((line) => /renderer:|pageerror|Unhandled|FATAL|IPC|uncaughtException|unhandledRejection/i.test(line));
   if (runtimeErrors.length > 0 || fatalOutput.length > 0) {
     throw new Error(`Runtime errors captured: ${[...runtimeErrors, ...fatalOutput].join(' | ')}`);
@@ -478,13 +767,16 @@ try {
     const order = await createCustomerAndOrder(page, fabric);
     await verifyInvoiceAndPayment(page, order);
     await testAccountingAndStock(page, fabric);
+    await runScenario('customer-credit.lifecycle', () => verifyCustomerCreditAndRefund(page, order));
     await exportExcelAndBackup(page);
+    await runScenario('reports.csv-and-accounting-separation', () => verifyCsvAndReportingViews(page));
     await createTransientCustomerAndRestore(page);
     await closeApp();
     await launchApp();
     await waitForAppReady(page);
     await verifyStorageAndPersistence(page);
     await closeApp();
+    await runScenario('legacy.schema-v5-migration', testLegacyMigration);
     await offlineAcceptance();
   });
 
@@ -497,7 +789,12 @@ try {
     runtimeErrors,
     childProcessOutput
   }, null, 2));
-  console.log('WINDOWS_ACCEPTANCE=PASS');
+  const failedScenarios = results.filter((item) => item.status === 'FAIL');
+  const notTestableScenarios = results.filter((item) => item.status === 'NOT_TESTABLE');
+  if (failedScenarios.length > 0) {
+    throw new Error(`Acceptance scenarios failed: ${failedScenarios.map((item) => item.id).join(', ')}`);
+  }
+  console.log(notTestableScenarios.length > 0 ? 'WINDOWS_ACCEPTANCE=PARTIAL' : 'WINDOWS_ACCEPTANCE=PASS');
 } catch (error) {
   fs.writeFileSync(path.join(evidenceDir, 'acceptance-results.json'), JSON.stringify({
     version: acceptanceVersion,
