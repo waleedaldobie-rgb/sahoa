@@ -2,7 +2,7 @@ import Database from 'better-sqlite3';
 import fs from 'fs';
 import path from 'path';
 import { CREATE_TABLES_SQL, CURRENT_SCHEMA_VERSION, DatabaseSettings } from './schema';
-import { Customer, Order, OrderEvent, FabricItem, AccessoryItem, ThobeType, ColorItem, NotificationItem, Invoice, UserPreferences } from '../types';
+import { Customer, Order, OrderEvent, FabricItem, AccessoryItem, ThobeType, ColorItem, NotificationItem, Invoice, UserPreferences, CustomerCreditRecord } from '../types';
 import { DEFAULT_MEASUREMENTS, DEFAULT_STYLE_DETAILS, normalizeMeasurements, normalizeStyleDetails } from '../services/shared/measurementDefaults';
 import { MIGRATIONS } from './migrations';
 import { BACKUP_SCHEMA_VERSION, DatabaseIntegrityService } from './services/databaseIntegrityService';
@@ -410,6 +410,7 @@ export class SahwaDatabaseManager {
       const db = this.getRawDb();
       const restoreTx = db.transaction(() => {
         // Clear existing tables. New ledgers are cleared first so restore remains atomic and FK-safe.
+        db.prepare('DELETE FROM customer_credits').run();
         db.prepare('DELETE FROM order_events').run();
         db.prepare('DELETE FROM order_material_usages').run();
         db.prepare('DELETE FROM purchase_lines').run();
@@ -498,14 +499,18 @@ export class SahwaDatabaseManager {
             thobe_type_id, thobe_type_name, fabric_id, fabric_name, fabric_color,
             fabric_consumption_meters, fabric_buy_price_at_order, garment_count,
             order_date, delivery_date, status, total_amount, paid_amount, remaining_amount,
+            cash_received, overpayment_amount, cancellation_writeoff_amount,
             is_custom_measurement, measurements_json, style_details_json, notes, created_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `);
 
         for (const o of (parsed.orders as Order[])) {
           const total = o.totalAmount || 0;
           const paid = o.paidAmount || 0;
-          const remaining = total - paid;
+          const remaining = o.remainingAmount ?? Math.max(0, total - paid);
+          const cashReceived = o.cashReceived ?? paid;
+          const overpaymentAmount = o.overpaymentAmount ?? 0;
+          const cancellationWriteoffAmount = o.cancellationWriteoffAmount ?? 0;
 
           ordStmt.run(
             o.id, o.orderNumber, o.customerId, o.customerName, o.customerPhone,
@@ -513,7 +518,8 @@ export class SahwaDatabaseManager {
             o.fabricName || 'قماش', o.fabricColor || 'أبيض',
             o.fabricConsumptionMeters || 3.5, o.fabricBuyPriceAtOrder || 0,
             o.garmentCount || 1, o.orderDate, o.deliveryDate, o.status || 'new',
-            total, paid, remaining, o.isCustomMeasurement ? 1 : 0,
+            total, paid, remaining, cashReceived, overpaymentAmount, cancellationWriteoffAmount,
+            o.isCustomMeasurement ? 1 : 0,
             JSON.stringify(normalizeMeasurements(o.measurements)), JSON.stringify(normalizeStyleDetails(o.styleDetails)),
             o.notes || '', o.createdAt || new Date().toISOString()
           );
@@ -524,15 +530,35 @@ export class SahwaDatabaseManager {
           const invStmt = db.prepare(`
             INSERT INTO invoices (
               id, invoice_number, order_id, customer_name, customer_phone,
-              order_date, total_amount, paid_amount, remaining_amount, payment_status, payments_json
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+              order_date, total_amount, paid_amount, remaining_amount,
+              cash_received, overpayment_amount, cancellation_writeoff_amount,
+              payment_status, payments_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
           `);
           for (const inv of (parsed.invoices as Invoice[])) {
-            const rem = (inv.totalAmount || 0) - (inv.paidAmount || 0);
+            const rem = inv.remainingAmount ?? Math.max(0, (inv.totalAmount || 0) - (inv.paidAmount || 0) - (inv.cancellationWriteoffAmount || 0));
             invStmt.run(
               inv.id, inv.invoiceNumber, inv.orderId, inv.customerName, inv.customerPhone,
               inv.orderDate, inv.totalAmount || 0, inv.paidAmount || 0, rem,
-              inv.paymentStatus || 'unpaid', JSON.stringify(inv.payments || [])
+              inv.cashReceived ?? inv.paidAmount ?? 0, inv.overpaymentAmount || 0,
+              inv.cancellationWriteoffAmount || 0, inv.paymentStatus || 'unpaid', JSON.stringify(inv.payments || [])
+            );
+          }
+        }
+
+        // Restore customer credit / refund-liability audit ledger.
+        if (Array.isArray(parsed.customerCredits)) {
+          const creditStmt = db.prepare(`
+            INSERT INTO customer_credits (
+              id, customer_id, order_id, invoice_id, payment_id, entry_type,
+              amount, reference_id, notes, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `);
+          for (const credit of parsed.customerCredits as CustomerCreditRecord[]) {
+            creditStmt.run(
+              credit.id, credit.customerId, credit.orderId || null, credit.invoiceId || null,
+              credit.paymentId || null, credit.entryType, credit.amount,
+              credit.referenceId || null, credit.notes || null, credit.createdAt || new Date().toISOString()
             );
           }
         }
@@ -658,6 +684,7 @@ export class SahwaDatabaseManager {
     const rawCashTransactions = db.prepare('SELECT * FROM cash_transactions').all() as any[];
     const rawOrderMaterialUsages = db.prepare('SELECT * FROM order_material_usages').all() as any[];
     const rawOrderEvents = db.prepare('SELECT * FROM order_events ORDER BY created_at DESC').all() as any[];
+    const rawCustomerCredits = db.prepare('SELECT * FROM customer_credits ORDER BY created_at ASC').all() as any[];
 
     const purchaseLinesMap = new Map<string, any[]>();
     for (const line of rawPurchaseLines) {
@@ -747,6 +774,9 @@ export class SahwaDatabaseManager {
       totalAmount: o.total_amount,
       paidAmount: o.paid_amount,
       remainingAmount: o.remaining_amount,
+      cashReceived: o.cash_received,
+      overpaymentAmount: o.overpayment_amount,
+      cancellationWriteoffAmount: o.cancellation_writeoff_amount,
       isCustomMeasurement: Boolean(o.is_custom_measurement),
       measurements: parseMeasurementsJson(o.measurements_json),
       styleDetails: parseStyleDetailsJson(o.style_details_json),
@@ -764,6 +794,9 @@ export class SahwaDatabaseManager {
       totalAmount: i.total_amount,
       paidAmount: i.paid_amount,
       remainingAmount: i.remaining_amount,
+      cashReceived: i.cash_received,
+      overpaymentAmount: i.overpayment_amount,
+      cancellationWriteoffAmount: i.cancellation_writeoff_amount,
       paymentStatus: i.payment_status,
       payments: JSON.parse(i.payments_json || '[]')
     }));
@@ -813,12 +846,18 @@ export class SahwaDatabaseManager {
       fromStatus: e.from_status || undefined, toStatus: e.to_status || undefined, actor: e.actor || undefined,
       metadata: e.metadata_json ? JSON.parse(e.metadata_json) : undefined, createdAt: e.created_at
     }));
+    const customerCredits = rawCustomerCredits.map(c => ({
+      id: c.id, customerId: c.customer_id, orderId: c.order_id || undefined,
+      invoiceId: c.invoice_id || undefined, paymentId: c.payment_id || undefined,
+      entryType: c.entry_type, amount: c.amount, referenceId: c.reference_id || undefined,
+      notes: c.notes || undefined, createdAt: c.created_at
+    }));
 
     return {
       backupSchemaVersion: BACKUP_SCHEMA_VERSION,
       schemaVersion: CURRENT_SCHEMA_VERSION,
       customers, fabrics, accessories, thobeTypes, colors, orders, invoices, notifications,
-      stockMovements, purchases, expenses, cashTransactions, orderMaterialUsages, orderEvents
+      stockMovements, purchases, expenses, cashTransactions, orderMaterialUsages, orderEvents, customerCredits
     };
   }
 

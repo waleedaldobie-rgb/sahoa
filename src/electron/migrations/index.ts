@@ -8,6 +8,7 @@ import { migration006 } from './006_list_order_indexes';
 import { migration007 } from './007_accessory_selling_price';
 import { migration008 } from './008_unique_invoice_order';
 import { migration009 } from './009_order_number_sequence';
+import { migration010 } from './010_payment_settlement_and_liability';
 
 export const MIGRATIONS: Migration[] = [
   migration001,
@@ -18,5 +19,6 @@ export const MIGRATIONS: Migration[] = [
   migration006,
   migration007,
   migration008,
-  migration009
+  migration009,
+  migration010
 ].sort((a, b) => a.version - b.version);

@@ -148,15 +148,26 @@ async function main() {
     assert.equal(invoice.payments.reduce((sum, payment) => sum + payment.amount, 0), 150);
   });
 
-  await record('backend rejects invalid order amounts and garment counts', async () => {
+  await record('backend rejects invalid order amounts and accepts overpayment as customer credit', async () => {
     await assert.rejects(
       call('orders:create', { ...orderPayload, id: 'ORD-NEGATIVE-GARMENT', orderNumber: 'INT-NEGATIVE-GARMENT', garmentCount: -1, paidAmount: 0 }),
       /عدد الثياب/
     );
-    await assert.rejects(
-      call('orders:create', { ...orderPayload, id: 'ORD-OVERPAYMENT', orderNumber: 'INT-OVERPAYMENT', garmentCount: 1, paidAmount: 301 }),
-      /يتجاوز/
-    );
+    const overpaidOrder = await call('orders:create', {
+      ...orderPayload,
+      id: 'ORD-OVERPAYMENT',
+      orderNumber: 'INT-OVERPAYMENT',
+      garmentCount: 1,
+      paidAmount: 301,
+      cashReceived: 301
+    });
+    const overpaidInvoice = (await call('invoices:list')).find((item) => item.orderId === overpaidOrder.id);
+    assert.equal(overpaidInvoice.paidAmount, 300);
+    assert.equal(overpaidInvoice.remainingAmount, 0);
+    assert.equal(overpaidInvoice.cashReceived, 301);
+    assert.equal(overpaidInvoice.overpaymentAmount, 1);
+    const overpaymentData = await call('data:get');
+    assert.ok((overpaymentData.customerCredits || []).some((entry) => entry.invoiceId === overpaidInvoice.id && entry.entryType === 'created' && entry.amount === 1));
   });
 
   await record('backend validates order status before inventory movement', async () => {
@@ -226,8 +237,8 @@ async function main() {
     });
     assert.equal(purchase.totalAmount, 234);
     const db = manager.getRawDb();
-    assert.equal(db.prepare('SELECT quantity_meters FROM fabrics WHERE id = ?').get(fabricId).quantity_meters, 31.5);
-    assert.equal(db.prepare('SELECT quantity FROM accessories WHERE id = ?').get(accessoryId).quantity, 12);
+    assert.equal(db.prepare('SELECT quantity_meters FROM fabrics WHERE id = ?').get(fabricId).quantity_meters, 28);
+    assert.equal(db.prepare('SELECT quantity FROM accessories WHERE id = ?').get(accessoryId).quantity, 10);
     assert.equal(db.prepare('SELECT COUNT(*) AS count FROM cash_transactions WHERE source_id = ?').get('PUR-INT-001').count, 1);
   });
 
@@ -247,14 +258,14 @@ async function main() {
     assert.ok(summaryRows.some((row) => row['البيان'] === 'إجمالي المشتريات' && row['القيمة'] === 234));
     const db = manager.getRawDb();
     const totals = db.prepare(`SELECT SUM(total_amount) AS sales, SUM(paid_amount) AS paid, SUM(remaining_amount) AS remaining FROM orders WHERE order_date BETWEEN ? AND ?`).get('2026-08-01', '2026-08-31');
-    assert.equal(totals.sales, 300);
-    assert.equal(totals.paid, 150);
+    assert.equal(totals.sales, 600);
+    assert.equal(totals.paid, 450);
     assert.equal(totals.remaining, 150);
     const earlyReport = await call('reports:exportExcel', '2026-08-01', '2026-08-16');
     const earlyWorkbook = XLSX.read(Buffer.from(earlyReport, 'base64'), { type: 'buffer' });
     const earlySummary = XLSX.utils.sheet_to_json(earlyWorkbook.Sheets['ملخص المحاسبة']);
     const earlyCollected = earlySummary.find((row) => row['البيان'] === 'إجمالي التحصيل')['القيمة'];
-    assert.equal(earlyCollected, 100);
+    assert.equal(earlyCollected, 401);
   });
 
   await record('card and transfer remain separate from the cash drawer', async () => {
@@ -276,7 +287,7 @@ async function main() {
     assert.ok(typeof backup === 'string' && backup.length > 100);
     const versionedBackup = JSON.parse(backup);
     assert.equal(versionedBackup.backupSchemaVersion, 2);
-    assert.equal(versionedBackup.schemaVersion, 9);
+    assert.equal(versionedBackup.schemaVersion, 10);
     const sqliteBackups = fs.readdirSync(backupDir).filter((fileName) => fileName.includes('manual_user') && fileName.endsWith('.db'));
     assert.ok(sqliteBackups.length > 0);
     const restoreResult = await call('system:restore', oldBackupJson);
@@ -366,7 +377,7 @@ async function main() {
     const second = await call('orders:create', { ...orderPayload, id: 'ORD-SEQ-002', orderNumber: undefined, totalAmount: 50, paidAmount: 0, materialUsages: [] });
     assert.notEqual(first.orderNumber, second.orderNumber);
     assert.equal(Number(second.orderNumber), Number(first.orderNumber) + 1);
-    await call('orders:delete', 'ORD-SEQ-001');
+    await call('orders:updateStatus', 'ORD-SEQ-001', 'cancelled');
     const third = await call('orders:create', { ...orderPayload, id: 'ORD-SEQ-003', orderNumber: undefined, totalAmount: 50, paidAmount: 0, materialUsages: [] });
     assert.equal(Number(third.orderNumber), Number(second.orderNumber) + 1);
   });
@@ -389,18 +400,19 @@ async function main() {
     await call('orders:updateStatus', orderId, 'new');
     assert.equal(afterCancel.prepare('SELECT quantity_meters FROM fabrics WHERE id = ?').get(fabricId).quantity_meters, beforeCancelFabric + 3.5);
     assert.equal(afterCancel.prepare('SELECT quantity_meters FROM fabrics WHERE id = ?').get('FAB-INT-002').quantity_meters, 23);
-    assert.equal(afterCancel.prepare('SELECT quantity FROM accessories WHERE id = ?').get(accessoryId).quantity, 8);
+    assert.equal(afterCancel.prepare('SELECT quantity FROM accessories WHERE id = ?').get(accessoryId).quantity, beforeCancelAccessory);
     assert.equal(afterCancel.prepare('SELECT COUNT(*) AS count FROM order_material_usages WHERE order_id = ? AND source_movement_id IS NULL').get(orderId).count, 0);
   });
 
-  await record('delete order reverses the actual payment ledger', async () => {
+  await record('delete order with financial ledger is rejected without cash reversal', async () => {
     const deleted = await call('orders:create', { ...orderPayload, id: 'ORD-DELETE-PAY', orderNumber: 'DELETE-PAY-1', totalAmount: 100, paidAmount: 20, materialUsages: [] });
-    const beforeDelete = (await call('cash:list')).filter((item) => item.orderId === deleted.id && item.sourceType === 'customer_payment');
-    assert.equal(beforeDelete.length, 1);
-    await call('orders:delete', deleted.id);
-    const afterDelete = (await call('cash:list')).filter((item) => item.orderId === deleted.id);
-    assert.equal(afterDelete.some((item) => item.sourceType === 'adjustment' && item.direction === 'out' && item.amount === 20), true);
-    assert.equal((await call('orders:list')).some((item) => item.id === deleted.id), false);
+    const beforeDelete = await call('cash:list');
+    await assert.rejects(
+      call('orders:delete', deleted.id),
+      /سجل مالي|أرشفة|financial/
+    );
+    assert.deepEqual(await call('cash:list'), beforeDelete);
+    assert.equal((await call('orders:list')).some((item) => item.id === deleted.id), true);
   });
 
   await record('manual stock adjustment rolls back when movement insert fails', async () => {

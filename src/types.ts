@@ -128,6 +128,30 @@ export interface OrderEvent {
 export type InventoryItemType = 'fabric' | 'accessory';
 export type InventoryMovementDirection = 'purchase' | 'sale' | 'adjustment' | 'return';
 export type PaymentMethod = 'cash' | 'card' | 'transfer';
+export type PaymentSettlementStatus = 'unpaid' | 'partial' | 'paid' | 'settled_by_cancellation';
+export type CustomerCreditEntryType = 'created' | 'applied' | 'refunded';
+
+export interface CancellationWriteoffRecord {
+  id: string;
+  orderId: string;
+  invoiceId?: string;
+  amount: number;
+  createdAt: string;
+  reason?: string;
+}
+
+export interface CustomerCreditRecord {
+  id: string;
+  customerId: string;
+  orderId?: string;
+  invoiceId?: string;
+  paymentId?: string;
+  entryType: CustomerCreditEntryType;
+  amount: number;
+  referenceId?: string;
+  notes?: string;
+  createdAt: string;
+}
 
 export interface StockMovement {
   id: string;
@@ -243,6 +267,9 @@ export interface Order {
   totalAmount: number;
   paidAmount: number;
   remainingAmount: number;
+  cashReceived?: number;
+  overpaymentAmount?: number;
+  cancellationWriteoffAmount?: number;
   isCustomMeasurement: boolean;
   measurements: CustomerMeasurements;
   styleDetails: CustomerStyleDetails;
@@ -254,7 +281,12 @@ export interface PaymentRecord {
   id: string;
   invoiceId: string;
   orderId: string;
+  /** Applied amount that contributes to invoice paid_amount. */
   amount: number;
+  /** Total cash/card/transfer received for this payment event. */
+  cashReceived?: number;
+  /** Portion of cashReceived not applied to the invoice. */
+  overpaymentAmount?: number;
   paymentDate: string;
   method: 'cash' | 'card' | 'transfer';
   note?: string;
@@ -270,7 +302,10 @@ export interface Invoice {
   totalAmount: number;
   paidAmount: number;
   remainingAmount: number;
-  paymentStatus: 'paid' | 'partial' | 'unpaid';
+  paymentStatus: PaymentSettlementStatus;
+  cashReceived?: number;
+  overpaymentAmount?: number;
+  cancellationWriteoffAmount?: number;
   payments: PaymentRecord[];
 }
 
@@ -338,6 +373,7 @@ export interface AppData {
   cashTransactions?: CashTransaction[];
   orderMaterialUsages?: OrderMaterialUsage[];
   orderEvents?: OrderEvent[];
+  customerCredits?: CustomerCreditRecord[];
 }
 
 export interface UserPreferences {
