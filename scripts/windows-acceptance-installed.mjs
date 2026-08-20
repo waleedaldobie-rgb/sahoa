@@ -484,8 +484,9 @@ async function verifyCsvAndReportingViews(pageRef) {
   pass('reports.csv-export', `CSV exported and settlement columns verified (${fs.statSync(csvPath).size} bytes)`);
 
   await openTab(pageRef, 'المحاسبة والمشتريات', 'المحاسبة والتدفقات المالية');
+  await pageRef.getByRole('button', { name: 'الصندوق', exact: true }).click();
   const accountingText = await pageRef.getByRole('main').innerText();
-  assert(accountingText.includes('Customer Credit Refunds'), 'AccountingView does not show the separated Customer Credit refunds section.');
+  assert(accountingText.includes('Customer Credit Refunds'), 'AccountingView cash tab does not show the separated Customer Credit refunds section.');
   await pageRef.screenshot({ path: path.join(evidenceDir, 'accounting-credit-separation.png'), fullPage: true });
   pass('accounting.credit-separation', 'AccountingView shows cash, applied collection, and Customer Credit refunds separately');
 }
@@ -737,7 +738,7 @@ async function offlineAcceptance() {
 
   const offlineData = await getDataSnapshot(page);
   assert(offlineData.customers.length > 0 && offlineData.orders.length > 0 && offlineData.invoices.length > 0, 'Core offline data could not be loaded.');
-  assert(offlineData.fabrics.length > 0 && offlineData.purchases.length > 0 && offlineData.expenses.length > 0 && offlineData.cashTransactions.length > 0, 'Accounting/inventory offline data could not be loaded.');
+  assert(offlineData.fabrics.length > 0 && offlineData.purchases.length > 0 && offlineData.expenses.length > 0 && offlineData.cashTransactions.length > 0, `Accounting/inventory offline data could not be loaded: ${JSON.stringify({ fabrics: offlineData.fabrics?.length, purchases: offlineData.purchases?.length, expenses: offlineData.expenses?.length, cashTransactions: offlineData.cashTransactions?.length })}`);
 
   await openTab(page, 'العملاء والمقاسات', 'إدارة العملاء والمقاسات');
   await expect(page.getByText('عميل Windows Acceptance', { exact: true })).toBeVisible();
