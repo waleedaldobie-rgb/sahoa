@@ -256,6 +256,7 @@ async function main() {
     assert.deepEqual(workbook.SheetNames, ['تقرير المبيعات', 'ملخص المحاسبة', 'قيمة المخزون']);
     const summaryRows = XLSX.utils.sheet_to_json(workbook.Sheets['ملخص المحاسبة']);
     assert.ok(summaryRows.some((row) => row['البيان'] === 'إجمالي المشتريات' && row['القيمة'] === 234));
+    assert.equal(summaryRows.find((row) => row['البيان'] === 'Overpayment created')['القيمة'], 1);
     const db = manager.getRawDb();
     const totals = db.prepare(`SELECT SUM(total_amount) AS sales, SUM(paid_amount) AS paid, SUM(remaining_amount) AS remaining FROM orders WHERE order_date BETWEEN ? AND ?`).get('2026-08-01', '2026-08-31');
     assert.equal(totals.sales, 600);
@@ -264,8 +265,11 @@ async function main() {
     const earlyReport = await call('reports:exportExcel', '2026-08-01', '2026-08-16');
     const earlyWorkbook = XLSX.read(Buffer.from(earlyReport, 'base64'), { type: 'buffer' });
     const earlySummary = XLSX.utils.sheet_to_json(earlyWorkbook.Sheets['ملخص المحاسبة']);
-    const earlyCollected = earlySummary.find((row) => row['البيان'] === 'إجمالي التحصيل')['القيمة'];
-    assert.equal(earlyCollected, 401);
+    const earlyCollected = earlySummary.find((row) => row['البيان'] === 'Applied collected')['القيمة'];
+    const earlyCashReceived = earlySummary.find((row) => row['البيان'] === 'Cash received')['القيمة'];
+    assert.equal(earlyCollected, 400);
+    assert.equal(earlyCashReceived, 401);
+    assert.equal(earlySummary.find((row) => row['البيان'] === 'Overpayment created')['القيمة'], 0);
   });
 
   await record('card and transfer remain separate from the cash drawer', async () => {
