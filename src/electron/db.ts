@@ -7,6 +7,7 @@ import { DEFAULT_MEASUREMENTS, DEFAULT_STYLE_DETAILS, normalizeMeasurements, nor
 import { MIGRATIONS } from './migrations';
 import { BACKUP_SCHEMA_VERSION, DatabaseIntegrityService } from './services/databaseIntegrityService';
 import { calculateReportProjection, formatReportStatus } from '../domain/reportMetrics';
+import { NotificationRepository } from './repositories/notificationRepository';
 
 const parseMeasurementsJson = (value?: string) => {
   try { return normalizeMeasurements(JSON.parse(value || '{}')); }
@@ -248,26 +249,30 @@ export class SahwaDatabaseManager {
 
   public replaceNotifications(notifications: NotificationItem[]): boolean {
     const db = this.getRawDb();
-    const replace = db.transaction((items: NotificationItem[]) => {
-      db.prepare('DELETE FROM notifications').run();
-      const statement = db.prepare(`
-        INSERT INTO notifications (id, type, title, message, date, read, customer_phone, order_id)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-      `);
+    const save = db.transaction((items: NotificationItem[]) => {
+      const repository = new NotificationRepository(db);
       for (const notification of items) {
-        statement.run(
-          notification.id,
-          notification.type,
-          notification.title,
-          notification.message,
-          notification.date,
-          notification.read ? 1 : 0,
-          notification.customerPhone || null,
-          notification.orderId || null
-        );
+        repository.upsert({
+          id: notification.id,
+          type: notification.type,
+          title: notification.title,
+          message: notification.message,
+          date: notification.date,
+          read: notification.read,
+          customerPhone: notification.customerPhone || null,
+          orderId: notification.orderId || null,
+          status: notification.status || 'sent',
+          source: notification.source || 'renderer',
+          sourceId: notification.sourceId || notification.id,
+          readAt: notification.readAt || null,
+          archivedAt: notification.archivedAt || null,
+          retryCount: notification.retryCount || 0,
+          lastError: notification.lastError || null,
+          retryHistory: notification.retryHistory || []
+        });
       }
     });
-    replace(notifications);
+    save(notifications);
     return true;
   }
 
@@ -374,10 +379,12 @@ export class SahwaDatabaseManager {
         for (const table of [
           'order_events', 'order_material_usages', 'purchase_lines', 'cash_transactions',
           'expenses', 'purchases', 'inventory_movements', 'invoices', 'orders',
-          'customer_measurement_history', 'customers', 'fabrics', 'accessories', 'notifications'
+          'customer_measurement_history', 'customers', 'fabrics', 'accessories'
         ]) {
           db.prepare(`DELETE FROM ${table}`).run();
         }
+        const archivedAt = new Date().toISOString();
+        db.prepare('UPDATE notifications SET archived_at = ?, updated_at = ? WHERE archived_at IS NULL').run(archivedAt, archivedAt);
       });
       clearTx();
       this.updateSetting('dataCleared', 'true');
@@ -640,11 +647,18 @@ export class SahwaDatabaseManager {
         // Restore Notifications
         if (Array.isArray(parsed.notifications)) {
           const notifStmt = db.prepare(`
-            INSERT INTO notifications (id, type, title, message, date, read, customer_phone, order_id)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO notifications (
+              id, type, title, message, date, read, customer_phone, order_id,
+              status, source, source_id, read_at, archived_at, retry_count, last_error,
+              retry_history_json, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
           `);
           for (const n of (parsed.notifications as NotificationItem[])) {
-            notifStmt.run(n.id, n.type, n.title, n.message, n.date, n.read ? 1 : 0, n.customerPhone || null, n.orderId || null);
+            notifStmt.run(
+              n.id, n.type, n.title, n.message, n.date, n.read ? 1 : 0, n.customerPhone || null, n.orderId || null,
+              n.status || 'sent', n.source || 'legacy', n.sourceId || n.id, n.readAt || null, n.archivedAt || null,
+              n.retryCount || 0, n.lastError || null, JSON.stringify(n.retryHistory || []), n.createdAt || new Date().toISOString(), n.updatedAt || new Date().toISOString()
+            );
           }
         }
 
@@ -666,7 +680,7 @@ export class SahwaDatabaseManager {
   /**
    * Full Json Exporter helper
    */
-  public exportFullDataAsJson(): any {
+  public exportFullDataAsJson(includeArchivedNotifications = true): any {
     const db = this.getRawDb();
 
     const rawCustomers = db.prepare('SELECT * FROM customers').all() as any[];
@@ -677,7 +691,9 @@ export class SahwaDatabaseManager {
     const rawColors = db.prepare('SELECT * FROM colors').all() as any[];
     const rawOrders = db.prepare('SELECT * FROM orders').all() as any[];
     const rawInvoices = db.prepare('SELECT * FROM invoices').all() as any[];
-    const rawNotifications = db.prepare('SELECT * FROM notifications').all() as any[];
+    const rawNotifications = db.prepare(includeArchivedNotifications
+      ? 'SELECT * FROM notifications'
+      : 'SELECT * FROM notifications WHERE archived_at IS NULL').all() as any[];
     const rawStockMovements = db.prepare('SELECT * FROM inventory_movements').all() as any[];
     const rawPurchases = db.prepare('SELECT * FROM purchases').all() as any[];
     const rawPurchaseLines = db.prepare('SELECT * FROM purchase_lines').all() as any[];
@@ -810,7 +826,17 @@ export class SahwaDatabaseManager {
       date: n.date,
       read: Boolean(n.read),
       customerPhone: n.customer_phone,
-      orderId: n.order_id || undefined
+      orderId: n.order_id || undefined,
+      status: n.status || 'sent',
+      source: n.source || 'legacy',
+      sourceId: n.source_id || undefined,
+      readAt: n.read_at || undefined,
+      archivedAt: n.archived_at || undefined,
+      retryCount: Number(n.retry_count || 0),
+      lastError: n.last_error || undefined,
+      retryHistory: (() => { try { const value = JSON.parse(n.retry_history_json || '[]'); return Array.isArray(value) ? value : []; } catch { return []; } })(),
+      createdAt: n.created_at || undefined,
+      updatedAt: n.updated_at || undefined
     }));
 
     const stockMovements = rawStockMovements.map(m => ({

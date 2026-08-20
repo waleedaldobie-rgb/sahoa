@@ -140,6 +140,8 @@ function sanitizeAppData(raw: Partial<AppData>): AppData {
 }
 
 // Atomic Database Transaction Manager
+let transactionTail: Promise<void> = Promise.resolve();
+
 export const db = {
   /**
    * Executes a callback atomically inside a database transaction on AppData.
@@ -150,24 +152,24 @@ export const db = {
   async transaction<T>(
     action: (draft: AppData) => Promise<T> | T
   ): Promise<{ result: T; updatedData: AppData; alertMessages: string[] }> {
-    const currentData = await window.electronAPI.getData();
-    // Deep clone for isolated atomic mutation
-    const draft: AppData = JSON.parse(JSON.stringify(currentData));
-
+    const previous = transactionTail;
+    let release!: () => void;
+    transactionTail = new Promise<void>((resolve) => { release = resolve; });
+    await previous;
     try {
+      const currentData = await window.electronAPI.getData();
+      const draft: AppData = JSON.parse(JSON.stringify(currentData));
       const result = await action(draft);
-
       const { updatedData, alertMessages } = checkAndSyncStockAlerts(draft);
       assertMockBusinessIntegrity(updatedData);
       const saved = await window.electronAPI.saveData(updatedData);
-      if (!saved) {
-        throw new Error('فشل الترانزاكشن: تعذر حفظ البيانات في وحدة التخزين');
-      }
-
+      if (!saved) throw new Error('فشل الترانزاكشن: تعذر حفظ البيانات في وحدة التخزين');
       return { result, updatedData, alertMessages };
     } catch (err) {
       console.error('[db.transaction] Transaction rolled back due to error:', err);
       throw err;
+    } finally {
+      release();
     }
   }
 };
@@ -184,6 +186,31 @@ const mockInsertEvent = (draft: AppData, event: OrderEvent) => {
   if (findById(orderEvents, event.id)) return;
   draft.orderEvents = [event, ...orderEvents];
 };
+
+const MAX_NOTIFICATION_RETRIES = 3;
+const notificationSourceId = (phone: string, orderNumber: string, statusText: string) => `${phone}|${orderNumber}|${statusText}`;
+
+const upsertNotificationInDraft = (draft: AppData, notification: NotificationItem): NotificationItem => {
+  const source = notification.source || 'renderer';
+  const sourceId = notification.sourceId || notification.id;
+  const existingIndex = (draft.notifications || []).findIndex((item) => item.id === notification.id || (item.source === source && item.sourceId === sourceId));
+  const now = new Date().toISOString();
+  const merged: NotificationItem = {
+    ...(existingIndex >= 0 ? draft.notifications[existingIndex] : {}),
+    ...notification,
+    source,
+    sourceId,
+    status: notification.status || 'sent',
+    retryCount: notification.retryCount || 0,
+    retryHistory: notification.retryHistory || [],
+    createdAt: existingIndex >= 0 ? draft.notifications[existingIndex].createdAt || now : notification.createdAt || now,
+    updatedAt: now
+  };
+  if (existingIndex >= 0) draft.notifications[existingIndex] = merged;
+  else draft.notifications = [merged, ...(draft.notifications || [])];
+  return merged;
+};
+
 
 // Setup window.electronAPI mock
 export function initElectronMock() {
@@ -204,7 +231,7 @@ export function initElectronMock() {
     async getData(): Promise<AppData> {
       if (isRealElectron && existing?.getCustomers && existing?.getOrders && existing?.getInvoices && existing?.getFabrics && existing?.getAccessories) {
         try {
-          const [customers, orders, invoices, fabrics, accessories, thobeTypes, colors, stockMovements, purchases, expenses, cashTransactions, orderMaterialUsages, orderEvents, customerCredits] = await Promise.all([
+          const [customers, orders, invoices, fabrics, accessories, thobeTypes, colors, stockMovements, purchases, expenses, cashTransactions, orderMaterialUsages, orderEvents, customerCredits, notifications] = await Promise.all([
             existing.getCustomers(),
             existing.getOrders(),
             existing.getInvoices(),
@@ -218,7 +245,8 @@ export function initElectronMock() {
             existing.getCashTransactions?.() || Promise.resolve([]),
             existing.getOrderMaterialUsages?.() || Promise.resolve([]),
             existing.getOrderEvents?.() || Promise.resolve([]),
-            (existing as any).getCustomerCredits?.() || Promise.resolve([])
+            (existing as any).getCustomerCredits?.() || Promise.resolve([]),
+            (existing as any).notifications?.list?.() || Promise.resolve([])
           ]);
           return sanitizeAppData({
             customers: customers || [],
@@ -228,7 +256,7 @@ export function initElectronMock() {
             accessories: accessories || [],
             thobeTypes: thobeTypes || INITIAL_THOBE_TYPES,
             colors: colors || INITIAL_COLORS,
-            notifications: [],
+            notifications: notifications || [],
             stockMovements: stockMovements || [],
             purchases: purchases || [],
             expenses: expenses || [],
@@ -845,6 +873,77 @@ export function initElectronMock() {
       }
     },
 
+    notifications: {
+      async list(includeArchived = false): Promise<NotificationItem[]> {
+        if (isRealElectron && existing?.notifications?.list) return existing.notifications.list(includeArchived);
+        const data = await window.electronAPI.getData();
+        return (data.notifications || []).filter((item) => includeArchived || !item.archivedAt);
+      },
+      async markRead(id: string): Promise<NotificationItem | undefined> {
+        if (isRealElectron && existing?.notifications?.markRead) return existing.notifications.markRead(id);
+        let result: NotificationItem | undefined;
+        await db.transaction((draft) => {
+          const item = draft.notifications.find((notification) => notification.id === id);
+          if (!item) return;
+          const now = new Date().toISOString();
+          item.read = true;
+          item.readAt = now;
+          item.updatedAt = now;
+          result = item;
+        });
+        return result;
+      },
+      async markAllRead(): Promise<{ updated: number }> {
+        if (isRealElectron && existing?.notifications?.markAllRead) return existing.notifications.markAllRead();
+        let updated = 0;
+        await db.transaction((draft) => {
+          const now = new Date().toISOString();
+          for (const item of draft.notifications) {
+            if (!item.archivedAt && !item.read) {
+              item.read = true;
+              item.readAt = now;
+              item.updatedAt = now;
+              updated++;
+            }
+          }
+        });
+        return { updated };
+      },
+      async clearAll(): Promise<{ archived: number }> {
+        if (isRealElectron && existing?.notifications?.clearAll) return existing.notifications.clearAll();
+        let archived = 0;
+        await db.transaction((draft) => {
+          const now = new Date().toISOString();
+          for (const item of draft.notifications) {
+            if (!item.archivedAt) {
+              item.archivedAt = now;
+              item.updatedAt = now;
+              archived++;
+            }
+          }
+        });
+        return { archived };
+      },
+      async retry(id: string): Promise<NotificationItem> {
+        if (isRealElectron && existing?.notifications?.retry) return existing.notifications.retry(id);
+        let result!: NotificationItem;
+        await db.transaction((draft) => {
+          const item = draft.notifications.find((notification) => notification.id === id);
+          if (!item) throw new Error('الإشعار غير موجود');
+          const retryCount = Number(item.retryCount || 0);
+          if (retryCount >= MAX_NOTIFICATION_RETRIES) throw new Error('تم تجاوز الحد الأقصى لمحاولات إعادة الإرسال');
+          const now = new Date().toISOString();
+          item.retryCount = retryCount + 1;
+          item.status = 'retry';
+          item.lastError = undefined;
+          item.updatedAt = now;
+          item.retryHistory = [...(item.retryHistory || []), { attempt: item.retryCount, status: 'retry', occurredAt: now }];
+          result = item;
+        });
+        return result;
+      }
+    },
+
     async getSettings(): Promise<any> {
       if (isRealElectron && existing?.getSettings) return existing.getSettings();
       try {
@@ -867,43 +966,67 @@ export function initElectronMock() {
     },
 
     async sendWhatsAppNotice(phone: string, customerName: string, orderNumber: string, statusText: string): Promise<boolean> {
-      // Formats whatsapp link and simulates IPC messaging log
       const cleanPhone = phone.replace(/\D/g, '');
       const internationalPhone = cleanPhone.startsWith('05') ? '966' + cleanPhone.substring(1) : cleanPhone;
       const message = `مرحباً بك أ/ ${customerName}، نفيدك بنتيجة متابعة طلبك رقم (#${orderNumber}) لدى صهوة للخياطة. حالياً: ${statusText}. يسعدنا تواصلكم دائماً!`;
-      
-      const whatsappUrl = `https://wa.me/${internationalPhone}?text=${encodeURIComponent(message)}`;
-      window.open(whatsappUrl, '_blank');
-
-      // Log notification in IPC state
-      const data = await window.electronAPI.getData();
-      const order = data.orders.find((item) => item.orderNumber === orderNumber);
-      const newNotif: NotificationItem = {
-        id: createSafeId('NOTIF'),
-        type: 'whatsapp',
-        title: `تذكير واتساب - طلب #${orderNumber}`,
-        message: `تم إرسال رسالة واتساب للعميل ${customerName} (${phone}) - الحالة: ${statusText}`,
-        date: new Date().toLocaleString('ar-SA'),
-        read: true,
-        customerPhone: phone,
-        orderId: order?.id
-      };
-      data.notifications = [newNotif, ...data.notifications];
-      if (order) {
-        mockInsertEvent(data, {
-          id: `EVT-WHATSAPP-${newNotif.id}`,
-          orderId: order.id,
+      const sourceId = notificationSourceId(phone, orderNumber, statusText);
+      const before = await window.electronAPI.getData();
+      const order = before.orders.find((item) => item.orderNumber === orderNumber);
+      let notificationId = '';
+      await db.transaction((draft) => {
+        const item = upsertNotificationInDraft(draft, {
+          id: createSafeId('NOTIF'),
           type: 'whatsapp',
-          title: 'فتح رسالة واتساب',
-          description: `تم تجهيز رسالة واتساب للعميل ${customerName} عن حالة الطلب: ${statusText}.`,
-          actor: 'النظام',
-          metadata: { phone, orderNumber, statusText },
-          createdAt: new Date().toISOString()
+          title: `إرسال واتساب قيد التنفيذ - طلب #${orderNumber}`,
+          message: `جاري تجهيز رسالة واتساب للعميل ${customerName} (${phone}) - الحالة: ${statusText}`,
+          date: new Date().toLocaleString('ar-SA'),
+          read: false,
+          customerPhone: phone,
+          orderId: order?.id,
+          status: 'pending',
+          source: 'whatsapp',
+          sourceId,
+          retryCount: 0,
+          retryHistory: []
         });
-      }
-      await window.electronAPI.saveData(data);
+        notificationId = item.id;
+      });
 
-      return true;
+      let sent = false;
+      let failure: string | undefined;
+      try {
+        if ((globalThis as any).SAHWA_FORCE_WHATSAPP_FAILURE === '1') throw new Error('forced failure');
+        if (typeof window.open !== 'function') throw new Error('تعذر فتح نافذة واتساب');
+        const opened = window.open(`https://wa.me/${internationalPhone}?text=${encodeURIComponent(message)}`, '_blank');
+        if (!opened) throw new Error('تعذر فتح نافذة واتساب');
+        sent = true;
+      } catch (error: any) {
+        failure = error?.message || String(error);
+      }
+
+      await db.transaction((draft) => {
+        const item = draft.notifications.find((notification) => notification.id === notificationId);
+        if (!item) return;
+        const now = new Date().toISOString();
+        item.status = sent ? 'sent' : 'failed';
+        item.read = false;
+        item.lastError = sent ? undefined : failure;
+        item.retryHistory = [...(item.retryHistory || []), { attempt: Number(item.retryCount || 0), status: item.status, error: failure, occurredAt: now }];
+        item.updatedAt = now;
+        if (sent && order) {
+          mockInsertEvent(draft, {
+            id: `EVT-WHATSAPP-${item.id}-sent`,
+            orderId: order.id,
+            type: 'whatsapp',
+            title: 'فتح رسالة واتساب',
+            description: `تم تجهيز رسالة واتساب للعميل ${customerName} عن حالة الطلب: ${statusText}.`,
+            actor: 'النظام',
+            metadata: { phone, orderNumber, statusText, result: 'sent' },
+            createdAt: now
+          });
+        }
+      });
+      return sent;
     },
 
     printDocument() {

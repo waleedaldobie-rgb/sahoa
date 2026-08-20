@@ -70,6 +70,13 @@ export const electronBridge = {
   },
 
   // Inventory movements, purchases, expenses & cash ledger
+  notifications: {
+    list: (includeArchived = false) => ipcRenderer.invoke('notifications:list', includeArchived),
+    markRead: (id: string) => ipcRenderer.invoke('notifications:markRead', id),
+    markAllRead: () => ipcRenderer.invoke('notifications:markAllRead'),
+    clearAll: () => ipcRenderer.invoke('notifications:clearAll'),
+    retry: (id: string) => ipcRenderer.invoke('notifications:retry', id)
+  },
   getStockMovements: (itemType?: InventoryItemType, itemId?: string) => ipcRenderer.invoke('stockMovements:list', itemType, itemId),
   adjustStock: (itemType: InventoryItemType, itemId: string, quantity: number, reason: string, direction: 'adjustment' | 'return' | 'adjustment_in' | 'adjustment_out' = 'adjustment', actorId = 'system', unitCost?: number) =>
     ipcRenderer.invoke('stock:adjust', itemType, itemId, quantity, reason, direction, actorId, unitCost),

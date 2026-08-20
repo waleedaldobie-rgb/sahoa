@@ -455,8 +455,14 @@ export function registerIpcHandlers(dbManager: SahwaDatabaseManager) {
     // SYSTEM & REPORTS IPC
     // -------------------------------------------------------------
     safeIpcHandle(ipcMain, 'data:get', async () => {
-      return dbManager.exportFullDataAsJson();
+      return dbManager.exportFullDataAsJson(false);
     });
+
+    safeIpcHandle(ipcMain, 'notifications:list', async (_, includeArchived = false) => notificationRepository.list(Boolean(includeArchived)));
+    safeIpcHandle(ipcMain, 'notifications:markRead', async (_, id: string) => notificationRepository.markRead(id));
+    safeIpcHandle(ipcMain, 'notifications:markAllRead', async () => ({ updated: notificationRepository.markAllRead() }));
+    safeIpcHandle(ipcMain, 'notifications:clearAll', async () => ({ archived: notificationRepository.archiveAll() }));
+    safeIpcHandle(ipcMain, 'notifications:retry', async (_, id: string) => notificationRepository.retry(id));
 
     safeIpcHandle(ipcMain, 'data:save', async (_, data: { notifications?: any[] }) => {
       if (!data || !Array.isArray(data.notifications)) return false;
@@ -505,8 +511,9 @@ export function registerIpcHandlers(dbManager: SahwaDatabaseManager) {
 
   safeIpcHandle(ipcMain, 'whatsapp:send', async (_, phone: string, customerName: string, orderNumber: string, statusText: string) => {
     const prepared = whatsappService.prepareMessage(phone, customerName, orderNumber, statusText);
+    whatsappService.beginDelivery(phone, customerName, orderNumber, statusText, prepared);
     if (process.env.SAHWA_FORCE_WHATSAPP_FAILURE === '1') {
-      whatsappService.recordDeliveryResult(phone, customerName, orderNumber, statusText, prepared, 'failed');
+      whatsappService.recordDeliveryResult(phone, customerName, orderNumber, statusText, prepared, 'failed', 'forced failure');
       return false;
     }
     try {
@@ -514,9 +521,9 @@ export function registerIpcHandlers(dbManager: SahwaDatabaseManager) {
       await shell.openExternal(prepared.url);
       whatsappService.recordDeliveryResult(phone, customerName, orderNumber, statusText, prepared, 'opened');
       return true;
-    } catch (e) {
+    } catch (e: any) {
       console.error('Failed to open external WhatsApp URL:', e);
-      whatsappService.recordDeliveryResult(phone, customerName, orderNumber, statusText, prepared, 'failed');
+      whatsappService.recordDeliveryResult(phone, customerName, orderNumber, statusText, prepared, 'failed', e?.message || String(e));
       return false;
     }
   });

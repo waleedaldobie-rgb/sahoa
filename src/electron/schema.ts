@@ -4,10 +4,10 @@ export interface DatabaseSettings {
   autoBackupIntervalHours: number; // default 1 hour
   maxBackupFiles: number; // default 14
   lastBackupTimestamp?: string;
-  schemaVersion: number; // current: 13
+  schemaVersion: number; // current: 14
 }
 
-export const CURRENT_SCHEMA_VERSION = 13;
+export const CURRENT_SCHEMA_VERSION = 14;
 
 export const CREATE_TABLES_SQL = `
 -- Enable PRAGMA FKs and WAL
@@ -165,6 +165,16 @@ CREATE TABLE IF NOT EXISTS notifications (
   read INTEGER NOT NULL DEFAULT 0,
   customer_phone TEXT,
   order_id TEXT,
+  status TEXT NOT NULL DEFAULT 'sent',
+  source TEXT NOT NULL DEFAULT 'legacy',
+  source_id TEXT,
+  read_at TEXT,
+  archived_at TEXT,
+  retry_count INTEGER NOT NULL DEFAULT 0,
+  last_error TEXT,
+  retry_history_json TEXT NOT NULL DEFAULT '[]',
+  created_at TEXT,
+  updated_at TEXT,
   FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE SET NULL
 );
 

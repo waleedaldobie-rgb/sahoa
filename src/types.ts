@@ -416,6 +416,16 @@ export interface NotificationItem {
   read: boolean;
   customerPhone?: string;
   orderId?: string;
+  status?: 'pending' | 'sent' | 'failed' | 'retry';
+  source?: string;
+  sourceId?: string;
+  readAt?: string;
+  archivedAt?: string;
+  retryCount?: number;
+  lastError?: string;
+  retryHistory?: Array<{ attempt: number; status: string; error?: string; occurredAt: string }>;
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 export interface AppData {
@@ -505,6 +515,13 @@ declare global {
         apply: (request: CustomerCreditApplyRequest) => Promise<CustomerCreditOperationResult>;
         refund: (request: CustomerCreditRefundRequest) => Promise<CustomerCreditOperationResult>;
         getOperation: (operationId: string) => Promise<CustomerCreditOperationResult | undefined>;
+      };
+      notifications?: {
+        list: (includeArchived?: boolean) => Promise<NotificationItem[]>;
+        markRead: (id: string) => Promise<NotificationItem | undefined>;
+        markAllRead: () => Promise<{ updated: number }>;
+        clearAll: () => Promise<{ archived: number }>;
+        retry: (id: string) => Promise<NotificationItem>;
       };
       getStockMovements?: (itemType?: InventoryItemType, itemId?: string) => Promise<StockMovement[]>;
       adjustStock?: (itemType: InventoryItemType, itemId: string, quantity: number, reason: string, direction: 'adjustment' | 'return' | 'adjustment_in' | 'adjustment_out', actorId?: string, unitCost?: number) => Promise<StockMovement>;
