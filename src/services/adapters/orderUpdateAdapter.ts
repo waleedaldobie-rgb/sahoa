@@ -10,7 +10,12 @@ export function updateOrderInvoiceInDraft(
   totalAmount: number,
   paidAmount: number
 ): void {
-  const { remainingAmount, paymentStatus } = calculateOrderAmounts(totalAmount, paidAmount);
+  const existingInvoice = draft.invoices.find((invoice) => invoice.orderId === updatedOrder.id);
+  if (!existingInvoice) throw new Error('لا توجد فاتورة مرتبطة بالطلب');
+  const isCancelled = updatedOrder.status === 'cancelled' || Number(existingInvoice.cancellationWriteoffAmount || 0) > 0;
+  const activeAmounts = calculateOrderAmounts(totalAmount, paidAmount);
+  const remainingAmount = isCancelled ? Number(existingInvoice.remainingAmount) : activeAmounts.remainingAmount;
+  const paymentStatus = isCancelled ? existingInvoice.paymentStatus : activeAmounts.paymentStatus;
   updatedOrder.remainingAmount = remainingAmount;
   draft.invoices = draft.invoices.map((invoice) => invoice.orderId === updatedOrder.id
     ? {

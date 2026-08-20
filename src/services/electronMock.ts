@@ -1,4 +1,4 @@
-import { AppData, UserPreferences, Customer, CustomerMeasurements, CustomerStyleDetails, Order, Invoice, FabricItem, AccessoryItem, ThobeType, ColorItem, NotificationItem, PaymentRecord, StockMovement, PurchaseRecord, PurchaseLine, ExpenseRecord, CashTransaction, OrderMaterialUsage, OrderEvent, MeasurementHistoryRecord, InventoryItemType } from '../types';
+import { AppData, UserPreferences, Customer, CustomerMeasurements, CustomerStyleDetails, Order, Invoice, FabricItem, AccessoryItem, ThobeType, ColorItem, NotificationItem,   PaymentRecord, StockMovement, PurchaseRecord, PurchaseLine, ExpenseRecord, CashTransaction, OrderMaterialUsage, OrderEvent, MeasurementHistoryRecord, CustomerCreditRecord, InventoryItemType } from '../types';
 import { checkAndSyncStockAlerts } from '../utils/stockAlerts';
 import { calculateStockBalance, round2 } from './shared/inventoryRules';
 import { assertSafeInitialOrderStatus } from '../domain/orderRules';
@@ -7,6 +7,8 @@ import { assertStoredPaymentAggregates, assertValidPaymentMethod, calculatePayme
 import { createSafeId } from '../domain/idGenerator';
 import { normalizePositiveAmount } from '../domain/amountRules';
 import { applyPaymentToDraft } from './adapters/paymentDraftAdapter';
+import { assertMockBusinessIntegrity } from './adapters/mockIntegrityAdapter';
+import { settleCancelledOrderInDraft } from './adapters/orderSettlementAdapter';
 import { applyExpenseToDraft, applyCashAdjustmentToDraft } from './adapters/accountingDraftAdapter';
 import { createCustomerInDraft, updateCustomerInDraft, saveCustomerMeasurementHistoryInDraft } from './adapters/customerDraftAdapter';
 import { createFabricInDraft, updateFabricInDraft, createAccessoryInDraft, updateAccessoryInDraft } from './adapters/inventoryCatalogDraftAdapter';
@@ -73,7 +75,8 @@ const INITIAL_APP_DATA: AppData = {
   expenses: [],
   cashTransactions: [],
   orderMaterialUsages: [],
-  orderEvents: []
+  orderEvents: [],
+  customerCredits: []
 };
 
 const INITIAL_PREFS: UserPreferences = {
@@ -129,7 +132,8 @@ function sanitizeAppData(raw: Partial<AppData>): AppData {
     expenses: deduplicateById(raw.expenses || []),
     cashTransactions: deduplicateById(raw.cashTransactions || []),
     orderMaterialUsages: deduplicateById(raw.orderMaterialUsages || []),
-    orderEvents: deduplicateById(raw.orderEvents || [])
+    orderEvents: deduplicateById(raw.orderEvents || []),
+    customerCredits: deduplicateById(raw.customerCredits || []) as CustomerCreditRecord[]
   };
 }
 
@@ -152,6 +156,7 @@ export const db = {
       const result = await action(draft);
 
       const { updatedData, alertMessages } = checkAndSyncStockAlerts(draft);
+      assertMockBusinessIntegrity(updatedData);
       const saved = await window.electronAPI.saveData(updatedData);
       if (!saved) {
         throw new Error('فشل الترانزاكشن: تعذر حفظ البيانات في وحدة التخزين');
@@ -196,7 +201,7 @@ export function initElectronMock() {
     async getData(): Promise<AppData> {
       if (isRealElectron && existing?.getCustomers && existing?.getOrders && existing?.getInvoices && existing?.getFabrics && existing?.getAccessories) {
         try {
-          const [customers, orders, invoices, fabrics, accessories, thobeTypes, colors, stockMovements, purchases, expenses, cashTransactions, orderMaterialUsages, orderEvents] = await Promise.all([
+          const [customers, orders, invoices, fabrics, accessories, thobeTypes, colors, stockMovements, purchases, expenses, cashTransactions, orderMaterialUsages, orderEvents, customerCredits] = await Promise.all([
             existing.getCustomers(),
             existing.getOrders(),
             existing.getInvoices(),
@@ -209,7 +214,8 @@ export function initElectronMock() {
             existing.getExpenses?.() || Promise.resolve([]),
             existing.getCashTransactions?.() || Promise.resolve([]),
             existing.getOrderMaterialUsages?.() || Promise.resolve([]),
-            existing.getOrderEvents?.() || Promise.resolve([])
+            existing.getOrderEvents?.() || Promise.resolve([]),
+            (existing as any).getCustomerCredits?.() || Promise.resolve([])
           ]);
           return sanitizeAppData({
             customers: customers || [],
@@ -225,7 +231,8 @@ export function initElectronMock() {
             expenses: expenses || [],
             cashTransactions: cashTransactions || [],
             orderMaterialUsages: orderMaterialUsages || [],
-            orderEvents: orderEvents || []
+            orderEvents: orderEvents || [],
+            customerCredits: customerCredits || []
           });
         } catch (err) {
           console.error('Error loading real Electron SQLite data, falling back to localStorage:', err);
@@ -255,7 +262,8 @@ export function initElectronMock() {
               expenses: [],
               cashTransactions: [],
               orderMaterialUsages: [],
-              orderEvents: []
+              orderEvents: [],
+              customerCredits: []
             };
             localStorage.setItem(STORAGE_KEY, JSON.stringify(cleanData));
             return cleanData;
@@ -285,7 +293,8 @@ export function initElectronMock() {
           expenses: [],
           cashTransactions: [],
           orderMaterialUsages: [],
-          orderEvents: []
+          orderEvents: [],
+          customerCredits: []
         };
         localStorage.setItem(STORAGE_KEY, JSON.stringify(emptyData));
         return emptyData;
@@ -300,6 +309,7 @@ export function initElectronMock() {
       try {
         const { updatedData } = checkAndSyncStockAlerts(data);
         const sanitized = sanitizeAppData(updatedData);
+        assertMockBusinessIntegrity(sanitized);
         localStorage.setItem(STORAGE_KEY, JSON.stringify(sanitized));
         return true;
       } catch (e) {
@@ -322,6 +332,7 @@ export function initElectronMock() {
           return { success: false, error: 'تنسيق الملف غير صحيح! يجب أن يحتوي على بيانات العملاء والطلبات والمخزون.' };
         }
         const sanitized = sanitizeAppData(parsed);
+        assertMockBusinessIntegrity(sanitized);
         localStorage.setItem(STORAGE_KEY, JSON.stringify(sanitized));
         return { success: true };
       } catch (e) {
@@ -362,7 +373,8 @@ export function initElectronMock() {
           accessories: [],
           thobeTypes: INITIAL_THOBE_TYPES,
           colors: INITIAL_COLORS,
-          notifications: []
+          notifications: [],
+          customerCredits: []
         };
         localStorage.setItem(STORAGE_KEY, JSON.stringify(clearedData));
         // Save a flag to indicate the mock data was explicitly cleared and shouldn't be reseeded
@@ -411,32 +423,20 @@ export function initElectronMock() {
       await db.transaction((draft) => {
         const order = draft.orders.find((item) => item.id === id);
         if (!order) return;
+        const invoice = draft.invoices.find((item) => item.orderId === id);
+        const credits = (draft.customerCredits || []).filter((credit) => credit.orderId === id || credit.invoiceId === invoice?.id);
+        if (invoice || credits.length > 0) {
+          throw new Error('لا يمكن حذف طلب له فاتورة أو سجل مالي؛ استخدم مسار الأرشفة');
+        }
         const usages = (draft.orderMaterialUsages || []).filter((usage) => usage.orderId === id);
         if ((order.status as string) !== 'cancelled') {
           for (const usage of usages) {
             if (usage.itemId) insertStockMovementInDraft(draft, usage.itemType, usage.itemId, usage.quantity, 'return', 'إرجاع مواد بسبب حذف الطلب', { type: 'order_delete', id });
           }
         }
-        const invoice = draft.invoices.find((item) => item.orderId === id);
-        for (const payment of invoice?.payments || []) {
-          mockInsertCash(draft, {
-            id: `CASH-REV-${payment.id}`,
-            direction: 'out',
-            sourceType: 'adjustment',
-            sourceId: payment.id,
-            orderId: id,
-            referenceNumber: invoice?.invoiceNumber,
-            amount: payment.amount,
-            paymentMethod: payment.method,
-            transactionDate: new Date().toISOString().slice(0, 10),
-            description: `عكس دفعة محذوفة للطلب #${order.orderNumber}`,
-            createdAt: new Date().toISOString()
-          });
-        }
         draft.orderMaterialUsages = (draft.orderMaterialUsages || []).filter((usage) => usage.orderId !== id);
         draft.orderEvents = (draft.orderEvents || []).filter((event) => event.orderId !== id);
         draft.orders = draft.orders.filter((item) => item.id !== id);
-        draft.invoices = draft.invoices.filter((item) => item.orderId !== id);
       });
       return true;
     },
@@ -614,8 +614,12 @@ export function initElectronMock() {
         const orderNumber = orderData.orderNumber || nextMockOrderNumber(draft.orders);
         const initialStatus = assertSafeInitialOrderStatus(orderData.status);
         const initialPaymentMethod = assertValidPaymentMethod((orderData as any).initialPaymentMethod || 'cash');
-        const amounts = calculateOrderAmounts(orderData.totalAmount || 0, orderData.paidAmount || 0);
-        const { totalAmount, paidAmount, remainingAmount } = amounts;
+        const initialCashReceived = Number(orderData.paidAmount || 0);
+        const settlement = initialCashReceived > 0
+          ? calculatePaymentUpdate(orderData.totalAmount || 0, 0, orderData.totalAmount || 0, initialCashReceived)
+          : { numericAmount: 0, cashReceived: 0, overpaymentAmount: 0, ...calculateOrderAmounts(orderData.totalAmount || 0, 0) };
+        if (settlement.overpaymentAmount > 0 && !orderData.customerId) throw new Error('لا يمكن تسجيل overpayment دون ربط الطلب بعميل');
+        const { totalAmount, paidAmount, remainingAmount, cashReceived, overpaymentAmount } = settlement;
         const orderId = orderData.id || createSafeId('ORD');
         let fabricMovement: StockMovement | undefined;
         let fabricBuyPrice = orderData.fabricBuyPriceAtOrder || 0;
@@ -655,6 +659,8 @@ export function initElectronMock() {
           garmentCount,
           totalAmount,
           paidAmount,
+          cashReceived,
+          overpaymentAmount,
           materialUsages,
           materialCost,
           createdAt
@@ -663,12 +669,26 @@ export function initElectronMock() {
         draft.orders = [newOrder, ...draft.orders];
 
         // Create invoice and initial payment through the isolated order adapter.
-        const { invoice: newInvoice, payment: initialPayment } = buildInitialInvoiceDraft({ ...orderData, status: initialStatus, initialPaymentMethod }, orderId, orderNumber, totalAmount, paidAmount);
+        const { invoice: newInvoice, payment: initialPayment } = buildInitialInvoiceDraft({ ...orderData, status: initialStatus, initialPaymentMethod }, orderId, orderNumber, totalAmount, cashReceived);
         const initialPaymentId = initialPayment?.id;
 
         draft.invoices = [newInvoice, ...draft.invoices];
         if (initialPaymentId) {
-          mockInsertCash(draft, { id: `CASH-PAY-${initialPaymentId}`, direction: 'in', sourceType: 'customer_payment', sourceId: initialPaymentId, orderId, referenceNumber: orderNumber, amount: paidAmount, paymentMethod: orderData.initialPaymentMethod || 'cash', transactionDate: orderData.orderDate || new Date().toISOString().slice(0, 10), description: `دفعة أولى للطلب #${orderNumber}`, createdAt: new Date().toISOString() });
+          mockInsertCash(draft, { id: `CASH-PAY-${initialPaymentId}`, direction: 'in', sourceType: 'customer_payment', sourceId: initialPaymentId, orderId, referenceNumber: orderNumber, amount: cashReceived, paymentMethod: orderData.initialPaymentMethod || 'cash', transactionDate: orderData.orderDate || new Date().toISOString().slice(0, 10), description: `دفعة أولى للطلب #${orderNumber}`, createdAt: new Date().toISOString() });
+          if (overpaymentAmount > 0) {
+            draft.customerCredits = [{
+              id: `CREDIT-${initialPaymentId}`,
+              customerId: orderData.customerId!,
+              orderId,
+              invoiceId: newInvoice.id,
+              paymentId: initialPaymentId,
+              entryType: 'created',
+              amount: overpaymentAmount,
+              referenceId: initialPaymentId,
+              notes: `زيادة دفعة أولى للطلب #${orderNumber}`,
+              createdAt: new Date().toISOString()
+            }, ...(draft.customerCredits || [])];
+          }
         }
         mockInsertEvent(draft, {
           id: `EVT-CREATED-${orderId}`,
@@ -678,7 +698,7 @@ export function initElectronMock() {
           description: `تم إنشاء الطلب #${orderNumber} وتسجيل الفاتورة${paidAmount > 0 ? ' والدفعة الأولى' : ''}.`,
           toStatus: newOrder.status,
           actor: 'النظام',
-          metadata: { materialCost, paidAmount, remainingAmount },
+          metadata: { materialCost, appliedPaid: paidAmount, cashReceived, overpaymentAmount, remainingAmount, paymentStatus: newInvoice.paymentStatus },
           createdAt: newOrder.createdAt
         });
         createdOrder = newOrder;
@@ -693,7 +713,7 @@ export function initElectronMock() {
         if (!existingOrder) throw new Error('الطلب المطلوب غير موجود');
         const invoice = draft.invoices.find((item) => item.orderId === updatedOrder.id);
         if (!invoice) throw new Error('لا توجد فاتورة مرتبطة بالطلب');
-        const current = assertStoredPaymentAggregates(invoice.totalAmount, invoice.paidAmount, invoice.remainingAmount, invoice.payments || []);
+        const current = assertStoredPaymentAggregates(invoice.totalAmount, invoice.paidAmount, invoice.remainingAmount, invoice.payments || [], invoice.cancellationWriteoffAmount);
         if (Math.abs(Number(updatedOrder.paidAmount ?? current.paidAmount) - current.paidAmount) > 0.0001) throw new Error('لا يمكن تعديل المبلغ المدفوع من خلال تحديث الطلب؛ استخدم مسار الدفعات');
 
         const settings = await window.electronAPI.getSettings();
@@ -709,8 +729,17 @@ export function initElectronMock() {
         const totalAmount = Number(updatedOrder.totalAmount ?? existingOrder.totalAmount);
         const paidAmount = current.paidAmount;
         updateOrderInvoiceInDraft(draft, updatedOrder, totalAmount, paidAmount);
+        const updatedInvoice = draft.invoices.find((item) => item.orderId === updatedOrder.id);
 
-        draft.orders = draft.orders.map((order) => order.id === updatedOrder.id ? { ...updatedOrder, status: existingOrder.status, paidAmount, remainingAmount: updatedOrder.remainingAmount } : order);
+        draft.orders = draft.orders.map((order) => order.id === updatedOrder.id ? {
+          ...updatedOrder,
+          status: existingOrder.status,
+          paidAmount,
+          remainingAmount: updatedInvoice?.remainingAmount ?? current.remainingAmount,
+          cashReceived: updatedInvoice?.cashReceived ?? existingOrder.cashReceived,
+          overpaymentAmount: updatedInvoice?.overpaymentAmount ?? existingOrder.overpaymentAmount,
+          cancellationWriteoffAmount: updatedInvoice?.cancellationWriteoffAmount ?? existingOrder.cancellationWriteoffAmount
+        } : order);
       });
       return true;
     },
@@ -725,7 +754,12 @@ export function initElectronMock() {
         if (oldStatus === status) return;
         if (!allowed[oldStatus]?.includes(status)) throw new Error(`انتقال حالة الطلب من ${oldStatus} إلى ${status} غير مسموح`);
         const usages = (draft.orderMaterialUsages || []).filter((usage) => usage.orderId === id);
+        let cancellationWriteoffAmount = 0;
+        let cancellationPaymentStatus: 'paid' | 'settled_by_cancellation' | undefined;
         if (status === 'cancelled') {
+          const settlement = settleCancelledOrderInDraft(draft, id);
+          cancellationWriteoffAmount = settlement.cancellationWriteoffAmount;
+          cancellationPaymentStatus = settlement.paymentStatus;
           for (const usage of usages) {
             const movement = insertStockMovementInDraft(draft, usage.itemType, usage.itemId, usage.quantity, 'return', 'إرجاع مواد بسبب إلغاء الطلب', { type: 'order_cancel', id });
             usage.sourceMovementId = undefined;
@@ -738,6 +772,7 @@ export function initElectronMock() {
           }
         }
         order.status = status as any;
+        const createdAt = new Date().toISOString();
         mockInsertEvent(draft, {
           id: createSafeId(`EVT-STATUS-${id}`),
           orderId: id,
@@ -747,7 +782,8 @@ export function initElectronMock() {
           fromStatus: oldStatus,
           toStatus: status,
           actor: 'النظام',
-          createdAt: new Date().toISOString()
+          metadata: status === 'cancelled' ? { cancellationWriteoffAmount, paymentStatus: cancellationPaymentStatus || 'paid', cashReversalCreated: false } : undefined,
+          createdAt
         });
       });
       return true;

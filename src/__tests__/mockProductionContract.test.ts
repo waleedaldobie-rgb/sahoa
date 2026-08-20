@@ -78,6 +78,7 @@ describe('Mock/Production business contract', () => {
 
   it('keeps payment aggregate derived from the payment ledger', () => {
     const draft = makeData();
+    draft.orders[0].status = 'new';
     expect(applyPaymentToDraft(draft, 'INV-CONTRACT', 100, 'cash', 'test', 'PAY-CONTRACT')).toBe(true);
     expect(draft.invoices[0].paidAmount).toBe(100);
     expect(draft.invoices[0].payments.reduce((sum, payment) => sum + payment.amount, 0)).toBe(100);
