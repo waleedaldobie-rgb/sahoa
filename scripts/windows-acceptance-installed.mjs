@@ -459,11 +459,23 @@ async function verifyCsvAndReportingViews(pageRef) {
   await pageRef.screenshot({ path: path.join(evidenceDir, 'reports-formula-matrix.png'), fullPage: true });
   pass('reports.formula-separation', 'sales_booked, recognized_revenue, applied collection, and cash are visible separately');
 
-  const downloadPromise = pageRef.waitForEvent('download');
+  await pageRef.evaluate(() => {
+    window.__sahwaCsvCapture = null;
+    const originalClick = HTMLAnchorElement.prototype.click;
+    HTMLAnchorElement.prototype.click = function captureSahwaCsvClick() {
+      if (this.download && this.download.endsWith('.csv')) {
+        const href = this.href;
+        window.__sahwaCsvCapture = fetch(href).then((response) => response.text()).then((text) => ({ filename: this.download, text }));
+      }
+      return originalClick.call(this);
+    };
+  });
   await pageRef.getByRole('button', { name: 'تصدير CSV (Blob)', exact: true }).click();
-  const download = await downloadPromise;
+  await expect.poll(async () => Boolean(await pageRef.evaluate(() => window.__sahwaCsvCapture)), { timeout: 20_000, message: 'CSV Blob export did not create a downloadable anchor.' }).toBe(true);
+  const csvCapture = await pageRef.evaluate(() => window.__sahwaCsvCapture);
+  assert(csvCapture?.text, 'CSV Blob payload was empty.');
   const csvPath = path.join(evidenceDir, 'windows-acceptance-report.csv');
-  await download.saveAs(csvPath);
+  fs.writeFileSync(csvPath, csvCapture.text, 'utf8');
   const csv = fs.readFileSync(csvPath, 'utf8');
   for (const header of ['applied_paid', 'cash_received', 'overpayment', 'cancellation writeoff']) {
     assert(csv.includes(header), `CSV is missing settlement column: ${header}`);
@@ -530,6 +542,7 @@ async function createTransientCustomerAndRestore(pageRef) {
   await fileInput.setInputFiles(backupPath);
   await expect(pageRef.getByText('تحذير هام قبل الاستبدال!', { exact: true })).toBeVisible();
   await pageRef.getByRole('button', { name: 'تأكيد واستبدال البيانات الآن', exact: true }).click();
+  await waitForToast(pageRef, /تم استعادة النسخة الاحتياطية بنجاح/);
   await waitForData(pageRef, (data) => data.customers.some((item) => item.name === 'عميل Windows Acceptance') && !data.customers.some((item) => item.name === 'عميل بعد النسخة'), 'backup restore did not replace the transient customer');
   await expect(pageRef.getByText('عميل Windows Acceptance', { exact: true })).toBeVisible({ timeout: 20_000 });
   await expect(pageRef.getByText('عميل بعد النسخة', { exact: true })).toHaveCount(0);
@@ -769,14 +782,14 @@ try {
     const order = await createCustomerAndOrder(page, fabric);
     await verifyInvoiceAndPayment(page, order);
     await testAccountingAndStock(page, fabric);
-    await runScenario('customer-credit.lifecycle', () => verifyCustomerCreditAndRefund(page, order));
     await exportExcelAndBackup(page);
-    await runScenario('reports.csv-and-accounting-separation', () => verifyCsvAndReportingViews(page));
     await createTransientCustomerAndRestore(page);
     await closeApp();
     await launchApp();
     await waitForAppReady(page);
     await verifyStorageAndPersistence(page);
+    await runScenario('customer-credit.lifecycle', () => verifyCustomerCreditAndRefund(page, order));
+    await runScenario('reports.csv-and-accounting-separation', () => verifyCsvAndReportingViews(page));
     await closeApp();
     await runScenario('legacy.schema-v5-migration', testLegacyMigration);
     await offlineAcceptance();
