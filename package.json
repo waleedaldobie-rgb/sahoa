@@ -31,6 +31,7 @@
     "test:integration:r009": "npm run build:electron && electron --no-sandbox scripts/r009-deletion.integration.cjs",
     "test:integration:r011": "npm run build:electron && electron --no-sandbox scripts/r011-cancelled-payment.integration.cjs",
     "test:integration:r015": "npm run build:electron && electron --no-sandbox scripts/r015-payment-path-contract.integration.cjs",
+    "test:integration:customer-credit": "npm run build:electron && electron --no-sandbox scripts/customer-credit-lifecycle.integration.cjs",
     "test:integration:r012": "npm run build:electron && electron --no-sandbox scripts/r012-purchase-cash-integrity.integration.cjs",
     "test:integration:production-audit": "npm run build:electron && electron --no-sandbox scripts/audit-production-accounting.integration.cjs",
     "test:contract:r014": "vitest run src/__tests__/r014CatalogQuantityContract.test.ts"

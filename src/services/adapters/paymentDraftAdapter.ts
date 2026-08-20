@@ -1,7 +1,8 @@
-import { AppData, CashTransaction, CustomerCreditRecord, OrderEvent, PaymentRecord } from '../../types';
+import { AppData, CashTransaction, OrderEvent, PaymentRecord } from '../../types';
 import { assertStoredPaymentAggregates, assertValidPaymentMethod, calculatePaymentUpdate } from '../../domain/paymentRules';
 import { createSafeId } from '../../domain/idGenerator';
 import { findById, hasIdOrSourceId } from '../shared/idempotencyRules';
+import { createCustomerCreditFromOverpaymentInDraft } from './customerCreditDraftAdapter';
 
 export function applyPaymentToDraft(
   draft: AppData,
@@ -84,21 +85,16 @@ export function applyPaymentToDraft(
   }
 
   if (overpaymentAmount > 0) {
-    const credit: CustomerCreditRecord = {
-      id: `CREDIT-${id}`,
+    createCustomerCreditFromOverpaymentInDraft(draft, {
       customerId: order.customerId,
       orderId: invoice.orderId,
       invoiceId,
       paymentId: id,
-      entryType: 'created',
       amount: overpaymentAmount,
-      referenceId: id,
-      notes: `زيادة دفعة للفاتورة ${invoice.invoiceNumber}`,
+      paymentMethod,
+      invoiceNumber: invoice.invoiceNumber,
       createdAt: now
-    };
-    if (!findById(draft.customerCredits || [], credit.id)) {
-      draft.customerCredits = [credit, ...(draft.customerCredits || [])];
-    }
+    });
   }
 
   const event: OrderEvent = {

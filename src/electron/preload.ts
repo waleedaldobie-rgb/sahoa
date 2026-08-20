@@ -6,7 +6,10 @@ import {
   AccessoryItem,
   ThobeType,
   ColorItem,
-  InventoryItemType
+  InventoryItemType,
+  CustomerCreditApplyRequest,
+  CustomerCreditHistoryFilters,
+  CustomerCreditRefundRequest
 } from '../types';
 
 export const electronBridge = {
@@ -57,6 +60,14 @@ export const electronBridge = {
   getInvoices: () => ipcRenderer.invoke('invoices:list'),
   addPayment: (invoiceId: string, amount: number, method: string, note: string, paymentId?: string) =>
     ipcRenderer.invoke('invoices:addPayment', invoiceId, amount, method, note, paymentId),
+
+  customerCredits: {
+    list: (customerId: string, filters?: CustomerCreditHistoryFilters) => ipcRenderer.invoke('customerCredits:list', customerId, filters),
+    summary: (customerId: string) => ipcRenderer.invoke('customerCredits:summary', customerId),
+    apply: (request: CustomerCreditApplyRequest) => ipcRenderer.invoke('customerCredits:apply', request),
+    refund: (request: CustomerCreditRefundRequest) => ipcRenderer.invoke('customerCredits:refund', request),
+    getOperation: (operationId: string) => ipcRenderer.invoke('customerCredits:getOperation', operationId)
+  },
 
   // Inventory movements, purchases, expenses & cash ledger
   getStockMovements: (itemType?: InventoryItemType, itemId?: string) => ipcRenderer.invoke('stockMovements:list', itemType, itemId),

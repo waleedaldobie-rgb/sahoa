@@ -6,6 +6,7 @@ const assert = require('assert');
 const { app, ipcMain } = require('electron');
 const { SahwaDatabaseManager } = require('../dist-electron/db.js');
 const { registerIpcHandlers } = require('../dist-electron/ipcHandlers.js');
+const { CURRENT_SCHEMA_VERSION } = require('../dist-electron/schema.js');
 const XLSX = require('xlsx');
 
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'sahwa-integration-'));
@@ -291,7 +292,7 @@ async function main() {
     assert.ok(typeof backup === 'string' && backup.length > 100);
     const versionedBackup = JSON.parse(backup);
     assert.equal(versionedBackup.backupSchemaVersion, 2);
-    assert.equal(versionedBackup.schemaVersion, 10);
+    assert.equal(versionedBackup.schemaVersion, CURRENT_SCHEMA_VERSION);
     const sqliteBackups = fs.readdirSync(backupDir).filter((fileName) => fileName.includes('manual_user') && fileName.endsWith('.db'));
     assert.ok(sqliteBackups.length > 0);
     const restoreResult = await call('system:restore', oldBackupJson);

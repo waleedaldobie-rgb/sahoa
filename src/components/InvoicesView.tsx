@@ -188,7 +188,12 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
                     </td>
                     <td className="text-[#4B5563] font-bold font-mono">{inv.orderDate}</td>
                     <td className="text-center font-black text-[#111111] font-mono">{inv.totalAmount} ر.س</td>
-                    <td className="text-center font-black text-emerald-600 font-mono">{inv.paidAmount} ر.س</td>
+                    <td className="text-center font-black text-emerald-600 font-mono">
+                      <div>{inv.paidAmount} ر.س</div>
+                      {inv.payments.filter((payment) => payment.method === 'customer_credit').reduce((sum, payment) => sum + Number(payment.amount || 0), 0) > 0 && (
+                        <span data-testid={`invoice-credit-applied-${inv.id}`} className="mt-1 inline-flex rounded-md bg-slate-100 px-2 py-1 text-[10px] font-black text-slate-700">يتضمن تطبيق رصيد غير نقدي</span>
+                      )}
+                    </td>
                     <td className="text-center font-mono">
                       {inv.remainingAmount > 0 ? (
                         <span className="text-rose-600 font-black">{inv.remainingAmount} ر.س</span>

@@ -856,6 +856,8 @@ await executeCrud('جاري حذف الإكسسوار...', async () => {
               onSaveCustomer={handleSaveCustomer}
               onDeleteCustomer={handleDeleteCustomer}
               onUseMeasurementForOrder={handleUseMeasurementForOrder}
+              customerCredits={data.customerCredits || []}
+              onCustomerCreditChanged={async () => { await loadAppData(); }}
               showToast={showToast}
             />
           )}

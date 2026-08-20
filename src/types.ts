@@ -130,6 +130,8 @@ export type InventoryMovementDirection = 'purchase' | 'sale' | 'adjustment' | 'r
 export type PaymentMethod = 'cash' | 'card' | 'transfer';
 export type PaymentSettlementStatus = 'unpaid' | 'partial' | 'paid' | 'settled_by_cancellation';
 export type CustomerCreditEntryType = 'created' | 'applied' | 'refunded';
+export type CustomerCreditMethod = 'customer_credit' | 'cash' | 'card' | 'transfer';
+export type CustomerCreditOperationState = 'idle' | 'submitting' | 'success' | 'already_processed' | 'validation_error' | 'conflict' | 'server_error';
 
 export interface CancellationWriteoffRecord {
   id: string;
@@ -151,6 +153,58 @@ export interface CustomerCreditRecord {
   referenceId?: string;
   notes?: string;
   createdAt: string;
+  operationId?: string;
+  idempotencyKey?: string;
+  sourceEntryId?: string;
+  targetInvoiceId?: string;
+  targetOrderId?: string;
+  method?: CustomerCreditMethod;
+  actorId?: string;
+  reason?: string;
+  occurredAt?: string;
+  balanceAfter?: number | null;
+}
+
+export interface CustomerCreditSummary {
+  customerId: string;
+  totalCreated: number;
+  totalApplied: number;
+  totalRefunded: number;
+  availableBalance: number;
+}
+
+export interface CustomerCreditHistoryFilters {
+  entryType?: CustomerCreditEntryType;
+  limit?: number;
+}
+
+export interface CustomerCreditApplyRequest {
+  customerId: string;
+  targetInvoiceId: string;
+  amount: number;
+  idempotencyKey: string;
+  reason: string;
+  actorId?: string;
+}
+
+export interface CustomerCreditRefundRequest {
+  customerId: string;
+  amount: number;
+  method: Exclude<CustomerCreditMethod, 'customer_credit'>;
+  idempotencyKey: string;
+  reason: string;
+  actorId?: string;
+}
+
+export interface CustomerCreditOperationResult {
+  operationId: string;
+  idempotent: boolean;
+  customerId: string;
+  amount: number;
+  entryType: CustomerCreditEntryType;
+  method: CustomerCreditMethod;
+  balanceAfter: number;
+  cashTransactionId?: string;
 }
 
 export interface StockMovement {
@@ -207,7 +261,7 @@ export interface ExpenseRecord {
   createdAt: string;
 }
 
-export type CashSourceType = 'opening_balance' | 'customer_payment' | 'sale' | 'purchase' | 'expense' | 'withdrawal' | 'adjustment';
+export type CashSourceType = 'opening_balance' | 'customer_payment' | 'sale' | 'purchase' | 'expense' | 'withdrawal' | 'adjustment' | 'customer_credit_refund';
 
 export interface CashTransaction {
   id: string;
@@ -288,7 +342,7 @@ export interface PaymentRecord {
   /** Portion of cashReceived not applied to the invoice. */
   overpaymentAmount?: number;
   paymentDate: string;
-  method: 'cash' | 'card' | 'transfer';
+  method: 'cash' | 'card' | 'transfer' | 'customer_credit';
   note?: string;
 }
 
@@ -438,7 +492,14 @@ declare global {
       getOrderEvents?: (orderId?: string) => Promise<OrderEvent[]>;
 
       getInvoices?: () => Promise<Invoice[]>;
-            addPayment?: (invoiceId: string, amount: number, method: string, note: string, paymentId?: string) => Promise<boolean>;
+      addPayment?: (invoiceId: string, amount: number, method: string, note: string, paymentId?: string) => Promise<boolean>;
+      customerCredits?: {
+        list: (customerId: string, filters?: CustomerCreditHistoryFilters) => Promise<CustomerCreditRecord[]>;
+        summary: (customerId: string) => Promise<CustomerCreditSummary>;
+        apply: (request: CustomerCreditApplyRequest) => Promise<CustomerCreditOperationResult>;
+        refund: (request: CustomerCreditRefundRequest) => Promise<CustomerCreditOperationResult>;
+        getOperation: (operationId: string) => Promise<CustomerCreditOperationResult | undefined>;
+      };
       getStockMovements?: (itemType?: InventoryItemType, itemId?: string) => Promise<StockMovement[]>;
       adjustStock?: (itemType: InventoryItemType, itemId: string, quantity: number, reason: string, direction: 'adjustment' | 'return') => Promise<StockMovement>;
       getPurchases?: () => Promise<PurchaseRecord[]>;

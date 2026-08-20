@@ -1,6 +1,6 @@
 import { OrderEvent, PaymentRecord } from '../../types';
 import { CashRepository } from '../repositories/cashRepository';
-import { CustomerCreditRepository } from '../repositories/customerCreditRepository';
+import { CustomerCreditService } from './customerCreditService';
 import { InvoiceRepository } from '../repositories/invoiceRepository';
 import { OrderEventRepository } from '../repositories/orderEventRepository';
 import { OrderWriteRepository } from '../repositories/orderWriteRepository';
@@ -13,7 +13,7 @@ export class PaymentService {
     private readonly invoiceRepository: InvoiceRepository,
     private readonly orderWriteRepository: OrderWriteRepository,
     private readonly cashRepository: CashRepository,
-    private readonly customerCreditRepository: CustomerCreditRepository,
+    private readonly customerCreditService: CustomerCreditService,
     private readonly eventRepository: OrderEventRepository,
     private readonly db: {
       transaction<T>(callback: () => T): () => T;
@@ -106,16 +106,14 @@ export class PaymentService {
         createdAt
       });
       if (overpaymentAmount > 0) {
-        this.customerCreditRepository.insert({
-          id: `CREDIT-${id}`,
+        this.customerCreditService.createCreditFromOverpayment({
           customerId: order.customer_id,
           orderId: invoice.order_id,
           invoiceId,
           paymentId: id,
-          entryType: 'created',
           amount: overpaymentAmount,
-          referenceId: id,
-          notes: `زيادة دفعة للفاتورة ${invoice.invoice_number}`,
+          paymentMethod,
+          invoiceNumber: invoice.invoice_number,
           createdAt
         });
       }

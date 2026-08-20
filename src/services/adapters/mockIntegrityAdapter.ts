@@ -28,17 +28,69 @@ export function assertMockBusinessIntegrity(data: AppData): void {
   const customersById = new Set(data.customers.map((customer) => customer.id));
   const creditsById = new Set<string>();
   const createdCreditsByInvoice = new Map<string, number>();
+  const operationSourceKeys = new Set<string>();
+  const balanceByCustomer = new Map<string, number>();
+  const invoicesById = new Map(data.invoices.map((invoice) => [invoice.id, invoice]));
+  const cashRefundsByOperation = new Map<string, { count: number; total: number }>();
+  for (const transaction of data.cashTransactions || []) {
+    if (transaction.sourceType !== 'withdrawal' || transaction.direction !== 'out' || !transaction.sourceId) continue;
+    const current = cashRefundsByOperation.get(transaction.sourceId) || { count: 0, total: 0 };
+    current.count += 1;
+    current.total = round2(current.total + Number(transaction.amount || 0));
+    cashRefundsByOperation.set(transaction.sourceId, current);
+  }
 
-  for (const credit of data.customerCredits || []) {
+  const orderedCredits = [...(data.customerCredits || [])].sort((left, right) =>
+    (left.occurredAt || left.createdAt).localeCompare(right.occurredAt || right.createdAt) || left.id.localeCompare(right.id)
+  );
+  for (const credit of orderedCredits) {
+    const amount = numeric(credit.amount);
     if (!credit.id || creditsById.has(credit.id)) throw new Error(`معرف customer credit مكرر: ${credit.id}`);
     creditsById.add(credit.id);
     if (!customersById.has(credit.customerId)) throw new Error(`customer credit دون عميل: ${credit.id}`);
     if (!['created', 'applied', 'refunded'].includes(credit.entryType)) throw new Error(`نوع customer credit غير صالح: ${credit.id}`);
-    if (!Number.isFinite(Number(credit.amount)) || Number(credit.amount) <= 0) throw new Error(`مبلغ customer credit غير صالح: ${credit.id}`);
+    if (amount <= 0) throw new Error(`مبلغ customer credit غير صالح: ${credit.id}`);
     if (credit.orderId && !ordersById.has(credit.orderId)) throw new Error(`customer credit يشير إلى طلب غير موجود: ${credit.id}`);
-    if (credit.invoiceId && !data.invoices.some((invoice) => invoice.id === credit.invoiceId)) throw new Error(`customer credit يشير إلى فاتورة غير موجودة: ${credit.id}`);
+    if (credit.invoiceId && !invoicesById.has(credit.invoiceId)) throw new Error(`customer credit يشير إلى فاتورة غير موجودة: ${credit.id}`);
     if (credit.entryType === 'created' && credit.invoiceId) {
-      createdCreditsByInvoice.set(credit.invoiceId, round2((createdCreditsByInvoice.get(credit.invoiceId) || 0) + Number(credit.amount)));
+      createdCreditsByInvoice.set(credit.invoiceId, round2((createdCreditsByInvoice.get(credit.invoiceId) || 0) + amount));
+    }
+
+    if (credit.sourceEntryId) {
+      const source = orderedCredits.find((entry) => entry.id === credit.sourceEntryId);
+      if (!source || source.entryType !== 'created' || source.customerId !== credit.customerId) {
+        throw new Error(`مصدر customer credit غير صالح: ${credit.id}`);
+      }
+      const sourceKey = `${credit.operationId || credit.id}:${credit.sourceEntryId}`;
+      if (operationSourceKeys.has(sourceKey)) throw new Error(`خصم customer credit مكرر لنفس المصدر: ${credit.id}`);
+      operationSourceKeys.add(sourceKey);
+    }
+
+    if (credit.targetInvoiceId) {
+      const targetInvoice = invoicesById.get(credit.targetInvoiceId);
+      const targetOrder = targetInvoice ? ordersById.get(targetInvoice.orderId) : undefined;
+      if (!targetInvoice || !targetOrder || targetOrder.customerId !== credit.customerId || targetOrder.status === 'cancelled' || String(targetInvoice.paymentStatus) === 'cancelled') {
+        throw new Error(`فاتورة هدف customer credit غير صالحة: ${credit.id}`);
+      }
+    }
+
+    const previousBalance = round2(balanceByCustomer.get(credit.customerId) || 0);
+    const sign = credit.entryType === 'created' ? 1 : -1;
+    const expectedBalance = round2(previousBalance + sign * amount);
+    if (expectedBalance < -0.0001) throw new Error(`رصيد customer credit أصبح سالباً: ${credit.id}`);
+    if (credit.balanceAfter !== null && credit.balanceAfter !== undefined && !nearlyEqual(Number(credit.balanceAfter), Math.max(0, expectedBalance))) {
+      throw new Error(`balance_after لا يطابق حركة customer credit: ${credit.id}`);
+    }
+    balanceByCustomer.set(credit.customerId, Math.max(0, expectedBalance));
+
+    if (credit.entryType === 'refunded') {
+      const cash = credit.operationId ? cashRefundsByOperation.get(credit.operationId) : undefined;
+      if (credit.method === 'cash' && (!cash || cash.count === 0 || !nearlyEqual(cash.total, amount))) {
+        throw new Error(`استرداد customer credit النقدي غير مرتبط بسجل النقد: ${credit.id}`);
+      }
+      if (credit.method !== 'cash' && cash && cash.count > 0) {
+        throw new Error(`استرداد customer credit غير النقدي لديه حركة نقدية: ${credit.id}`);
+      }
     }
   }
 

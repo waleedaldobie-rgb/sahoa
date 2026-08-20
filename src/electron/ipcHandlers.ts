@@ -35,6 +35,7 @@ import { OrderRepository } from './repositories/orderRepository';
 import { OrderWriteRepository } from './repositories/orderWriteRepository';
 import { InvoiceRepository } from './repositories/invoiceRepository';
 import { PaymentService } from './services/paymentService';
+import { CustomerCreditService } from './services/customerCreditService';
 import { OrderStatusService } from './services/orderStatusService';
 import { NotificationRepository } from './repositories/notificationRepository';
 import { WhatsAppService } from './services/whatsappService';
@@ -152,7 +153,8 @@ export function registerIpcHandlers(dbManager: SahwaDatabaseManager) {
   const orderRepository = new OrderRepository(db);
   const orderWriteRepository = new OrderWriteRepository(db);
   const invoiceRepository = new InvoiceRepository(db);
-  const paymentService = new PaymentService(invoiceRepository, orderWriteRepository, cashRepository, customerCreditRepository, orderEventRepository, db);
+  const customerCreditService = new CustomerCreditService(customerCreditRepository, invoiceRepository, orderWriteRepository, cashRepository, db);
+  const paymentService = new PaymentService(invoiceRepository, orderWriteRepository, cashRepository, customerCreditService, orderEventRepository, db);
   const orderStatusService = new OrderStatusService(orderRepository, orderWriteRepository, inventoryService, orderEventRepository, invoiceRepository, db);
   const notificationRepository = new NotificationRepository(db);
   const whatsappService = new WhatsAppService(notificationRepository, orderRepository, orderEventRepository);
@@ -402,6 +404,40 @@ export function registerIpcHandlers(dbManager: SahwaDatabaseManager) {
 
   safeIpcHandle(ipcMain, 'invoices:addPayment', async (_, invoiceId: string, amount: number, method: string, note: string, paymentId?: string) => {
     return paymentService.addPayment(invoiceId, amount, method, note, paymentId);
+  });
+
+  // -------------------------------------------------------------
+  // CUSTOMER CREDIT LIFECYCLE IPC
+  // -------------------------------------------------------------
+  const localActorId = () => process.env.SAHWA_ACTOR_ID?.trim() || 'local-user';
+  safeIpcHandle(ipcMain, 'customerCredits:list', async (_, customerId: string, filters?: any) => {
+    return customerCreditService.getCustomerCreditHistory(customerId, filters || {});
+  });
+  safeIpcHandle(ipcMain, 'customerCredits:summary', async (_, customerId: string) => {
+    return customerCreditService.getCustomerCreditSummary(customerId);
+  });
+  safeIpcHandle(ipcMain, 'customerCredits:apply', async (_, request: any) => {
+    return customerCreditService.applyCredit({
+      customerId: request.customerId,
+      targetInvoiceId: request.targetInvoiceId,
+      amount: request.amount,
+      idempotencyKey: request.idempotencyKey,
+      reason: request.reason,
+      actorId: localActorId()
+    });
+  });
+  safeIpcHandle(ipcMain, 'customerCredits:refund', async (_, request: any) => {
+    return customerCreditService.refundCredit({
+      customerId: request.customerId,
+      amount: request.amount,
+      method: request.method,
+      idempotencyKey: request.idempotencyKey,
+      reason: request.reason,
+      actorId: localActorId()
+    });
+  });
+  safeIpcHandle(ipcMain, 'customerCredits:getOperation', async (_, operationId: string) => {
+    return customerCreditService.getOperation(operationId);
   });
 
   // -------------------------------------------------------------

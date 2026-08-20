@@ -4,10 +4,10 @@ export interface DatabaseSettings {
   autoBackupIntervalHours: number; // default 1 hour
   maxBackupFiles: number; // default 14
   lastBackupTimestamp?: string;
-  schemaVersion: number; // current: 10
+  schemaVersion: number; // current: 11
 }
 
-export const CURRENT_SCHEMA_VERSION = 10;
+export const CURRENT_SCHEMA_VERSION = 11;
 
 export const CREATE_TABLES_SQL = `
 -- Enable PRAGMA FKs and WAL

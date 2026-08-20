@@ -126,6 +126,69 @@ export class DatabaseIntegrityService {
       }
     }
 
+    const customerCredits = this.db.prepare(`
+      SELECT * FROM customer_credits
+      ORDER BY customer_id, COALESCE(occurred_at, created_at), created_at, id
+    `).all() as any[];
+    const balanceByCustomer = new Map<string, number>();
+    const operationSourceKeys = new Set<string>();
+    for (const credit of customerCredits) {
+      const amount = Number(credit.amount);
+      const customerId = String(credit.customer_id || '');
+      const entryType = String(credit.entry_type || '');
+      const sign = entryType === 'created' ? 1 : -1;
+      if (!customerId || !this.db.prepare('SELECT id FROM customers WHERE id = ?').get(customerId)) {
+        issue({ code: 'ORPHAN_CUSTOMER_CREDIT_CUSTOMER', table: 'customer_credits', recordId: credit.id, field: 'customer_id', expected: 'existing customer', actual: customerId, reason: 'Customer credit references a missing customer', severity: 'critical' });
+      }
+      if (!Number.isFinite(amount) || amount <= 0) {
+        issue({ code: 'NEGATIVE_CUSTOMER_CREDIT', table: 'customer_credits', recordId: credit.id, field: 'amount', expected: '> 0', actual: amount, reason: 'Customer credit movement amount must be positive', severity: 'critical' });
+        continue;
+      }
+      if (credit.invoice_id && !this.db.prepare('SELECT id FROM invoices WHERE id = ?').get(credit.invoice_id)) {
+        issue({ code: 'ORPHAN_CUSTOMER_CREDIT_INVOICE', table: 'customer_credits', recordId: credit.id, field: 'invoice_id', expected: credit.invoice_id, actual: null, reason: 'Customer credit references a missing invoice', severity: 'critical' });
+      }
+      if (credit.order_id && !this.db.prepare('SELECT id FROM orders WHERE id = ?').get(credit.order_id)) {
+        issue({ code: 'ORPHAN_CUSTOMER_CREDIT_ORDER', table: 'customer_credits', recordId: credit.id, field: 'order_id', expected: credit.order_id, actual: null, reason: 'Customer credit references a missing order', severity: 'critical' });
+      }
+      if (credit.source_entry_id) {
+        const source = this.db.prepare('SELECT id, customer_id, entry_type FROM customer_credits WHERE id = ?').get(credit.source_entry_id) as any;
+        if (!source || source.entry_type !== 'created' || source.customer_id !== customerId) {
+          issue({ code: 'ORPHAN_CUSTOMER_CREDIT_SOURCE', table: 'customer_credits', recordId: credit.id, field: 'source_entry_id', expected: 'created source for same customer', actual: credit.source_entry_id, reason: 'Customer credit debit references an invalid source entry', severity: 'critical' });
+        }
+        const sourceKey = `${credit.operation_id || credit.id}:${credit.source_entry_id}`;
+        if (operationSourceKeys.has(sourceKey)) {
+          issue({ code: 'DUPLICATE_CUSTOMER_CREDIT_OPERATION', table: 'customer_credits', recordId: credit.id, field: 'operation_id', expected: 'one debit per operation/source pair', actual: sourceKey, reason: 'Customer credit operation debits the same source entry more than once', severity: 'critical' });
+        }
+        operationSourceKeys.add(sourceKey);
+      }
+      if (credit.target_invoice_id) {
+        const target = this.db.prepare(`SELECT i.id, i.order_id, o.customer_id, i.payment_status, i.remaining_amount
+          FROM invoices i JOIN orders o ON o.id = i.order_id WHERE i.id = ?`).get(credit.target_invoice_id) as any;
+        if (!target || target.customer_id !== customerId || target.payment_status === 'cancelled') {
+          issue({ code: 'INVALID_CUSTOMER_CREDIT_TARGET', table: 'customer_credits', recordId: credit.id, field: 'target_invoice_id', expected: 'valid same-customer active invoice', actual: credit.target_invoice_id, reason: 'Customer credit target invoice is invalid', severity: 'critical' });
+        }
+      }
+      const previousBalance = round2(balanceByCustomer.get(customerId) || 0);
+      const expectedBalance = round2(previousBalance + sign * amount);
+      if (expectedBalance < -0.0001) {
+        issue({ code: 'NEGATIVE_CUSTOMER_CREDIT_BALANCE', table: 'customer_credits', recordId: credit.id, field: 'balance_after', expected: '>= 0', actual: expectedBalance, reason: 'Customer credit ledger balance became negative', severity: 'critical' });
+      }
+      if (credit.balance_after !== null && credit.balance_after !== undefined && !nearlyEqual(Number(credit.balance_after), Math.max(0, expectedBalance))) {
+        issue({ code: 'CUSTOMER_CREDIT_BALANCE_AFTER_MISMATCH', table: 'customer_credits', recordId: credit.id, field: 'balance_after', expected: Math.max(0, expectedBalance), actual: credit.balance_after, reason: 'Customer credit balance_after does not match ledger movement', severity: 'critical' });
+      }
+      balanceByCustomer.set(customerId, Math.max(0, expectedBalance));
+      if (credit.entry_type === 'refunded') {
+        const cash = this.db.prepare(`SELECT COALESCE(SUM(amount), 0) AS total, COUNT(*) AS count
+          FROM cash_transactions WHERE source_type = 'withdrawal' AND source_id = ? AND direction = 'out'`).get(credit.operation_id) as any;
+        if (credit.method === 'cash' && (!cash || Number(cash.count) === 0 || !nearlyEqual(Number(cash.total), amount))) {
+          issue({ code: 'CUSTOMER_CREDIT_CASH_MISMATCH', table: 'customer_credits', recordId: credit.id, field: 'cash_ledger', expected: amount, actual: cash, reason: 'Cash customer credit refund does not match its cash outflow', severity: 'critical' });
+        }
+        if (credit.method !== 'cash' && cash && Number(cash.count) > 0) {
+          issue({ code: 'UNEXPECTED_CUSTOMER_CREDIT_CASH', table: 'customer_credits', recordId: credit.id, field: 'cash_ledger', expected: 0, actual: cash, reason: 'Non-cash customer credit refund has a cash ledger entry', severity: 'critical' });
+        }
+      }
+    }
+
     const movements = this.db.prepare('SELECT * FROM inventory_movements ORDER BY item_type, item_id, created_at, rowid').all() as any[];
     const movementItemTables: Record<string, string> = { fabric: 'fabrics', accessory: 'accessories' };
     const movementReferenceTables: Record<string, string> = {

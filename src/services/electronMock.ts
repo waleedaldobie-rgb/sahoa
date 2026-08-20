@@ -1,4 +1,4 @@
-import { AppData, UserPreferences, Customer, CustomerMeasurements, CustomerStyleDetails, Order, Invoice, FabricItem, AccessoryItem, ThobeType, ColorItem, NotificationItem,   PaymentRecord, StockMovement, PurchaseRecord, PurchaseLine, ExpenseRecord, CashTransaction, OrderMaterialUsage, OrderEvent, MeasurementHistoryRecord, CustomerCreditRecord, InventoryItemType } from '../types';
+import { AppData, UserPreferences, Customer, CustomerMeasurements, CustomerStyleDetails, Order, Invoice, FabricItem, AccessoryItem, ThobeType, ColorItem, NotificationItem,   PaymentRecord, StockMovement, PurchaseRecord, PurchaseLine, ExpenseRecord, CashTransaction, OrderMaterialUsage, OrderEvent, MeasurementHistoryRecord, CustomerCreditRecord, CustomerCreditApplyRequest, CustomerCreditHistoryFilters, CustomerCreditOperationResult, CustomerCreditRefundRequest, CustomerCreditSummary, InventoryItemType } from '../types';
 import { checkAndSyncStockAlerts } from '../utils/stockAlerts';
 import { calculateStockBalance, round2 } from './shared/inventoryRules';
 import { assertSafeInitialOrderStatus } from '../domain/orderRules';
@@ -7,6 +7,7 @@ import { assertStoredPaymentAggregates, assertValidPaymentMethod, calculatePayme
 import { createSafeId } from '../domain/idGenerator';
 import { normalizePositiveAmount } from '../domain/amountRules';
 import { applyPaymentToDraft } from './adapters/paymentDraftAdapter';
+import { applyCustomerCreditInDraft, createCustomerCreditFromOverpaymentInDraft, getCustomerCreditHistoryInDraft, getCustomerCreditOperationInDraft, getCustomerCreditSummaryInDraft, refundCustomerCreditInDraft } from './adapters/customerCreditDraftAdapter';
 import { assertMockBusinessIntegrity } from './adapters/mockIntegrityAdapter';
 import { settleCancelledOrderInDraft } from './adapters/orderSettlementAdapter';
 import { applyExpenseToDraft, applyCashAdjustmentToDraft } from './adapters/accountingDraftAdapter';
@@ -676,18 +677,16 @@ export function initElectronMock() {
         if (initialPaymentId) {
           mockInsertCash(draft, { id: `CASH-PAY-${initialPaymentId}`, direction: 'in', sourceType: 'customer_payment', sourceId: initialPaymentId, orderId, referenceNumber: orderNumber, amount: cashReceived, paymentMethod: orderData.initialPaymentMethod || 'cash', transactionDate: orderData.orderDate || new Date().toISOString().slice(0, 10), description: `دفعة أولى للطلب #${orderNumber}`, createdAt: new Date().toISOString() });
           if (overpaymentAmount > 0) {
-            draft.customerCredits = [{
-              id: `CREDIT-${initialPaymentId}`,
-              customerId: orderData.customerId!,
+            createCustomerCreditFromOverpaymentInDraft(draft, {
+              customerId: orderData.customerId,
               orderId,
               invoiceId: newInvoice.id,
               paymentId: initialPaymentId,
-              entryType: 'created',
               amount: overpaymentAmount,
-              referenceId: initialPaymentId,
-              notes: `زيادة دفعة أولى للطلب #${orderNumber}`,
+              paymentMethod: orderData.initialPaymentMethod || 'cash',
+              invoiceNumber: newInvoice.invoiceNumber,
               createdAt: new Date().toISOString()
-            }, ...(draft.customerCredits || [])];
+            });
           }
         }
         mockInsertEvent(draft, {
@@ -801,6 +800,34 @@ export function initElectronMock() {
         applyPaymentToDraft(draft, invoiceId, amount, method, note, paymentId);
       });
       return true;
+    },
+
+    customerCredits: {
+      async list(customerId: string, filters: CustomerCreditHistoryFilters = {}): Promise<CustomerCreditRecord[]> {
+        if (isRealElectron && existing?.customerCredits?.list) return existing.customerCredits.list(customerId, filters);
+        const data = await window.electronAPI.getData();
+        return getCustomerCreditHistoryInDraft(data, customerId, filters);
+      },
+      async summary(customerId: string): Promise<CustomerCreditSummary> {
+        if (isRealElectron && existing?.customerCredits?.summary) return existing.customerCredits.summary(customerId);
+        const data = await window.electronAPI.getData();
+        return getCustomerCreditSummaryInDraft(data, customerId);
+      },
+      async apply(request: CustomerCreditApplyRequest): Promise<CustomerCreditOperationResult> {
+        if (isRealElectron && existing?.customerCredits?.apply) return existing.customerCredits.apply(request);
+        const transaction = await db.transaction((draft) => applyCustomerCreditInDraft(draft, request));
+        return transaction.result;
+      },
+      async refund(request: CustomerCreditRefundRequest): Promise<CustomerCreditOperationResult> {
+        if (isRealElectron && existing?.customerCredits?.refund) return existing.customerCredits.refund(request);
+        const transaction = await db.transaction((draft) => refundCustomerCreditInDraft(draft, request));
+        return transaction.result;
+      },
+      async getOperation(operationId: string) {
+        if (isRealElectron && existing?.customerCredits?.getOperation) return existing.customerCredits.getOperation(operationId);
+        const data = await window.electronAPI.getData();
+        return getCustomerCreditOperationInDraft(data, operationId);
+      }
     },
 
     async getSettings(): Promise<any> {

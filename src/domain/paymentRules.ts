@@ -32,12 +32,24 @@ function normalizeAppliedPaymentAmount(amount: unknown): number {
   return round2(numericAmount);
 }
 
-function normalizeCashReceived(value: unknown, appliedAmount: number): number {
+function normalizeCashReceived(value: unknown, appliedAmount: number, method: PaymentRecord['method']): number {
+  if (method === 'customer_credit') {
+    const cashReceived = value === undefined ? 0 : Number(value);
+    if (!Number.isFinite(cashReceived) || Math.abs(cashReceived) > 0.0001) {
+      throw new Error('تسوية customer_credit لا تستقبل نقداً');
+    }
+    return 0;
+  }
   const cashReceived = value === undefined ? appliedAmount : Number(value);
   if (!Number.isFinite(cashReceived) || cashReceived <= 0 || cashReceived < appliedAmount) {
     throw new Error('النقد المستلم يجب أن يكون أكبر من صفر ولا يقل عن المبلغ المطبق');
   }
   return round2(cashReceived);
+}
+
+function assertValidLedgerPaymentMethod(value: unknown): PaymentRecord['method'] {
+  if (value === 'customer_credit') return value;
+  return assertValidPaymentMethod(value);
 }
 
 export function parsePaymentLedger(value?: string): PaymentRecord[] {
@@ -52,16 +64,16 @@ export function parsePaymentLedger(value?: string): PaymentRecord[] {
     if (!entry || typeof entry !== 'object') throw new Error(`سجل الدفعة رقم ${index + 1} غير صالح`);
     const payment = entry as Partial<PaymentRecord>;
     const amount = normalizeAppliedPaymentAmount(payment.amount);
-    const cashReceived = normalizeCashReceived(payment.cashReceived, amount);
     if (!payment.id || !payment.invoiceId || !payment.orderId || !payment.paymentDate || !payment.method) {
       throw new Error(`بيانات الدفعة رقم ${index + 1} غير مكتملة`);
     }
-    const method = assertValidPaymentMethod(payment.method);
+    const method = assertValidLedgerPaymentMethod(payment.method);
+    const cashReceived = normalizeCashReceived(payment.cashReceived, amount, method);
     return {
       ...payment,
       amount,
       cashReceived,
-      overpaymentAmount: round2(Math.max(0, cashReceived - amount)),
+      overpaymentAmount: method === 'customer_credit' ? 0 : round2(Math.max(0, cashReceived - amount)),
       method
     } as PaymentRecord;
   });

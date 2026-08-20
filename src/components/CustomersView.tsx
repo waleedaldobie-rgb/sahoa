@@ -1,10 +1,12 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Customer, CustomerMeasurements, CustomerStyleDetails, MeasurementHistoryRecord } from '../types';
+import { Customer, CustomerCreditOperationResult, CustomerCreditRecord, CustomerMeasurements, CustomerStyleDetails, MeasurementHistoryRecord } from '../types';
+import { calculateCustomerCreditBalance } from '../domain/customerCreditRules';
 import { createSafeId } from '../domain/idGenerator';
 import { EMPTY_MEASUREMENTS, EMPTY_STYLE_DETAILS } from '../services/shared/measurementDefaults';
 import { Card, Button, Input, EmptyState } from './ui';
 import { ConfirmModal } from './ConfirmModal';
 import { MeasurementsTableForm } from './MeasurementsTableForm';
+import { CustomerCreditRefundModal } from './CustomerCreditRefundModal';
 import {
   Users,
   Search,
@@ -27,6 +29,8 @@ export interface CustomersViewProps {
   onSaveCustomer: (customer: Customer) => void;
   onDeleteCustomer: (id: string) => void;
   onUseMeasurementForOrder?: (customer: Customer, snapshot: MeasurementHistoryRecord | null) => void;
+  customerCredits?: CustomerCreditRecord[];
+  onCustomerCreditChanged?: () => Promise<void> | void;
   showToast: (msg: string, type: 'success' | 'danger' | 'warning' | 'info') => void;
 }
 
@@ -35,6 +39,8 @@ export const CustomersView: React.FC<CustomersViewProps> = ({
   onSaveCustomer,
   onDeleteCustomer,
   onUseMeasurementForOrder,
+  customerCredits = [],
+  onCustomerCreditChanged,
   showToast
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
@@ -45,6 +51,7 @@ export const CustomersView: React.FC<CustomersViewProps> = ({
   const [activeFormStage, setActiveFormStage] = useState<'basic' | 'measurements' | 'details' | 'review'>('basic');
   const [formErrors, setFormErrors] = useState<{ name?: string; phone?: string }>({});
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const [refundCustomer, setRefundCustomer] = useState<Customer | null>(null);
   const customerNameInputRef = useRef<HTMLInputElement>(null);
 
   // Form State
@@ -68,6 +75,14 @@ export const CustomersView: React.FC<CustomersViewProps> = ({
       c.phone.includes(searchTerm.trim())
   );
   const hasSearch = Boolean(searchTerm.trim());
+  const creditEntriesFor = (customerId: string) => customerCredits.filter((entry) => entry.customerId === customerId);
+  const creditBalanceFor = (customerId: string) => {
+    try { return calculateCustomerCreditBalance(creditEntriesFor(customerId)); }
+    catch { return 0; }
+  };
+  const handleCustomerCreditSuccess = async (_result: CustomerCreditOperationResult) => {
+    await onCustomerCreditChanged?.();
+  };
 
   useEffect(() => {
     if (!isFormOpen) return;
@@ -461,6 +476,7 @@ export const CustomersView: React.FC<CustomersViewProps> = ({
                   <th className="text-center">عرض الكتف</th>
                   <th className="text-center">نوع الرقبة</th>
                   <th className="text-center">تاريخ التسجيل</th>
+                  <th className="text-center">رصيد العميل</th>
                   <th className="text-center">الإجراءات</th>
                 </tr>
               </thead>
@@ -486,15 +502,47 @@ export const CustomersView: React.FC<CustomersViewProps> = ({
                       {cust.styleDetails.neckType || '--'}
                     </td>
                     <td className="text-center text-[#9CA3AF] font-mono text-[11px] font-bold">{cust.createdAt}</td>
+                    <td className="text-center" data-testid={`customer-credit-balance-${cust.id}`}>
+                      <div className="flex flex-col items-center gap-2">
+                        <span className={`rounded-lg px-2.5 py-1 text-xs font-black ${creditBalanceFor(cust.id) > 0 ? 'bg-amber-50 text-amber-800' : 'bg-slate-100 text-slate-500'}`}>
+                          {creditBalanceFor(cust.id).toLocaleString('ar-SA', { maximumFractionDigits: 2 })} ر.س
+                        </span>
+                        {creditEntriesFor(cust.id).length > 0 && (
+                          <details className="text-right">
+                            <summary className="cursor-pointer text-[10px] font-black text-slate-500">سجل الحركات ({creditEntriesFor(cust.id).length})</summary>
+                            <div className="mt-2 min-w-[220px] rounded-xl border border-slate-200 bg-white p-2 text-right shadow-sm" data-testid={`customer-credit-history-${cust.id}`}>
+                              {creditEntriesFor(cust.id).map((entry) => (
+                                <div key={entry.id} className="flex items-center justify-between gap-2 border-b border-slate-100 py-1.5 last:border-0">
+                                  <span className="text-[10px] font-bold text-slate-500">{entry.entryType === 'created' ? 'إنشاء' : entry.entryType === 'applied' ? 'تطبيق' : 'استرداد'}</span>
+                                  <span className="font-mono text-[10px] font-black">{entry.entryType === 'created' ? '+' : '−'}{entry.amount.toLocaleString('ar-SA', { maximumFractionDigits: 2 })} ر.س</span>
+                                </div>
+                              ))}
+                            </div>
+                          </details>
+                        )}
+                      </div>
+                    </td>
                     <td className="text-center">
-                      <Button
-                        variant="secondary"
-                        size="sm"
-                        onClick={() => handleOpenEditModal(cust)}
-                        icon={<Eye className="w-3.5 h-3.5" />}
-                      >
-                        عرض التفاصيل
-                      </Button>
+                      <div className="flex flex-wrap items-center justify-center gap-2">
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          onClick={() => handleOpenEditModal(cust)}
+                          icon={<Eye className="w-3.5 h-3.5" />}
+                        >
+                          عرض التفاصيل
+                        </Button>
+                        {creditBalanceFor(cust.id) > 0 && (
+                          <Button
+                            data-testid={`customer-credit-refund-${cust.id}`}
+                            variant="outline-amber"
+                            size="sm"
+                            onClick={() => setRefundCustomer(cust)}
+                          >
+                            استرداد الرصيد
+                          </Button>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -503,6 +551,17 @@ export const CustomersView: React.FC<CustomersViewProps> = ({
           </div>
         )}
       </Card>
+
+      {refundCustomer && (
+        <CustomerCreditRefundModal
+          isOpen={Boolean(refundCustomer)}
+          customer={refundCustomer}
+          availableBalance={creditBalanceFor(refundCustomer.id)}
+          onClose={() => setRefundCustomer(null)}
+          onSuccess={handleCustomerCreditSuccess}
+          showToast={showToast}
+        />
+      )}
 
       <ConfirmModal
         isOpen={isDeleteConfirmOpen}
