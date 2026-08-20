@@ -359,6 +359,8 @@ async function verifyCustomerCreditAndRefund(pageRef, sourceOrder) {
   await pageRef.evaluate(async ({ invoiceId }) => {
     await window.electronAPI.addPayment(invoiceId, 40, 'cash', 'Windows Customer Credit refund fixture', `WIN-CREDIT-REFUND-SEED-${Date.now()}`);
   }, { invoiceId: refundInvoice.id });
+  await pageRef.reload();
+  await waitForAppReady(pageRef);
   await openTab(pageRef, 'العملاء والمقاسات', 'إدارة العملاء والمقاسات');
   await expect.poll(async () => Number((await pageRef.evaluate((customerId) => window.electronAPI.customerCredits.summary(customerId), creditSourceOrder.customerId)).availableBalance) > 0, { timeout: 20_000, message: 'Customer Credit ledger was not refreshed in CustomersView.' }).toBe(true);
   const refundButton = pageRef.getByTestId(`customer-credit-refund-${creditSourceOrder.customerId}`);
