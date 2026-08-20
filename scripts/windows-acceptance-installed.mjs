@@ -7,6 +7,7 @@ import { DatabaseSync } from 'node:sqlite';
 const executablePath = process.env.SAHWA_EXE;
 const testData = process.env.SAHWA_TEST_DATA || path.join(process.cwd(), 'windows-acceptance-data');
 const evidenceDir = process.env.SAHWA_EVIDENCE_DIR || path.join(process.cwd(), 'test-results', 'windows-acceptance');
+const acceptanceRunId = process.env.GITHUB_RUN_ID || `local-${process.pid}-${Date.now()}`;
 let offlineAdapters = [];
 
 if (!executablePath || !fs.existsSync(executablePath)) {
@@ -143,16 +144,20 @@ async function attachRuntimeMonitoring(appRef, pageRef) {
 }
 
 async function launchApp({ forceWhatsAppFailure = false, dataDir = testData } = {}) {
+  const hostAppData = process.env.APPDATA || path.join(dataDir, 'AppData', 'Roaming');
+  const hostLocalAppData = process.env.LOCALAPPDATA || path.join(dataDir, 'AppData', 'Local');
+  const fixtureName = path.basename(dataDir).replace(/[^a-zA-Z0-9_-]/g, '_');
+  const userDataDir = path.join(hostAppData, 'sahwa-packaged-acceptance', acceptanceRunId, fixtureName);
   const automationEnv = {
     ...process.env,
-    APPDATA: path.join(dataDir, 'AppData', 'Roaming'),
-    LOCALAPPDATA: path.join(dataDir, 'AppData', 'Local'),
+    APPDATA: hostAppData,
+    LOCALAPPDATA: hostLocalAppData,
     SAHWA_UI_AUTOMATION: '1',
     ...(forceWhatsAppFailure ? { SAHWA_FORCE_WHATSAPP_FAILURE: '1' } : {})
   };
   app = await electron.launch({
     executablePath,
-    args: ['--no-sandbox'],
+    args: ['--no-sandbox', `--user-data-dir=${userDataDir}`],
     env: automationEnv
   });
   page = await app.firstWindow();
