@@ -21,6 +21,7 @@ import {
 import { normalizeMeasurements, normalizeStyleDetails } from '../services/shared/measurementDefaults';
 import { normalizePositiveAmount } from '../domain/amountRules';
 import { round2 } from '../domain/inventoryRules';
+import { assertValidManualCashSourceType } from '../domain/cashRules';
 import { CustomerRepository } from './repositories/customerRepository';
 import { CashRepository } from './repositories/cashRepository';
 import { CustomerService } from './services/customerService';
@@ -227,7 +228,7 @@ export function registerIpcHandlers(dbManager: SahwaDatabaseManager) {
     const transaction: CashTransaction = {
       id,
       direction: payload.direction === 'out' ? 'out' : 'in',
-      sourceType: payload.sourceType || 'adjustment',
+      sourceType: assertValidManualCashSourceType(payload.sourceType || 'adjustment'),
       sourceId: payload.sourceId,
       referenceNumber: payload.referenceNumber,
       amount: round2(amount),

@@ -283,6 +283,7 @@ export interface FabricItem {
   sellingPrice: number;
   quantityMeters: number;
   minStockMeters: number;
+  createdAt?: string;
 }
 
 export interface AccessoryItem {
@@ -294,6 +295,7 @@ export interface AccessoryItem {
   unit: string;
   purchasePrice?: number;
   sellingPrice?: number;
+  createdAt?: string;
 }
 
 export interface ThobeType {

@@ -69,6 +69,7 @@ export class DatabaseIntegrityService {
         const expected = summarizePaymentLedger(payments, invoice.total_amount);
         if (!nearlyEqual(Number(invoice.paid_amount), expected.paidAmount)) issue({ code: 'INVOICE_PAYMENT_MISMATCH', table: 'invoices', recordId: invoice.id, field: 'paid_amount', expected: expected.paidAmount, actual: invoice.paid_amount, reason: 'Invoice paid amount differs from payment ledger' });
         if (!nearlyEqual(Number(invoice.remaining_amount), expected.remainingAmount)) issue({ code: 'INVOICE_REMAINING_MISMATCH', table: 'invoices', recordId: invoice.id, field: 'remaining_amount', expected: expected.remainingAmount, actual: invoice.remaining_amount, reason: 'Invoice remaining differs from payment ledger' });
+        if (invoice.payment_status !== expected.paymentStatus) issue({ code: 'INVOICE_STATUS_MISMATCH', table: 'invoices', recordId: invoice.id, field: 'payment_status', expected: expected.paymentStatus, actual: invoice.payment_status, reason: 'Invoice payment status differs from the Invoice Payment Ledger' });
         const order = this.db.prepare('SELECT total_amount, paid_amount, remaining_amount FROM orders WHERE id = ?').get(invoice.order_id) as any;
         if (!order) issue({ code: 'ORPHAN_INVOICE', table: 'invoices', recordId: invoice.id, expected: 'existing order', actual: invoice.order_id, reason: 'Invoice references a missing order' });
         else {
@@ -155,6 +156,17 @@ export class DatabaseIntegrityService {
       if (movement.item_type !== usage.item_type || String(movement.item_id) !== String(usage.item_id) || movement.direction !== 'sale' || !nearlyEqual(Number(movement.quantity), quantity) || String(movement.reference_id || '') !== String(usage.order_id)) issue({ code: 'SOURCE_MOVEMENT_MISMATCH', table: 'order_material_usages', recordId: usage.id, field: 'source_movement_id', expected: { itemType: usage.item_type, itemId: usage.item_id, direction: 'sale', quantity, orderId: usage.order_id }, actual: movement, reason: 'Source inventory movement does not match material usage', severity: 'critical' });
     }
 
+    const expenses = this.db.prepare('SELECT * FROM expenses').all() as any[];
+    for (const expense of expenses) {
+      const cash = this.db.prepare(`
+        SELECT COALESCE(SUM(amount), 0) AS total, COUNT(*) AS count
+        FROM cash_transactions
+        WHERE source_type = 'expense' AND direction = 'out' AND source_id = ?
+      `).get(expense.id) as { total: number; count: number };
+      if (Number(cash.count) === 0) issue({ code: 'MISSING_EXPENSE_CASH', table: 'expenses', recordId: expense.id, field: 'cash_ledger', expected: 'matching expense cash outflow', actual: null, reason: 'Expense has no matching cash ledger entry', severity: 'critical' });
+      else if (!nearlyEqual(Number(cash.total), Number(expense.amount))) issue({ code: 'EXPENSE_CASH_MISMATCH', table: 'expenses', recordId: expense.id, field: 'cash_ledger.amount', expected: expense.amount, actual: cash.total, reason: 'Expense cash ledger does not match expense amount', severity: 'critical' });
+    }
+
     const purchases = this.db.prepare('SELECT * FROM purchases').all() as any[];
     for (const purchase of purchases) {
       const sum = this.db.prepare('SELECT COALESCE(SUM(total_amount), 0) AS total FROM purchase_lines WHERE purchase_id = ?').get(purchase.id) as { total: number };
@@ -235,6 +247,7 @@ export class DatabaseIntegrityService {
         const payments = invoice.payments;
         const expected = summarizePaymentLedger(payments, invoice.totalAmount);
         if (!nearlyEqual(Number(invoice.paidAmount), expected.paidAmount) || !nearlyEqual(Number(invoice.remainingAmount), expected.remainingAmount)) add({ code: 'INVOICE_PAYMENT_MISMATCH', table: 'invoices', recordId: invoice.id, expected: { paid: expected.paidAmount, remaining: expected.remainingAmount }, actual: { paid: invoice.paidAmount, remaining: invoice.remainingAmount }, reason: 'Backup invoice aggregates do not match the Invoice Payment Ledger', severity: 'critical' });
+        if (invoice.paymentStatus !== expected.paymentStatus) add({ code: 'INVOICE_STATUS_MISMATCH', table: 'invoices', recordId: invoice.id, field: 'paymentStatus', expected: expected.paymentStatus, actual: invoice.paymentStatus, reason: 'Backup invoice payment status differs from the Invoice Payment Ledger', severity: 'critical' });
         const order = ordersById.get(String(invoice.orderId));
         if (order && !nearlyEqual(Number(order.totalAmount), Number(invoice.totalAmount))) add({ code: 'INVOICE_ORDER_TOTAL_MISMATCH', table: 'invoices', recordId: invoice.id, expected: order.totalAmount, actual: invoice.totalAmount, reason: 'Invoice total differs from its order total', severity: 'critical' });
         if (order && (!nearlyEqual(Number(order.paidAmount), expected.paidAmount) || !nearlyEqual(Number(order.remainingAmount), expected.remainingAmount))) add({ code: 'ORDER_PAYMENT_PROJECTION_MISMATCH', table: 'orders', recordId: order.id, expected: { paid: expected.paidAmount, remaining: expected.remainingAmount, source: 'invoice.paymentLedger' }, actual: { paid: order.paidAmount, remaining: order.remainingAmount }, reason: 'Order payment projections do not match the Invoice Payment Ledger', severity: 'critical' });
