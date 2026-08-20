@@ -587,8 +587,11 @@ async function testLegacyMigration() {
   fs.mkdirSync(legacyRoot, { recursive: true });
 
   await launchApp({ dataDir: legacyRoot });
+  await waitForDashboard(page);
+  await page.waitForTimeout(500);
   const storage = await page.evaluate(() => window.electronAPI.automationStorageInfo());
   await closeApp();
+  await new Promise((resolve) => setTimeout(resolve, 500));
   fs.mkdirSync(path.dirname(storage.databasePath), { recursive: true });
   fs.rmSync(storage.databasePath, { force: true });
 
