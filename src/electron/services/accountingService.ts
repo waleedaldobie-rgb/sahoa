@@ -64,7 +64,7 @@ export class AccountingService {
       for (const line of preparedLines) {
         this.inventoryService.recordMovement(line.input.itemType, line.input.itemId, line.quantity, 'purchase', `شراء من المورد ${payload.supplier.trim()}`, {
           type: 'purchase', id: purchaseId, number: payload.invoiceNumber || purchaseId
-        });
+        }, { unitCost: line.unitPrice, actorId: 'system', updateWac: true });
         this.repository.insertPurchaseLine({
           id: createSafeId('PURL'),
           purchaseId,
@@ -77,7 +77,6 @@ export class AccountingService {
           totalAmount: line.total,
           createdAt: now
         });
-        this.repository.updatePurchasePrice(line.input.itemType, line.input.itemId, line.unitPrice);
       }
 
       if (totalAmount > 0) {
@@ -92,6 +91,8 @@ export class AccountingService {
           transactionDate: purchaseDate,
           description: `شراء مخزون من ${payload.supplier.trim()}`,
           notes: payload.notes || undefined,
+          actorId: 'system',
+          reason: payload.notes?.trim() || `شراء مخزون من ${payload.supplier.trim()}`,
           createdAt: now
         };
         this.cashRepository.insert(cash);
@@ -135,6 +136,8 @@ export class AccountingService {
         transactionDate: expenseDate,
         description: payload.description.trim(),
         notes: payload.notes || undefined,
+        actorId: 'system',
+        reason: payload.description.trim(),
         createdAt: now
       });
     });

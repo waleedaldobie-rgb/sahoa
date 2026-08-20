@@ -32,6 +32,10 @@ export class InventoryRepository {
     this.db.prepare(`UPDATE ${meta.table} SET ${meta.quantityColumn} = ? WHERE id = ?`).run(quantity, itemId);
   }
 
+  updateWac(meta: InventoryMeta, unitCost: number, itemId: string): void {
+    this.db.prepare(`UPDATE ${meta.table} SET purchase_price = ? WHERE id = ?`).run(unitCost, itemId);
+  }
+
   insertMovement(row: {
     id: string;
     itemType: InventoryItemType;
@@ -46,18 +50,28 @@ export class InventoryRepository {
     referenceType?: string;
     referenceId?: string;
     referenceNumber?: string;
+    unitCost?: number;
+    totalCost?: number;
+    sourceMovementId?: string;
+    actorId?: string;
     createdAt: string;
   }): void {
     this.db.prepare(`
       INSERT INTO inventory_movements (
         id, item_type, item_id, item_name, direction, quantity, quantity_before,
-        quantity_after, unit, reason, reference_type, reference_id, reference_number, created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        quantity_after, unit, reason, reference_type, reference_id, reference_number,
+        unit_cost, total_cost, source_movement_id, actor_id, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       row.id, row.itemType, row.itemId, row.itemName, row.direction, row.quantity,
       row.quantityBefore, row.quantityAfter, row.unit, row.reason,
-      row.referenceType || null, row.referenceId || null, row.referenceNumber || null, row.createdAt
+      row.referenceType || null, row.referenceId || null, row.referenceNumber || null,
+      row.unitCost ?? null, row.totalCost ?? null, row.sourceMovementId || null, row.actorId || null, row.createdAt
     );
+  }
+
+  findMovement(id: string): any | undefined {
+    return this.db.prepare('SELECT * FROM inventory_movements WHERE id = ?').get(id);
   }
 
   listMovements(itemType?: InventoryItemType, itemId?: string): any[] {

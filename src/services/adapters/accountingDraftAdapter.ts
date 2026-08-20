@@ -3,7 +3,7 @@ import { normalizePositiveAmount } from '../../domain/amountRules';
 import { assertValidPaymentMethod } from '../../domain/paymentRules';
 import { createSafeId } from '../../domain/idGenerator';
 import { round2 } from '../../domain/inventoryRules';
-import { assertValidManualCashSourceType } from '../../domain/cashRules';
+import { assertCashTransactionContract, assertValidManualCashSourceType } from '../../domain/cashRules';
 import { findById, hasIdOrSourceId } from '../shared/idempotencyRules';
 
 type DraftPayload = Record<string, any>;
@@ -39,6 +39,8 @@ export function applyExpenseToDraft(draft: AppData, payload: DraftPayload): Expe
     transactionDate: expense.expenseDate,
     description: expense.description,
     notes: expense.notes,
+    actorId: 'system',
+    reason: expense.description,
     createdAt: now
   });
   return expense;
@@ -64,6 +66,8 @@ export function applyCashAdjustmentToDraft(draft: AppData, payload: DraftPayload
     transactionDate: payload.transactionDate || new Date().toISOString().slice(0, 10),
     description: payload.description.trim(),
     notes: payload.notes,
+    actorId: payload.actorId || 'system',
+    reason: payload.reason?.trim() || payload.description.trim(),
     createdAt: new Date().toISOString()
   };
   insertCash(draft, transaction);
@@ -71,6 +75,7 @@ export function applyCashAdjustmentToDraft(draft: AppData, payload: DraftPayload
 }
 
 function insertCash(draft: AppData, transaction: CashTransaction): void {
+  assertCashTransactionContract(transaction);
   if (hasIdOrSourceId(draft.cashTransactions, transaction.id, transaction.sourceId)) return;
   draft.cashTransactions = [transaction, ...(draft.cashTransactions || [])];
 }

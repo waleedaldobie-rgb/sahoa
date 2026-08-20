@@ -71,6 +71,11 @@ export class OrderStatusService {
           if (material.item_id) {
             this.inventoryService.recordMovement(material.item_type, material.item_id, material.quantity, 'return', 'إرجاع مواد بسبب إلغاء الطلب', {
               type: 'order_cancel', id: orderId, number: order.order_number
+            }, {
+              unitCost: material.unit_cost_at_usage,
+              sourceMovementId: material.source_movement_id || undefined,
+              actorId: 'system',
+              updateWac: false
             });
           }
           this.orderWriteRepository.updateMaterialUsageSourceMovement(material.id, null);

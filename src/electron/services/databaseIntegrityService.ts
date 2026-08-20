@@ -1,8 +1,9 @@
 import Database from 'better-sqlite3';
 import { parsePaymentLedger, assertValidPaymentMethod, summarizePaymentLedger } from '../../domain/paymentRules';
-import { round2 } from '../../domain/inventoryRules';
+import { round2, round4 } from '../../domain/inventoryRules';
 import { assertValidOrderStatus } from '../../domain/orderRules';
 import { CURRENT_SCHEMA_VERSION } from '../schema';
+import { assertValidCashSourceType } from '../../domain/cashRules';
 
 export const BACKUP_SCHEMA_VERSION = 2;
 export type IntegritySeverity = 'critical' | 'high' | 'medium' | 'low';
@@ -48,6 +49,32 @@ export class DatabaseIntegrityService {
     const duplicateInvoices = this.db.prepare('SELECT order_id, COUNT(*) AS count FROM invoices GROUP BY order_id HAVING COUNT(*) > 1').all() as Array<{ order_id: string; count: number }>;
     for (const row of duplicateInvoices) {
       issue({ code: 'DUPLICATE_INVOICE_ORDER', table: 'invoices', recordId: row.order_id, expected: 1, actual: row.count, reason: 'The configured business rule allows one invoice per order' });
+    }
+
+    const cashTransactions = this.db.prepare('SELECT * FROM cash_transactions').all() as any[];
+    for (const cash of cashTransactions) {
+      try {
+        const sourceType = assertValidCashSourceType(cash.source_type);
+        const isManual = ['opening_balance', 'adjustment', 'withdrawal'].includes(sourceType);
+        const isRefund = sourceType === 'customer_refund' || sourceType === 'customer_credit_refund';
+        if ((isManual || isRefund) && (!String(cash.actor_id || '').trim() || !String(cash.reason || '').trim())) {
+          issue({ code: 'CASH_AUDIT_METADATA_MISSING', table: 'cash_transactions', recordId: cash.id, field: 'actor_id/reason', expected: 'non-empty actor_id and reason', actual: { actorId: cash.actor_id, reason: cash.reason }, reason: 'Cash movement is missing required audit metadata', severity: 'high' });
+        }
+        if ((sourceType === 'adjustment' || sourceType === 'withdrawal') && !String(cash.reason || '').trim()) {
+          issue({ code: 'CASH_REASON_MISSING', table: 'cash_transactions', recordId: cash.id, field: 'reason', expected: 'non-empty reason', actual: cash.reason, reason: 'Adjustment or withdrawal requires a reason', severity: 'high' });
+        }
+        if (isRefund && (cash.direction !== 'out' || cash.payment_method !== 'cash' || !String(cash.source_id || '').trim())) {
+          issue({ code: 'INVALID_CUSTOMER_REFUND_CASH', table: 'cash_transactions', recordId: cash.id, expected: 'out/cash/linked source_id', actual: cash, reason: 'Customer refund cash movement is not correctly linked', severity: 'critical' });
+        }
+        if (sourceType === 'customer_payment' && (cash.direction !== 'in' || !String(cash.source_id || '').trim())) {
+          issue({ code: 'INVALID_CUSTOMER_PAYMENT_CASH', table: 'cash_transactions', recordId: cash.id, expected: 'in with source_id', actual: cash, reason: 'Customer payment cash movement is not linked to a payment', severity: 'critical' });
+        }
+        if ((sourceType === 'purchase' || sourceType === 'expense') && (cash.direction !== 'out' || !String(cash.source_id || '').trim())) {
+          issue({ code: 'INVALID_BUSINESS_CASH_SOURCE', table: 'cash_transactions', recordId: cash.id, expected: 'out with source_id', actual: cash, reason: 'Business-originated cash movement is not linked to its source record', severity: 'critical' });
+        }
+      } catch (error: any) {
+        issue({ code: 'CASH_SOURCE_NOT_WHITELISTED', table: 'cash_transactions', recordId: cash.id, field: 'source_type', expected: 'approved Cash Drawer source type', actual: cash.source_type, reason: error?.message || 'Cash source type is not allowed', severity: 'critical' });
+      }
     }
 
     const orders = this.db.prepare('SELECT * FROM orders').all() as any[];
@@ -179,7 +206,7 @@ export class DatabaseIntegrityService {
       balanceByCustomer.set(customerId, Math.max(0, expectedBalance));
       if (credit.entry_type === 'refunded') {
         const cash = this.db.prepare(`SELECT COALESCE(SUM(amount), 0) AS total, COUNT(*) AS count
-          FROM cash_transactions WHERE source_type = 'withdrawal' AND source_id = ? AND direction = 'out'`).get(credit.operation_id) as any;
+          FROM cash_transactions WHERE source_type IN ('customer_refund', 'customer_credit_refund', 'withdrawal') AND source_id = ? AND direction = 'out'`).get(credit.operation_id) as any;
         if (credit.method === 'cash' && (!cash || Number(cash.count) === 0 || !nearlyEqual(Number(cash.total), amount))) {
           issue({ code: 'CUSTOMER_CREDIT_CASH_MISMATCH', table: 'customer_credits', recordId: credit.id, field: 'cash_ledger', expected: amount, actual: cash, reason: 'Cash customer credit refund does not match its cash outflow', severity: 'critical' });
         }
@@ -219,10 +246,19 @@ export class DatabaseIntegrityService {
       if (!Number.isFinite(quantity) || quantity <= 0) issue({ code: 'INVALID_MOVEMENT_QUANTITY', table: 'inventory_movements', recordId: movement.id, field: 'quantity', expected: '> 0', actual: quantity, reason: 'Movement quantity must be positive' });
       if (before < 0 || after < 0) issue({ code: 'NEGATIVE_MOVEMENT_BALANCE', table: 'inventory_movements', recordId: movement.id, expected: '>= 0', actual: { before, after }, reason: 'Movement balances cannot be negative' });
       if (movement.direction === 'sale' && !nearlyEqual(after, before - quantity)) issue({ code: 'SALE_MOVEMENT_MISMATCH', table: 'inventory_movements', recordId: movement.id, expected: before - quantity, actual: after, reason: 'Sale movement does not reduce stock by its quantity' });
-      if (movement.direction === 'purchase' || movement.direction === 'return') {
+      if (movement.direction === 'purchase' || (movement.direction === 'return' && movement.reference_type !== 'purchase_return')) {
         if (!nearlyEqual(after, before + quantity)) issue({ code: 'INBOUND_MOVEMENT_MISMATCH', table: 'inventory_movements', recordId: movement.id, expected: before + quantity, actual: after, reason: 'Inbound movement does not increase stock by its quantity' });
       }
+      if (movement.direction === 'return' && movement.reference_type === 'purchase_return' && !nearlyEqual(after, before - quantity)) {
+        issue({ code: 'PURCHASE_RETURN_MOVEMENT_MISMATCH', table: 'inventory_movements', recordId: movement.id, expected: before - quantity, actual: after, reason: 'Purchase return must reduce stock by its returned quantity', severity: 'critical' });
+      }
       if (movement.direction === 'adjustment' && !nearlyEqual(Math.abs(after - before), quantity)) issue({ code: 'ADJUSTMENT_MOVEMENT_MISMATCH', table: 'inventory_movements', recordId: movement.id, expected: Math.abs(after - before), actual: quantity, reason: 'Adjustment movement quantity differs from balance delta' });
+      if (movement.unit_cost !== null && movement.unit_cost !== undefined) {
+        const unitCost = Number(movement.unit_cost);
+        const expectedCost = round4(quantity * unitCost);
+        if (!Number.isFinite(unitCost) || unitCost < 0) issue({ code: 'INVALID_MOVEMENT_UNIT_COST', table: 'inventory_movements', recordId: movement.id, field: 'unit_cost', expected: '>= 0', actual: movement.unit_cost, reason: 'Inventory movement unit cost is invalid', severity: 'critical' });
+        if (movement.total_cost !== null && movement.total_cost !== undefined && !nearlyEqual(Number(movement.total_cost), expectedCost)) issue({ code: 'MOVEMENT_TOTAL_COST_MISMATCH', table: 'inventory_movements', recordId: movement.id, field: 'total_cost', expected: expectedCost, actual: movement.total_cost, reason: 'Inventory movement total cost is not quantity multiplied by unit cost', severity: 'critical' });
+      }
     }
 
     const movementsById = new Map<string, any>(movements.map((movement) => [String(movement.id), movement]));
@@ -231,7 +267,7 @@ export class DatabaseIntegrityService {
     for (const usage of usages) {
       const quantity = Number(usage.quantity);
       if (!Number.isFinite(quantity) || quantity <= 0) issue({ code: 'INVALID_MATERIAL_USAGE', table: 'order_material_usages', recordId: usage.id, field: 'quantity', expected: '> 0', actual: usage.quantity, reason: 'Material usage quantity must be positive' });
-      const expectedCost = quantity * Number(usage.unit_cost_at_usage);
+      const expectedCost = round2(quantity * Number(usage.unit_cost_at_usage));
       if (!nearlyEqual(Number(usage.total_cost), expectedCost)) issue({ code: 'MATERIAL_COST_MISMATCH', table: 'order_material_usages', recordId: usage.id, field: 'total_cost', expected: expectedCost, actual: usage.total_cost, reason: 'Historical material cost is not quantity multiplied by unit cost' });
       const order = this.db.prepare('SELECT id, status FROM orders WHERE id = ?').get(usage.order_id) as { id: string; status: string } | undefined;
       if (!order) issue({ code: 'ORPHAN_MATERIAL_USAGE', table: 'order_material_usages', recordId: usage.id, expected: usage.order_id, actual: null, reason: 'Material usage references a missing order', severity: 'critical' });

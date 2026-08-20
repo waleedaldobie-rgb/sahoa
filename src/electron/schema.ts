@@ -4,10 +4,10 @@ export interface DatabaseSettings {
   autoBackupIntervalHours: number; // default 1 hour
   maxBackupFiles: number; // default 14
   lastBackupTimestamp?: string;
-  schemaVersion: number; // current: 11
+  schemaVersion: number; // current: 13
 }
 
-export const CURRENT_SCHEMA_VERSION = 11;
+export const CURRENT_SCHEMA_VERSION = 13;
 
 export const CREATE_TABLES_SQL = `
 -- Enable PRAGMA FKs and WAL
@@ -183,6 +183,10 @@ CREATE TABLE IF NOT EXISTS inventory_movements (
   reference_type TEXT,
   reference_id TEXT,
   reference_number TEXT,
+  unit_cost REAL,
+  total_cost REAL,
+  source_movement_id TEXT,
+  actor_id TEXT,
   created_at TEXT NOT NULL
 );
 
@@ -229,7 +233,7 @@ CREATE TABLE IF NOT EXISTS expenses (
 CREATE TABLE IF NOT EXISTS cash_transactions (
   id TEXT PRIMARY KEY,
   direction TEXT NOT NULL CHECK (direction IN ('in', 'out')),
-  source_type TEXT NOT NULL CHECK (source_type IN ('opening_balance', 'customer_payment', 'sale', 'purchase', 'expense', 'withdrawal', 'adjustment')),
+  source_type TEXT NOT NULL CHECK (source_type IN ('opening_balance', 'adjustment', 'withdrawal', 'customer_payment', 'customer_refund', 'customer_credit_refund', 'purchase', 'expense', 'sale')),
   source_id TEXT,
   order_id TEXT,
   reference_number TEXT,
@@ -238,6 +242,8 @@ CREATE TABLE IF NOT EXISTS cash_transactions (
   transaction_date TEXT NOT NULL,
   description TEXT NOT NULL,
   notes TEXT,
+  actor_id TEXT,
+  reason TEXT,
   created_at TEXT NOT NULL
 );
 

@@ -86,6 +86,10 @@ const mapStockMovement = (row: any): StockMovement => ({
   referenceType: row.reference_type || undefined,
   referenceId: row.reference_id || undefined,
   referenceNumber: row.reference_number || undefined,
+  unitCost: row.unit_cost === null || row.unit_cost === undefined ? undefined : row.unit_cost,
+  totalCost: row.total_cost === null || row.total_cost === undefined ? undefined : row.total_cost,
+  sourceMovementId: row.source_movement_id || undefined,
+  actorId: row.actor_id || undefined,
   createdAt: row.created_at
 });
 
@@ -101,6 +105,8 @@ const mapCashTransaction = (row: any): CashTransaction => ({
   transactionDate: row.transaction_date,
   description: row.description,
   notes: row.notes || undefined,
+  actorId: row.actor_id || undefined,
+  reason: row.reason || undefined,
   createdAt: row.created_at
 });
 
@@ -193,8 +199,11 @@ export function registerIpcHandlers(dbManager: SahwaDatabaseManager) {
     return inventoryService.listMovements(itemType, itemId);
   });
 
-  safeIpcHandle(ipcMain, 'stock:adjust', async (_, itemType: InventoryItemType, itemId: string, quantity: number, reason: string, direction: 'adjustment' | 'return' = 'adjustment') => {
-    return inventoryService.adjustStock(itemType, itemId, quantity, reason, direction);
+  safeIpcHandle(ipcMain, 'stock:adjust', async (_, itemType: InventoryItemType, itemId: string, quantity: number, reason: string, direction: 'adjustment' | 'return' | 'adjustment_in' | 'adjustment_out' = 'adjustment', actorId = 'system', unitCost?: number) => {
+    return inventoryService.adjustStock(itemType, itemId, quantity, reason, direction, actorId, unitCost);
+  });
+  safeIpcHandle(ipcMain, 'stock:returnPurchase', async (_, itemType: InventoryItemType, itemId: string, quantity: number, reason: string, originalMovementId?: string, purchaseId?: string, actorId = 'system') => {
+    return inventoryService.returnPurchase(itemType, itemId, quantity, reason, originalMovementId, purchaseId, actorId);
   });
 
   safeIpcHandle(ipcMain, 'purchases:list', async () => {
@@ -240,6 +249,8 @@ export function registerIpcHandlers(dbManager: SahwaDatabaseManager) {
       transactionDate: payload.transactionDate || new Date().toISOString().slice(0, 10),
       description: payload.description.trim(),
       notes: payload.notes,
+      actorId: payload.actorId || 'system',
+      reason: payload.reason?.trim() || payload.description.trim(),
       createdAt: new Date().toISOString()
     };
     cashRepository.insert(transaction);

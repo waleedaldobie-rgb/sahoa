@@ -8,10 +8,11 @@ import {
   StockMovement,
   CashTransaction
 } from '../../types';
-import { calculateStockBalance, round2 } from '../shared/inventoryRules';
+import { calculateStockBalance, round2, round4, assertNonNegativeUnitCost, calculateWacAfterInbound, calculateWacAfterOutbound } from '../../domain/inventoryRules';
 import { assertValidPaymentMethod } from '../../domain/paymentRules';
 import { findById, hasIdOrSourceId } from '../shared/idempotencyRules';
 import { createSafeId } from '../../domain/idGenerator';
+import { assertCashTransactionContract } from '../../domain/cashRules';
 
 type PurchasePayload = Record<string, any>;
 type InventoryMeta = {
@@ -22,6 +23,13 @@ type InventoryMeta = {
   purchasePrice: number;
 };
 
+type MovementOptions = {
+  unitCost?: number;
+  sourceMovementId?: string;
+  actorId?: string;
+  updateWac?: boolean;
+};
+
 export function insertStockMovementInDraft(
   draft: AppData,
   itemType: InventoryItemType,
@@ -29,29 +37,66 @@ export function insertStockMovementInDraft(
   delta: number,
   direction: StockMovement['direction'],
   reason: string,
-  reference?: { type?: string; id?: string; number?: string }
+  reference?: { type?: string; id?: string; number?: string },
+  options: MovementOptions = {}
 ): StockMovement {
   const meta = getInventoryMeta(draft, itemType, itemId);
-  const { before, after } = calculateStockBalance(meta.quantity, delta, meta.name);
+  const numericDelta = Number(delta);
+  if (!Number.isFinite(numericDelta) || numericDelta === 0) throw new Error('كمية حركة المخزون غير صالحة');
+  if (!reason?.trim()) throw new Error('سبب حركة المخزون مطلوب');
+  const { before, after } = calculateStockBalance(meta.quantity, numericDelta, meta.name);
+  const unitCost = options.unitCost === undefined ? round4(Number(meta.purchasePrice || 0)) : assertNonNegativeUnitCost(options.unitCost);
+  const quantity = round4(Math.abs(numericDelta));
+  const totalCost = round4(quantity * unitCost);
+  const updateWac = options.updateWac === true;
+  const wacAfter = options.updateWac
+    ? numericDelta > 0
+      ? calculateWacAfterInbound(before, Number(meta.purchasePrice || 0), quantity, unitCost)
+      : calculateWacAfterOutbound(before, Number(meta.purchasePrice || 0), quantity, unitCost, after)
+    : round4(Number(meta.purchasePrice || 0));
   writeQuantity(itemType, meta, after);
+  if (updateWac) setPurchasePrice(itemType, meta, wacAfter);
   const movement: StockMovement = {
     id: createSafeId('MOV'),
     itemType,
     itemId,
     itemName: meta.name,
     direction,
-    quantity: Math.abs(delta),
+    quantity,
     quantityBefore: before,
     quantityAfter: after,
     unit: meta.unit,
-    reason,
+    reason: reason.trim(),
     referenceType: reference?.type,
     referenceId: reference?.id,
     referenceNumber: reference?.number,
+    unitCost,
+    totalCost,
+    sourceMovementId: options.sourceMovementId,
+    actorId: options.actorId || 'system',
     createdAt: new Date().toISOString()
   };
   draft.stockMovements = [movement, ...(draft.stockMovements || [])];
   return movement;
+}
+
+export function returnPurchaseInDraft(
+  draft: AppData,
+  itemType: InventoryItemType,
+  itemId: string,
+  quantity: number,
+  reason: string,
+  originalMovementId?: string,
+  purchaseId?: string,
+  actorId = 'system'
+): StockMovement {
+  const original = originalMovementId ? (draft.stockMovements || []).find((movement) => movement.id === originalMovementId) : undefined;
+  if (originalMovementId && (!original || original.itemType !== itemType || original.itemId !== itemId || original.direction !== 'purchase')) {
+    throw new Error('حركة الشراء الأصلية غير صالحة لإرجاع المخزون');
+  }
+  const meta = getInventoryMeta(draft, itemType, itemId);
+  const unitCost = original?.unitCost === undefined ? round4(Number(meta.purchasePrice || 0)) : assertNonNegativeUnitCost(original.unitCost);
+  return insertStockMovementInDraft(draft, itemType, itemId, -Math.abs(Number(quantity)), 'return', reason, { type: 'purchase_return', id: purchaseId || originalMovementId || itemId }, { unitCost, sourceMovementId: originalMovementId, actorId, updateWac: true });
 }
 
 export function createPurchaseInDraft(draft: AppData, payload: PurchasePayload): PurchaseRecord {
@@ -72,8 +117,7 @@ export function createPurchaseInDraft(draft: AppData, payload: PurchasePayload):
     if (!input.itemType || !input.itemId || !Number.isFinite(quantity) || quantity <= 0) throw new Error('بيانات كمية المشتريات غير صحيحة');
     if (!Number.isFinite(unitPrice) || unitPrice < 0) throw new Error('سعر الشراء لا يمكن أن يكون سالباً');
     const meta = getInventoryMeta(draft, input.itemType, input.itemId);
-    insertStockMovementInDraft(draft, input.itemType, input.itemId, quantity, 'purchase', `شراء من المورد ${payload.supplier.trim()}`, { type: 'purchase', id: purchaseId, number: payload.invoiceNumber || purchaseId });
-    setPurchasePrice(input.itemType, meta, unitPrice);
+    insertStockMovementInDraft(draft, input.itemType, input.itemId, quantity, 'purchase', `شراء من المورد ${payload.supplier.trim()}`, { type: 'purchase', id: purchaseId, number: payload.invoiceNumber || purchaseId }, { unitCost: unitPrice, actorId: 'system', updateWac: true });
     const lineTotal = round2(quantity * unitPrice);
     totalAmount += lineTotal;
     preparedLines.push({ id: createSafeId('PURL'), purchaseId, itemType: input.itemType, itemId: input.itemId, itemName: input.itemName || meta.name, quantity, unit: input.unit || meta.unit, unitPrice, totalAmount: lineTotal, createdAt: now });
@@ -104,6 +148,8 @@ export function createPurchaseInDraft(draft: AppData, payload: PurchasePayload):
       transactionDate: purchaseDate,
       description: `شراء مخزون من ${payload.supplier.trim()}`,
       notes: payload.notes || undefined,
+      actorId: 'system',
+      reason: payload.notes?.trim() || `شراء مخزون من ${payload.supplier.trim()}`,
       createdAt: now
     });
   }
@@ -122,16 +168,17 @@ export function getInventoryMeta(draft: AppData, itemType: InventoryItemType, it
 }
 
 function writeQuantity(itemType: InventoryItemType, meta: InventoryMeta, value: number): void {
-  if (itemType === 'fabric') (meta.item as FabricItem).quantityMeters = round2(value);
-  else (meta.item as AccessoryItem).quantity = round2(value);
+  if (itemType === 'fabric') (meta.item as FabricItem).quantityMeters = round4(value);
+  else (meta.item as AccessoryItem).quantity = round4(value);
 }
 
 function setPurchasePrice(itemType: InventoryItemType, meta: InventoryMeta, value: number): void {
-  if (itemType === 'fabric') (meta.item as FabricItem).purchasePrice = value;
-  else (meta.item as AccessoryItem).purchasePrice = value;
+  if (itemType === 'fabric') (meta.item as FabricItem).purchasePrice = round4(value);
+  else (meta.item as AccessoryItem).purchasePrice = round4(value);
 }
 
 function insertCashInDraft(draft: AppData, transaction: CashTransaction): void {
+  assertCashTransactionContract(transaction);
   if (hasIdOrSourceId(draft.cashTransactions, transaction.id, transaction.sourceId)) return;
   draft.cashTransactions = [transaction, ...(draft.cashTransactions || [])];
 }

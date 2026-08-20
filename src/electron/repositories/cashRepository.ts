@@ -1,15 +1,17 @@
 import Database from 'better-sqlite3';
 import { CashTransaction } from '../../types';
+import { assertCashTransactionContract } from '../../domain/cashRules';
 
 export class CashRepository {
   constructor(private readonly db: Database.Database) {}
 
   insert(transaction: CashTransaction): void {
+    assertCashTransactionContract(transaction);
     this.db.prepare(`
       INSERT INTO cash_transactions (
         id, direction, source_type, source_id, order_id, reference_number, amount,
-        payment_method, transaction_date, description, notes, created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        payment_method, transaction_date, description, notes, actor_id, reason, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       transaction.id,
       transaction.direction,
@@ -22,6 +24,8 @@ export class CashRepository {
       transaction.transactionDate,
       transaction.description,
       transaction.notes || null,
+      transaction.actorId || null,
+      transaction.reason || null,
       transaction.createdAt
     );
   }

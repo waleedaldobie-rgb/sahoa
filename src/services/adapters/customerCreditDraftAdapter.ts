@@ -23,6 +23,7 @@ import { calculateOrderAmounts } from '../../domain/orderRules';
 import { createSafeId } from '../../domain/idGenerator';
 import { round2 } from '../shared/inventoryRules';
 import { findById, hasIdOrSourceId } from '../shared/idempotencyRules';
+import { assertCashTransactionContract } from '../../domain/cashRules';
 
 const nowIso = () => new Date().toISOString();
 
@@ -266,15 +267,18 @@ export function refundCustomerCreditInDraft(draft: AppData, request: CustomerCre
     const cash: CashTransaction = {
       id: cashTransactionId,
       direction: 'out',
-      sourceType: 'withdrawal',
+      sourceType: 'customer_refund',
       sourceId: operationId,
       amount: round2(request.amount),
       paymentMethod: 'cash',
       transactionDate: now.slice(0, 10),
       description: `استرداد رصيد عميل ${request.customerId}`,
       notes: request.reason.trim(),
+      actorId: request.actorId,
+      reason: request.reason.trim(),
       createdAt: now
     };
+    assertCashTransactionContract(cash);
     if (!hasIdOrSourceId(draft.cashTransactions || [], cash.id, cash.sourceId)) draft.cashTransactions = [cash, ...(draft.cashTransactions || [])];
   }
   return { operationId, idempotent: false, customerId: request.customerId, amount: round2(request.amount), entryType: 'refunded', method: request.method, balanceAfter, cashTransactionId };

@@ -71,8 +71,10 @@ export const electronBridge = {
 
   // Inventory movements, purchases, expenses & cash ledger
   getStockMovements: (itemType?: InventoryItemType, itemId?: string) => ipcRenderer.invoke('stockMovements:list', itemType, itemId),
-  adjustStock: (itemType: InventoryItemType, itemId: string, quantity: number, reason: string, direction: 'adjustment' | 'return' = 'adjustment') =>
-    ipcRenderer.invoke('stock:adjust', itemType, itemId, quantity, reason, direction),
+  adjustStock: (itemType: InventoryItemType, itemId: string, quantity: number, reason: string, direction: 'adjustment' | 'return' | 'adjustment_in' | 'adjustment_out' = 'adjustment', actorId = 'system', unitCost?: number) =>
+    ipcRenderer.invoke('stock:adjust', itemType, itemId, quantity, reason, direction, actorId, unitCost),
+  returnPurchase: (itemType: InventoryItemType, itemId: string, quantity: number, reason: string, originalMovementId?: string, purchaseId?: string, actorId = 'system') =>
+    ipcRenderer.invoke('stock:returnPurchase', itemType, itemId, quantity, reason, originalMovementId, purchaseId, actorId),
   getPurchases: () => ipcRenderer.invoke('purchases:list'),
   createPurchase: (purchase: any) => ipcRenderer.invoke('purchases:create', purchase),
   getExpenses: () => ipcRenderer.invoke('expenses:list'),

@@ -3,6 +3,7 @@ import { assertStoredPaymentAggregates, assertValidPaymentMethod, calculatePayme
 import { createSafeId } from '../../domain/idGenerator';
 import { findById, hasIdOrSourceId } from '../shared/idempotencyRules';
 import { createCustomerCreditFromOverpaymentInDraft } from './customerCreditDraftAdapter';
+import { assertCashTransactionContract } from '../../domain/cashRules';
 
 export function applyPaymentToDraft(
   draft: AppData,
@@ -78,8 +79,11 @@ export function applyPaymentToDraft(
     transactionDate: payment.paymentDate,
     description: `دفعة عميل للفاتورة ${invoice.invoiceNumber}`,
     notes: note || undefined,
+    actorId: 'system',
+    reason: note?.trim() || 'تسجيل دفعة عميل',
     createdAt: now
   };
+  assertCashTransactionContract(cash);
   if (!hasIdOrSourceId(draft.cashTransactions || [], cash.id, cash.sourceId)) {
     draft.cashTransactions = [cash, ...(draft.cashTransactions || [])];
   }

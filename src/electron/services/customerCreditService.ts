@@ -246,13 +246,15 @@ export class CustomerCreditService {
         this.cashRepository.insert({
           id: cashTransactionId,
           direction: 'out',
-          sourceType: 'withdrawal',
+          sourceType: 'customer_refund',
           sourceId: operationId,
           amount: round2(request.amount),
           paymentMethod: 'cash',
           transactionDate: now.slice(0, 10),
           description: `استرداد رصيد عميل ${request.customerId}`,
           notes: request.reason.trim(),
+          actorId: request.actorId,
+          reason: request.reason.trim(),
           createdAt: now
         });
       }

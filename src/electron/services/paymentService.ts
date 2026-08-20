@@ -103,6 +103,8 @@ export class PaymentService {
         transactionDate: paymentDate,
         description: `دفعة عميل للفاتورة ${invoice.invoice_number}`,
         notes: note || undefined,
+        actorId: 'system',
+        reason: note?.trim() || 'تسجيل دفعة عميل',
         createdAt
       });
       if (overpaymentAmount > 0) {

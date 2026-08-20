@@ -206,6 +206,8 @@ export class OrderService {
           paymentMethod: paymentMethod as any,
           transactionDate: orderDate,
           description: `دفعة أولى للطلب #${orderNumber}`,
+          actorId: 'system',
+          reason: 'دفعة أولى عند إنشاء الطلب',
           createdAt
         });
       }

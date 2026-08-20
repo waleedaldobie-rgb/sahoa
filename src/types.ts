@@ -221,6 +221,10 @@ export interface StockMovement {
   referenceType?: string;
   referenceId?: string;
   referenceNumber?: string;
+  unitCost?: number;
+  totalCost?: number;
+  sourceMovementId?: string;
+  actorId?: string;
   createdAt: string;
 }
 
@@ -261,7 +265,7 @@ export interface ExpenseRecord {
   createdAt: string;
 }
 
-export type CashSourceType = 'opening_balance' | 'customer_payment' | 'sale' | 'purchase' | 'expense' | 'withdrawal' | 'adjustment' | 'customer_credit_refund';
+export type CashSourceType = 'opening_balance' | 'customer_payment' | 'sale' | 'purchase' | 'expense' | 'withdrawal' | 'adjustment' | 'customer_refund' | 'customer_credit_refund';
 
 export interface CashTransaction {
   id: string;
@@ -275,6 +279,8 @@ export interface CashTransaction {
   transactionDate: string;
   description: string;
   notes?: string;
+  actorId?: string;
+  reason?: string;
   createdAt: string;
 }
 
@@ -501,7 +507,8 @@ declare global {
         getOperation: (operationId: string) => Promise<CustomerCreditOperationResult | undefined>;
       };
       getStockMovements?: (itemType?: InventoryItemType, itemId?: string) => Promise<StockMovement[]>;
-      adjustStock?: (itemType: InventoryItemType, itemId: string, quantity: number, reason: string, direction: 'adjustment' | 'return') => Promise<StockMovement>;
+      adjustStock?: (itemType: InventoryItemType, itemId: string, quantity: number, reason: string, direction: 'adjustment' | 'return' | 'adjustment_in' | 'adjustment_out', actorId?: string, unitCost?: number) => Promise<StockMovement>;
+      returnPurchase?: (itemType: InventoryItemType, itemId: string, quantity: number, reason: string, originalMovementId?: string, purchaseId?: string, actorId?: string) => Promise<StockMovement>;
       getPurchases?: () => Promise<PurchaseRecord[]>;
       createPurchase?: (purchase: { id?: string; supplier: string; invoiceNumber?: string; purchaseDate: string; paymentMethod: PaymentMethod; notes?: string; lines: Array<Omit<PurchaseLine, 'id' | 'purchaseId' | 'createdAt' | 'totalAmount'>> }) => Promise<PurchaseRecord>;
       getExpenses?: () => Promise<ExpenseRecord[]>;

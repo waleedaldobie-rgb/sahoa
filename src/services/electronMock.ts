@@ -2,6 +2,7 @@ import { AppData, UserPreferences, Customer, CustomerMeasurements, CustomerStyle
 import { checkAndSyncStockAlerts } from '../utils/stockAlerts';
 import { calculateStockBalance, round2 } from './shared/inventoryRules';
 import { assertSafeInitialOrderStatus } from '../domain/orderRules';
+import { assertCashTransactionContract } from '../domain/cashRules';
 import { calculateMaterialCost, calculateOrderAmounts } from './shared/orderRules';
 import { assertStoredPaymentAggregates, assertValidPaymentMethod, calculatePaymentUpdate } from '../domain/paymentRules';
 import { createSafeId } from '../domain/idGenerator';
@@ -13,7 +14,7 @@ import { settleCancelledOrderInDraft } from './adapters/orderSettlementAdapter';
 import { applyExpenseToDraft, applyCashAdjustmentToDraft } from './adapters/accountingDraftAdapter';
 import { createCustomerInDraft, updateCustomerInDraft, saveCustomerMeasurementHistoryInDraft } from './adapters/customerDraftAdapter';
 import { createFabricInDraft, updateFabricInDraft, createAccessoryInDraft, updateAccessoryInDraft } from './adapters/inventoryCatalogDraftAdapter';
-import { createPurchaseInDraft, getInventoryMeta, insertStockMovementInDraft } from './adapters/inventoryMovementDraftAdapter';
+import { createPurchaseInDraft, getInventoryMeta, insertStockMovementInDraft, returnPurchaseInDraft } from './adapters/inventoryMovementDraftAdapter';
 import { appendMaterialUsage, buildFabricMaterialUsage, buildInitialInvoiceDraft, buildMaterialUsage, buildOrderDraft, calculateOrderMaterialCost } from './adapters/orderDraftAdapter';
 import { updateOrderMaterialsInDraft, updateOrderInvoiceInDraft } from './adapters/orderUpdateAdapter';
 import { findById, hasIdOrSourceId } from './shared/idempotencyRules';
@@ -172,6 +173,7 @@ export const db = {
 };
 
 const mockInsertCash = (draft: AppData, transaction: CashTransaction) => {
+  assertCashTransactionContract(transaction);
   const cashTransactions = draft.cashTransactions || [];
   if (hasIdOrSourceId(cashTransactions, transaction.id, transaction.sourceId)) return;
   draft.cashTransactions = [transaction, ...cashTransactions];
@@ -526,14 +528,27 @@ export function initElectronMock() {
       return (data.stockMovements || []).filter((movement) => (!itemType || movement.itemType === itemType) && (!itemId || movement.itemId === itemId));
     },
 
-    async adjustStock(itemType: InventoryItemType, itemId: string, quantity: number, reason: string, direction: 'adjustment' | 'return' = 'adjustment'): Promise<StockMovement> {
-      if (isRealElectron && existing?.adjustStock) return existing.adjustStock(itemType, itemId, quantity, reason, direction);
+    async adjustStock(itemType: InventoryItemType, itemId: string, quantity: number, reason: string, direction: 'adjustment' | 'return' | 'adjustment_in' | 'adjustment_out' = 'adjustment', actorId = 'system', unitCost?: number): Promise<StockMovement> {
+      if (isRealElectron && existing?.adjustStock) return existing.adjustStock(itemType, itemId, quantity, reason, direction, actorId, unitCost);
       let movement!: StockMovement;
       await db.transaction((draft) => {
         if (!reason?.trim()) throw new Error('سبب التسوية مطلوب');
         const numericQuantity = Number(quantity);
         if (!Number.isFinite(numericQuantity) || numericQuantity === 0) throw new Error('كمية التسوية يجب أن تكون رقماً غير صفري');
-        movement = insertStockMovementInDraft(draft, itemType, itemId, direction === 'return' ? Math.abs(numericQuantity) : numericQuantity, direction, reason.trim(), { type: 'stock_adjustment', id: itemId });
+        if (direction !== 'adjustment' && numericQuantity < 0) throw new Error('كمية الحركة لا يمكن أن تكون سالبة');
+        const delta = direction === 'return' || direction === 'adjustment_in'
+          ? Math.abs(numericQuantity)
+          : direction === 'adjustment_out' ? -Math.abs(numericQuantity) : numericQuantity;
+        movement = insertStockMovementInDraft(draft, itemType, itemId, delta, direction === 'return' ? 'return' : 'adjustment', reason.trim(), { type: 'stock_adjustment', id: itemId }, { actorId, unitCost, updateWac: direction === 'adjustment_in' });
+      });
+      return movement;
+    },
+
+    async returnPurchase(itemType: InventoryItemType, itemId: string, quantity: number, reason: string, originalMovementId?: string, purchaseId?: string, actorId = 'system'): Promise<StockMovement> {
+      if (isRealElectron && existing?.returnPurchase) return existing.returnPurchase(itemType, itemId, quantity, reason, originalMovementId, purchaseId, actorId);
+      let movement!: StockMovement;
+      await db.transaction((draft) => {
+        movement = returnPurchaseInDraft(draft, itemType, itemId, quantity, reason, originalMovementId, purchaseId, actorId);
       });
       return movement;
     },
@@ -675,7 +690,7 @@ export function initElectronMock() {
 
         draft.invoices = [newInvoice, ...draft.invoices];
         if (initialPaymentId) {
-          mockInsertCash(draft, { id: `CASH-PAY-${initialPaymentId}`, direction: 'in', sourceType: 'customer_payment', sourceId: initialPaymentId, orderId, referenceNumber: orderNumber, amount: cashReceived, paymentMethod: orderData.initialPaymentMethod || 'cash', transactionDate: orderData.orderDate || new Date().toISOString().slice(0, 10), description: `دفعة أولى للطلب #${orderNumber}`, createdAt: new Date().toISOString() });
+          mockInsertCash(draft, { id: `CASH-PAY-${initialPaymentId}`, direction: 'in', sourceType: 'customer_payment', sourceId: initialPaymentId, orderId, referenceNumber: orderNumber, amount: cashReceived, paymentMethod: orderData.initialPaymentMethod || 'cash', transactionDate: orderData.orderDate || new Date().toISOString().slice(0, 10), description: `دفعة أولى للطلب #${orderNumber}`, actorId: 'system', reason: 'دفعة أولى عند إنشاء الطلب', createdAt: new Date().toISOString() });
           if (overpaymentAmount > 0) {
             createCustomerCreditFromOverpaymentInDraft(draft, {
               customerId: orderData.customerId,
@@ -760,7 +775,7 @@ export function initElectronMock() {
           cancellationWriteoffAmount = settlement.cancellationWriteoffAmount;
           cancellationPaymentStatus = settlement.paymentStatus;
           for (const usage of usages) {
-            const movement = insertStockMovementInDraft(draft, usage.itemType, usage.itemId, usage.quantity, 'return', 'إرجاع مواد بسبب إلغاء الطلب', { type: 'order_cancel', id });
+            const movement = insertStockMovementInDraft(draft, usage.itemType, usage.itemId, usage.quantity, 'return', 'إرجاع مواد بسبب إلغاء الطلب', { type: 'order_cancel', id }, { unitCost: usage.unitCostAtUsage, sourceMovementId: usage.sourceMovementId, actorId: 'system', updateWac: false });
             usage.sourceMovementId = undefined;
             void movement;
           }

@@ -1,5 +1,6 @@
 import { AppData, InventoryItemType, StockMovement } from '../../types';
 import { assertStoredPaymentAggregates } from '../../domain/paymentRules';
+import { assertCashTransactionContract } from '../../domain/cashRules';
 import { round2 } from '../shared/inventoryRules';
 
 const nearlyEqual = (left: number, right: number) => Math.abs(left - right) <= 0.0001;
@@ -19,7 +20,15 @@ const assertMovement = (data: AppData, movement: StockMovement) => {
   const after = numeric(movement.quantityAfter);
   if (quantity <= 0 || before < 0 || after < 0) throw new Error(`حركة مخزون غير صالحة: ${movement.id}`);
   if (movement.direction === 'sale' && !nearlyEqual(after, before - quantity)) throw new Error(`حركة بيع لا تطابق رصيد المخزون: ${movement.id}`);
-  if ((movement.direction === 'purchase' || movement.direction === 'return') && !nearlyEqual(after, before + quantity)) throw new Error(`حركة إدخال لا تطابق رصيد المخزون: ${movement.id}`);
+  if (movement.direction === 'purchase' || (movement.direction === 'return' && movement.referenceType !== 'purchase_return')) {
+    if (!nearlyEqual(after, before + quantity)) throw new Error(`حركة إدخال لا تطابق رصيد المخزون: ${movement.id}`);
+  }
+  if (movement.direction === 'return' && movement.referenceType === 'purchase_return' && !nearlyEqual(after, before - quantity)) throw new Error(`إرجاع شراء لا يطابق رصيد المخزون: ${movement.id}`);
+  if (movement.unitCost !== undefined) {
+    const unitCost = numeric(movement.unitCost);
+    if (unitCost < 0) throw new Error(`تكلفة حركة مخزون غير صالحة: ${movement.id}`);
+    if (movement.totalCost !== undefined && !nearlyEqual(Number(movement.totalCost), quantity * unitCost)) throw new Error(`إجمالي تكلفة حركة مخزون غير مطابق: ${movement.id}`);
+  }
 };
 
 export function assertMockBusinessIntegrity(data: AppData): void {
@@ -33,7 +42,7 @@ export function assertMockBusinessIntegrity(data: AppData): void {
   const invoicesById = new Map(data.invoices.map((invoice) => [invoice.id, invoice]));
   const cashRefundsByOperation = new Map<string, { count: number; total: number }>();
   for (const transaction of data.cashTransactions || []) {
-    if (transaction.sourceType !== 'withdrawal' || transaction.direction !== 'out' || !transaction.sourceId) continue;
+    if (!['customer_refund', 'customer_credit_refund', 'withdrawal'].includes(transaction.sourceType) || transaction.direction !== 'out' || !transaction.sourceId) continue;
     const current = cashRefundsByOperation.get(transaction.sourceId) || { count: 0, total: 0 };
     current.count += 1;
     current.total = round2(current.total + Number(transaction.amount || 0));
@@ -92,6 +101,10 @@ export function assertMockBusinessIntegrity(data: AppData): void {
         throw new Error(`استرداد customer credit غير النقدي لديه حركة نقدية: ${credit.id}`);
       }
     }
+  }
+
+  for (const transaction of data.cashTransactions || []) {
+    assertCashTransactionContract(transaction);
   }
 
   for (const invoice of data.invoices) {

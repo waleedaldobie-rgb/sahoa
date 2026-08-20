@@ -567,11 +567,11 @@ export class SahwaDatabaseManager {
         // Restore Inventory Movements
         if (Array.isArray(parsed.stockMovements)) {
           const movementStmt = db.prepare(`
-            INSERT INTO inventory_movements (id, item_type, item_id, item_name, direction, quantity, quantity_before, quantity_after, unit, reason, reference_type, reference_id, reference_number, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO inventory_movements (id, item_type, item_id, item_name, direction, quantity, quantity_before, quantity_after, unit, reason, reference_type, reference_id, reference_number, unit_cost, total_cost, source_movement_id, actor_id, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
           `);
           for (const m of parsed.stockMovements) {
-            movementStmt.run(m.id, m.itemType, m.itemId, m.itemName, m.direction, m.quantity, m.quantityBefore, m.quantityAfter, m.unit, m.reason, m.referenceType || null, m.referenceId || null, m.referenceNumber || null, m.createdAt || new Date().toISOString());
+            movementStmt.run(m.id, m.itemType, m.itemId, m.itemName, m.direction, m.quantity, m.quantityBefore, m.quantityAfter, m.unit, m.reason, m.referenceType || null, m.referenceId || null, m.referenceNumber || null, m.unitCost ?? null, m.totalCost ?? null, m.sourceMovementId || null, m.actorId || null, m.createdAt || new Date().toISOString());
           }
         }
 
@@ -607,11 +607,11 @@ export class SahwaDatabaseManager {
         // Restore Cash Ledger
         if (Array.isArray(parsed.cashTransactions)) {
           const cashStmt = db.prepare(`
-            INSERT INTO cash_transactions (id, direction, source_type, source_id, order_id, reference_number, amount, payment_method, transaction_date, description, notes, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO cash_transactions (id, direction, source_type, source_id, order_id, reference_number, amount, payment_method, transaction_date, description, notes, actor_id, reason, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
           `);
           for (const c of parsed.cashTransactions) {
-            cashStmt.run(c.id, c.direction, c.sourceType, c.sourceId || null, c.orderId || null, c.referenceNumber || null, c.amount || 0, c.paymentMethod || 'cash', c.transactionDate, c.description, c.notes || null, c.createdAt || new Date().toISOString());
+            cashStmt.run(c.id, c.direction, c.sourceType, c.sourceId || null, c.orderId || null, c.referenceNumber || null, c.amount || 0, c.paymentMethod || 'cash', c.transactionDate, c.description, c.notes || null, c.actorId || null, c.reason || null, c.createdAt || new Date().toISOString());
           }
         }
 
@@ -817,6 +817,9 @@ export class SahwaDatabaseManager {
       id: m.id, itemType: m.item_type, itemId: m.item_id, itemName: m.item_name, direction: m.direction,
       quantity: m.quantity, quantityBefore: m.quantity_before, quantityAfter: m.quantity_after, unit: m.unit,
       reason: m.reason, referenceType: m.reference_type, referenceId: m.reference_id, referenceNumber: m.reference_number,
+      unitCost: m.unit_cost === null || m.unit_cost === undefined ? undefined : m.unit_cost,
+      totalCost: m.total_cost === null || m.total_cost === undefined ? undefined : m.total_cost,
+      sourceMovementId: m.source_movement_id || undefined, actorId: m.actor_id || undefined,
       createdAt: m.created_at
     }));
     const purchases = rawPurchases.map(p => ({
@@ -835,7 +838,8 @@ export class SahwaDatabaseManager {
     const cashTransactions = rawCashTransactions.map(c => ({
       id: c.id, direction: c.direction, sourceType: c.source_type, sourceId: c.source_id,
       referenceNumber: c.reference_number, orderId: c.order_id || undefined, amount: c.amount, paymentMethod: c.payment_method,
-      transactionDate: c.transaction_date, description: c.description, notes: c.notes, createdAt: c.created_at
+      transactionDate: c.transaction_date, description: c.description, notes: c.notes,
+      actorId: c.actor_id || undefined, reason: c.reason || undefined, createdAt: c.created_at
     }));
     const orderMaterialUsages = rawOrderMaterialUsages.map(m => ({
       id: m.id, orderId: m.order_id, itemType: m.item_type, itemId: m.item_id, itemName: m.item_name,
