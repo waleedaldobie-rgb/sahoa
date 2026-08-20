@@ -746,19 +746,19 @@ async function offlineAcceptance() {
   assert(offlineData.fabrics.length > 0 && offlineData.purchases.length > 0 && offlineData.expenses.length > 0 && offlineData.cashTransactions.length > 0, `Accounting/inventory offline data could not be loaded: ${JSON.stringify({ fabrics: offlineData.fabrics?.length, purchases: offlineData.purchases?.length, expenses: offlineData.expenses?.length, cashTransactions: offlineData.cashTransactions?.length })}`);
 
   await openTab(page, 'العملاء والمقاسات', 'إدارة العملاء والمقاسات');
-  await expect(page.getByText('عميل Windows Acceptance', { exact: true })).toBeVisible();
+  await expect(page.getByText('عميل Windows Acceptance', { exact: true }).first()).toBeVisible();
   await openTab(page, 'إدارة الطلبات', 'إدارة طلبات الخياطة');
-  await expect(page.getByText('عميل Windows Acceptance', { exact: true })).toBeVisible();
+  await expect(page.getByText('عميل Windows Acceptance', { exact: true }).first()).toBeVisible();
   await openTab(page, 'الفواتير والحسابات', 'الفواتير والحسابات المالية');
-  await expect(page.getByText('عميل Windows Acceptance', { exact: true })).toBeVisible();
+  await expect(page.getByText('عميل Windows Acceptance', { exact: true }).first()).toBeVisible();
   await openTab(page, 'المخزون والأصناف', 'المخزون والأصناف');
-  await expect(page.getByText('قماش Windows Acceptance', { exact: true })).toBeVisible();
+  await expect(page.getByText('قماش Windows Acceptance', { exact: true }).first()).toBeVisible();
   await openTab(page, 'المحاسبة والمشتريات', 'المحاسبة والتدفقات المالية');
-  await expect(page.getByText('مورد Windows Acceptance', { exact: true })).toBeVisible();
+  await expect(page.getByText('مورد Windows Acceptance', { exact: true }).first()).toBeVisible();
   await page.getByRole('button', { name: 'المصروفات', exact: true }).click();
-  await expect(page.getByText('مصروف Windows Acceptance', { exact: true })).toBeVisible();
+  await expect(page.getByText('مصروف Windows Acceptance', { exact: true }).first()).toBeVisible();
   await page.getByRole('button', { name: 'الصندوق', exact: true }).click();
-  await expect(page.getByText('CASH-WIN-001', { exact: true })).toBeVisible();
+  await expect(page.getByText('CASH-WIN-001', { exact: true }).first()).toBeVisible();
   await openTab(page, 'التقارير والإحصائيات', 'التقارير والإحصائيات المالية');
   await expect(page.getByRole('main').getByText('إجمالي الطلبات', { exact: true })).toBeVisible();
   pass('offline.local-modules', 'customers, measurements, orders, invoices, inventory, accounting, and reports loaded offline');
