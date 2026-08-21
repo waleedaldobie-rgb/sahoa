@@ -84,9 +84,14 @@ export class DatabaseIntegrityService {
       const remaining = Number(order.remaining_amount);
       let cashReceived = Number(order.cash_received || 0);
       const invoiceLedger = this.db.prepare('SELECT payments_json FROM invoices WHERE order_id = ?').get(order.id) as { payments_json?: string } | undefined;
-      if (cashReceived <= 0 && paid > 0 && invoiceLedger) {
+      let hasNonCashCustomerCredit = false;
+      if (invoiceLedger) {
         try {
-          cashReceived = round2(parsePaymentLedger(invoiceLedger.payments_json).reduce((sum, payment) => sum + Number(payment.cashReceived ?? payment.amount), 0));
+          const payments = parsePaymentLedger(invoiceLedger.payments_json);
+          hasNonCashCustomerCredit = payments.some((payment) => payment.method === 'customer_credit');
+          if (cashReceived <= 0 && paid > 0) {
+            cashReceived = round2(payments.reduce((sum, payment) => sum + Number(payment.cashReceived ?? payment.amount), 0));
+          }
         } catch {
           // The invoice loop below reports invalid payment JSON with full record context.
         }
@@ -99,7 +104,8 @@ export class DatabaseIntegrityService {
       if (!Number.isFinite(writeoff) || writeoff < 0) issue({ code: 'INVALID_WRITEOFF', table: 'orders', recordId: order.id, field: 'cancellation_writeoff_amount', expected: '>= 0', actual: writeoff, reason: 'Cancellation writeoff must be non-negative' });
       if (writeoff > 0 && order.status !== 'cancelled') issue({ code: 'WRITEOFF_ON_ACTIVE_ORDER', table: 'orders', recordId: order.id, field: 'cancellation_writeoff_amount', expected: 0, actual: writeoff, reason: 'Cancellation writeoff is only valid on cancelled orders', severity: 'critical' });
       if (Number.isFinite(total) && Number.isFinite(paid) && paid > total + 0.0001) issue({ code: 'ORDER_APPLIED_OVER_TOTAL', table: 'orders', recordId: order.id, field: 'paid_amount', expected: `<= ${total}`, actual: paid, reason: 'Applied paid amount cannot exceed invoice total' });
-      if (!Number.isFinite(cashReceived) || cashReceived + 0.0001 < paid) issue({ code: 'ORDER_CASH_BELOW_APPLIED', table: 'orders', recordId: order.id, field: 'cash_received', expected: `>= ${paid}`, actual: cashReceived, reason: 'Cash received cannot be below applied paid amount' });
+      const cashFloor = hasNonCashCustomerCredit ? 0 : paid;
+      if (!Number.isFinite(cashReceived) || cashReceived + 0.0001 < cashFloor) issue({ code: 'ORDER_CASH_BELOW_APPLIED', table: 'orders', recordId: order.id, field: 'cash_received', expected: `>= ${cashFloor}`, actual: cashReceived, reason: 'Cash received cannot be below applied paid amount unless settlement is customer_credit' });
       const expectedOverpayment = Math.max(0, cashReceived - total);
       if (!Number.isFinite(overpayment) || !nearlyEqual(overpayment, expectedOverpayment)) issue({ code: 'ORDER_OVERPAYMENT_MISMATCH', table: 'orders', recordId: order.id, field: 'overpayment_amount', expected: expectedOverpayment, actual: overpayment, reason: 'Overpayment must equal cash received above invoice total' });
       if (Number.isFinite(total) && Number.isFinite(paid) && (!Number.isFinite(remaining) || !nearlyEqual(remaining, expectedRemaining))) issue({ code: 'ORDER_REMAINING_MISMATCH', table: 'orders', recordId: order.id, field: 'remaining_amount', expected: expectedRemaining, actual: remaining, reason: 'Invoice total must equal applied paid plus remaining plus cancellation writeoff' });
@@ -341,8 +347,19 @@ export class DatabaseIntegrityService {
     };
     for (const key of required) collect(key, payload[key]);
     const customerCredits = Array.isArray(payload.customerCredits) ? payload.customerCredits : [];
+    const appliedCreditByOperation = new Map<string, { amount: number; invoiceId: string; entries: any[] }>();
+    for (const credit of customerCredits) {
+      if (credit.entryType !== 'applied' || !credit.operationId) continue;
+      const invoiceId = String(credit.targetInvoiceId || credit.invoiceId || '');
+      const key = `${String(credit.operationId)}:${invoiceId}`;
+      const current = appliedCreditByOperation.get(key) || { amount: 0, invoiceId, entries: [] };
+      current.amount = round2(current.amount + Number(credit.amount || 0));
+      current.entries.push(credit);
+      appliedCreditByOperation.set(key, current);
+    }
 
     const orderNumbers = new Set<string>();
+    const invoiceByOrderId = new Map<string, any>(payload.invoices.map((invoice: any) => [String(invoice.orderId), invoice]));
     const ordersById = new Map<string, any>(payload.orders.map((order: any) => [String(order.id), order]));
     const customersById = new Map<string, any>(payload.customers.map((customer: any) => [String(customer.id), customer]));
     const fabricsById = new Map<string, any>(payload.fabrics.map((fabric: any) => [String(fabric.id), fabric]));
@@ -358,7 +375,11 @@ export class DatabaseIntegrityService {
         const writeoff = Number(order.cancellationWriteoffAmount || 0);
         const cashReceived = Number(order.cashReceived ?? paid);
         const expectedRemaining = Math.max(0, amounts.totalAmount - paid - writeoff);
-        if (!Number.isFinite(paid) || paid < 0 || paid > amounts.totalAmount + 0.0001 || !Number.isFinite(writeoff) || writeoff < 0 || (writeoff > 0 && status !== 'cancelled') || !Number.isFinite(remaining) || !nearlyEqual(remaining, expectedRemaining) || (status === 'cancelled' && remaining > 0.0001) || !Number.isFinite(cashReceived) || cashReceived + 0.0001 < paid || !nearlyEqual(Number(order.overpaymentAmount || 0), Math.max(0, cashReceived - amounts.totalAmount))) add({ code: 'INVALID_ORDER_PAYMENT', table: 'orders', recordId: order.id, expected: { paid: `0..${amounts.totalAmount}`, remaining: expectedRemaining, cashReceived: `>= ${paid}`, writeoff: 'only when cancelled' }, actual: { paid, remaining, cashReceived, writeoff, overpaymentAmount: order.overpaymentAmount }, reason: 'Backup order settlement aggregate is invalid' });
+        const invoice = invoiceByOrderId.get(String(order.id));
+        const invoicePayments = invoice?.payments || [];
+        const hasNonCashCustomerCredit = invoicePayments.some((payment: any) => payment.method === 'customer_credit');
+        const cashFloor = hasNonCashCustomerCredit ? 0 : paid;
+        if (!Number.isFinite(paid) || paid < 0 || paid > amounts.totalAmount + 0.0001 || !Number.isFinite(writeoff) || writeoff < 0 || (writeoff > 0 && status !== 'cancelled') || !Number.isFinite(remaining) || !nearlyEqual(remaining, expectedRemaining) || (status === 'cancelled' && remaining > 0.0001) || !Number.isFinite(cashReceived) || cashReceived + 0.0001 < cashFloor || !nearlyEqual(Number(order.overpaymentAmount || 0), Math.max(0, cashReceived - amounts.totalAmount))) add({ code: 'INVALID_ORDER_PAYMENT', table: 'orders', recordId: order.id, expected: { paid: `0..${amounts.totalAmount}`, remaining: expectedRemaining, cashReceived: `>= ${cashFloor}`, writeoff: 'only when cancelled' }, actual: { paid, remaining, cashReceived, writeoff, overpaymentAmount: order.overpaymentAmount }, reason: 'Backup order settlement aggregate is invalid' });
       } catch (error: any) {
         add({ code: 'INVALID_ORDER_AMOUNT_OR_STATUS', table: 'orders', recordId: order.id, expected: 'valid amount and status', actual: error?.message || String(error), reason: 'Backup order amount or status is invalid', severity: 'critical' });
       }
@@ -390,7 +411,23 @@ export class DatabaseIntegrityService {
         if (invoice.paymentStatus !== expectedStatus) add({ code: 'INVOICE_STATUS_MISMATCH', table: 'invoices', recordId: invoice.id, field: 'paymentStatus', expected: expectedStatus, actual: invoice.paymentStatus, reason: 'Backup invoice payment status differs from the settlement contract', severity: 'critical' });
         if (order && !nearlyEqual(Number(order.totalAmount), Number(invoice.totalAmount))) add({ code: 'INVOICE_ORDER_TOTAL_MISMATCH', table: 'invoices', recordId: invoice.id, expected: order.totalAmount, actual: invoice.totalAmount, reason: 'Invoice total differs from its order total', severity: 'critical' });
         if (order && (!nearlyEqual(Number(order.paidAmount), expected.paidAmount) || !nearlyEqual(Number(order.remainingAmount), expectedRemaining) || !nearlyEqual(Number(order.cancellationWriteoffAmount || 0), writeoff))) add({ code: 'ORDER_PAYMENT_PROJECTION_MISMATCH', table: 'orders', recordId: order.id, expected: { paid: expected.paidAmount, remaining: expectedRemaining, writeoff, source: 'invoice.paymentLedger' }, actual: { paid: order.paidAmount, remaining: order.remainingAmount, writeoff: order.cancellationWriteoffAmount }, reason: 'Order payment projections do not match the Invoice Settlement Ledger', severity: 'critical' });
-        for (const payment of payments) assertValidPaymentMethod(payment.method);
+        for (const payment of payments) {
+          if (payment.method !== 'customer_credit') {
+            assertValidPaymentMethod(payment.method);
+            continue;
+          }
+          const operationId = String(payment.id || '').replace(/-PAYMENT$/, '');
+          const key = `${operationId}:${String(payment.invoiceId || invoice.id)}`;
+          const matchingCredit = appliedCreditByOperation.get(key);
+          if (!matchingCredit) {
+            add({ code: 'MISSING_CUSTOMER_CREDIT_LEDGER', table: 'invoices', recordId: invoice.id, field: 'payments', expected: `customer_credits applied entry for ${operationId}`, actual: payment, reason: 'Customer credit payment has no matching applied customer credit ledger entry', severity: 'critical' });
+          } else if (!nearlyEqual(matchingCredit.amount, Number(payment.amount))) {
+            add({ code: 'CUSTOMER_CREDIT_PAYMENT_MISMATCH', table: 'invoices', recordId: invoice.id, field: 'payments.amount', expected: matchingCredit.amount, actual: payment.amount, reason: 'Customer credit payment amount differs from applied customer credit ledger amount', severity: 'critical' });
+          }
+          if (!nearlyEqual(Number(payment.cashReceived || 0), 0) || !nearlyEqual(Number(payment.overpaymentAmount || 0), 0)) {
+            add({ code: 'CUSTOMER_CREDIT_CASH_LEAK', table: 'invoices', recordId: invoice.id, field: 'payments.cashReceived', expected: 0, actual: { cashReceived: payment.cashReceived, overpaymentAmount: payment.overpaymentAmount }, reason: 'Customer credit payment must not create cash or overpayment movement', severity: 'critical' });
+          }
+        }
       } catch (error: any) {
         add({ code: 'INVALID_PAYMENT_LEDGER', table: 'invoices', recordId: invoice.id, expected: 'valid payments with supported methods', actual: error?.message || String(error), reason: 'Backup invoice payments are invalid', severity: 'critical' });
       }
@@ -475,7 +512,10 @@ export class DatabaseIntegrityService {
       }
       if (cash.sourceType === 'expense' && !payload.expenses.some((expense: any) => String(expense.id) === String(cash.sourceId) && cash.direction === 'out' && nearlyEqual(Number(expense.amount), Number(cash.amount)))) add({ code: 'EXPENSE_CASH_MISMATCH', table: 'cashTransactions', recordId: cash.id, expected: cash.sourceId, actual: cash.amount, reason: 'Expense cash transaction has no matching expense', severity: 'critical' });
     }
-    for (const [paymentId, entry] of paymentById) if (!cashBySource.has(paymentId)) add({ code: 'MISSING_PAYMENT_CASH', table: 'invoices', recordId: entry.invoice.id, field: 'payments', expected: paymentId, actual: null, reason: 'Payment ledger entry has no customer_payment cash transaction', severity: 'critical' });
+    for (const [paymentId, entry] of paymentById) {
+      if (entry.payment.method === 'customer_credit') continue;
+      if (!cashBySource.has(paymentId)) add({ code: 'MISSING_PAYMENT_CASH', table: 'invoices', recordId: entry.invoice.id, field: 'payments', expected: paymentId, actual: null, reason: 'Payment ledger entry has no customer_payment cash transaction', severity: 'critical' });
+    }
 
     for (const purchase of payload.purchases) {
       try { assertValidPaymentMethod(purchase.paymentMethod ?? 'cash'); } catch (error: any) { add({ code: 'INVALID_PAYMENT_METHOD', table: 'purchases', recordId: purchase.id, field: 'paymentMethod', expected: ['cash', 'card', 'transfer'], actual: purchase.paymentMethod, reason: error.message, severity: 'critical' }); }

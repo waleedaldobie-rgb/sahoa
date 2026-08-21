@@ -559,14 +559,20 @@ export class SahwaDatabaseManager {
           const creditStmt = db.prepare(`
             INSERT INTO customer_credits (
               id, customer_id, order_id, invoice_id, payment_id, entry_type,
-              amount, reference_id, notes, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+              amount, reference_id, notes, created_at,
+              operation_id, idempotency_key, source_entry_id, target_invoice_id,
+              target_order_id, method, actor_id, reason, occurred_at, balance_after
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
           `);
           for (const credit of parsed.customerCredits as CustomerCreditRecord[]) {
             creditStmt.run(
-              credit.id, credit.customerId, credit.orderId || null, credit.invoiceId || null,
-              credit.paymentId || null, credit.entryType, credit.amount,
-              credit.referenceId || null, credit.notes || null, credit.createdAt || new Date().toISOString()
+              credit.id, credit.customerId, credit.orderId ?? null, credit.invoiceId ?? null,
+              credit.paymentId ?? null, credit.entryType, credit.amount,
+              credit.referenceId ?? null, credit.notes ?? null, credit.createdAt || new Date().toISOString(),
+              credit.operationId ?? null, credit.idempotencyKey ?? null, credit.sourceEntryId ?? null,
+              credit.targetInvoiceId ?? null, credit.targetOrderId ?? null, credit.method ?? null,
+              credit.actorId ?? null, credit.reason ?? null, credit.occurredAt ?? null,
+              credit.balanceAfter ?? null
             );
           }
         }
@@ -878,10 +884,15 @@ export class SahwaDatabaseManager {
       metadata: e.metadata_json ? JSON.parse(e.metadata_json) : undefined, createdAt: e.created_at
     }));
     const customerCredits = rawCustomerCredits.map(c => ({
-      id: c.id, customerId: c.customer_id, orderId: c.order_id || undefined,
-      invoiceId: c.invoice_id || undefined, paymentId: c.payment_id || undefined,
-      entryType: c.entry_type, amount: c.amount, referenceId: c.reference_id || undefined,
-      notes: c.notes || undefined, createdAt: c.created_at
+      id: c.id, customerId: c.customer_id, orderId: c.order_id ?? null,
+      invoiceId: c.invoice_id ?? null, paymentId: c.payment_id ?? null,
+      entryType: c.entry_type, amount: c.amount, referenceId: c.reference_id ?? null,
+      notes: c.notes ?? null, createdAt: c.created_at,
+      operationId: c.operation_id ?? null, idempotencyKey: c.idempotency_key ?? null,
+      sourceEntryId: c.source_entry_id ?? null, targetInvoiceId: c.target_invoice_id ?? null,
+      targetOrderId: c.target_order_id ?? null, method: c.method ?? null,
+      actorId: c.actor_id ?? null, reason: c.reason ?? null,
+      occurredAt: c.occurred_at ?? null, balanceAfter: c.balance_after ?? null
     }));
 
     return {

@@ -187,7 +187,7 @@ async function main() {
 
   await record('rollback leaves liability unchanged when cash ledger fails', async () => {
     const beforeBalance = (await call('customerCredits:summary', customer.id)).availableBalance;
-    db.exec("CREATE TRIGGER fail_customer_credit_cash BEFORE INSERT ON cash_transactions WHEN NEW.source_type = 'withdrawal' BEGIN SELECT RAISE(ABORT, 'forced cash failure'); END");
+    db.exec("CREATE TRIGGER fail_customer_credit_cash BEFORE INSERT ON cash_transactions WHEN NEW.source_type = 'customer_refund' BEGIN SELECT RAISE(ABORT, 'forced cash failure'); END");
     await expectReject(call('customerCredits:refund', { customerId: customer.id, amount: 2, method: 'cash', idempotencyKey: 'ROLLBACK-CASH', reason: 'forced cash failure' }), /forced cash failure/);
     db.exec('DROP TRIGGER fail_customer_credit_cash');
     assert.equal((await call('customerCredits:summary', customer.id)).availableBalance, beforeBalance);
