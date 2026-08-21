@@ -523,8 +523,9 @@ async function exportExcelAndBackup(pageRef) {
   assert(workbook.SheetNames.includes('قيمة المخزون'), `Missing inventory sheet: ${workbook.SheetNames.join(', ')}`);
   assert(workbook.SheetNames.includes('Customer Credit'), `Missing Customer Credit sheet: ${workbook.SheetNames.join(', ')}`);
   const customerCreditRows = (xlsxModule.default || xlsxModule).utils.sheet_to_json(workbook.Sheets['Customer Credit']);
-  assert(customerCreditRows.some((row) => row.metric === 'customer_credit_cash_refunds'), 'Customer Credit sheet is missing cash refunds metric.');
-  assert(customerCreditRows.some((row) => row.metric === 'customer_credit_non_cash_refunds'), 'Customer Credit sheet is missing non-cash refunds metric.');
+  const customerCreditMetric = (row) => row.metric ?? row['البيان'];
+  assert(customerCreditRows.some((row) => customerCreditMetric(row) === 'customer_credit_cash_refunds'), 'Customer Credit sheet is missing cash refunds metric.');
+  assert(customerCreditRows.some((row) => customerCreditMetric(row) === 'customer_credit_non_cash_refunds'), 'Customer Credit sheet is missing non-cash refunds metric.');
   fs.writeFileSync(path.join(evidenceDir, 'excel-evidence.json'), JSON.stringify({ xlsxVersion, uiButtonClicked: true, sheetNames: workbook.SheetNames, bytes: fs.statSync(excelPath).size }, null, 2));
   pass('reports.open', 'opened reports with local order/accounting data');
   pass('reports.excel-export', `UI export invoked and XLSX verified with xlsx@${xlsxVersion} (${fs.statSync(excelPath).size} bytes)`);
