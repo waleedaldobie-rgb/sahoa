@@ -1,5 +1,5 @@
 {
-  "name": "react-example",
+  "name": "sahwa-tailoring",
   "private": true,
   "version": "1.0.0",
   "description": "نظام إدارة الخياطة الرجالية صهوة",
@@ -71,6 +71,7 @@
   "build": {
     "appId": "com.sahwa.tailoring",
     "productName": "صهوة للخياطة",
+    "executableName": "sahwa-tailoring",
     "directories": {
       "output": "release",
       "buildResources": "build"
