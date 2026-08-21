@@ -1,6 +1,8 @@
 import {
   CustomerCreditApplyRequest,
   CustomerCreditHistoryFilters,
+  CustomerCreditDiagnostics,
+  CustomerCreditDiagnosticsException,
   CustomerCreditOperationResult,
   CustomerCreditRecord,
   CustomerCreditRefundRequest,
@@ -32,7 +34,7 @@ export class CustomerCreditService {
     private readonly cashRepository: CashRepository,
     private readonly db: {
       exec(sql: string): void;
-      prepare(sql: string): { get(...params: any[]): unknown };
+      prepare(sql: string): { get(...params: any[]): unknown; all(...params: any[]): unknown[] };
     }
   ) {}
 
@@ -278,6 +280,101 @@ export class CustomerCreditService {
 
   getCustomerCreditHistory(customerId: string, filters: CustomerCreditHistoryFilters = {}): CustomerCreditRecord[] {
     return this.customerCreditRepository.getHistory(customerId, filters);
+  }
+
+  getDiagnostics(): CustomerCreditDiagnostics {
+    const rows = this.db.prepare(`
+      SELECT * FROM customer_credits
+      ORDER BY occurred_at ASC, created_at ASC, id ASC
+    `).all() as any[];
+    const summaries = this.db.prepare(`
+      SELECT
+        c.id AS customer_id,
+        c.name AS customer_name,
+        c.phone AS customer_phone,
+        COALESCE(SUM(CASE WHEN cc.entry_type = 'created' THEN cc.amount ELSE 0 END), 0) AS total_created,
+        COALESCE(SUM(CASE WHEN cc.entry_type = 'applied' THEN cc.amount ELSE 0 END), 0) AS total_applied,
+        COALESCE(SUM(CASE WHEN cc.entry_type = 'refunded' THEN cc.amount ELSE 0 END), 0) AS total_refunded
+      FROM customer_credits cc
+      LEFT JOIN customers c ON c.id = cc.customer_id
+      GROUP BY cc.customer_id, c.name, c.phone
+      ORDER BY c.name ASC, cc.customer_id ASC
+    `).all() as any[];
+    const money = (value: unknown) => Math.round((Number(value || 0) + Number.EPSILON) * 100) / 100;
+    const customers = summaries.map((row) => {
+      const totalCreated = money(row.total_created);
+      const totalApplied = money(row.total_applied);
+      const totalRefunded = money(row.total_refunded);
+      return {
+        customerId: String(row.customer_id),
+        customerName: row.customer_name || undefined,
+        customerPhone: row.customer_phone || undefined,
+        totalCreated,
+        totalApplied,
+        totalRefunded,
+        availableBalance: Math.max(0, money(totalCreated - totalApplied - totalRefunded))
+      };
+    });
+    const legacyExceptions: CustomerCreditDiagnosticsException[] = rows
+      .filter((row) => !row.operation_id || row.balance_after === null || row.balance_after === undefined)
+      .map((row) => ({
+        code: 'LEGACY_CUSTOMER_CREDIT_METADATA',
+        recordId: String(row.id),
+        customerId: row.customer_id || undefined,
+        entryType: row.entry_type,
+        reason: 'Legacy customer credit row has nullable lifecycle metadata; no backfill was performed.',
+        severity: 'low' as const
+      }));
+    const integrityWarnings: CustomerCreditDiagnosticsException[] = [];
+    for (const row of rows) {
+      if (!Number.isFinite(Number(row.amount)) || Number(row.amount) < 0) integrityWarnings.push({
+        code: 'INVALID_CUSTOMER_CREDIT_AMOUNT',
+        recordId: String(row.id),
+        customerId: row.customer_id || undefined,
+        entryType: row.entry_type,
+        reason: 'Customer credit amount is negative or non-numeric.',
+        severity: 'high'
+      });
+      if (row.entry_type === 'applied' && !row.source_entry_id) integrityWarnings.push({
+        code: 'MISSING_CUSTOMER_CREDIT_SOURCE',
+        recordId: String(row.id),
+        customerId: row.customer_id || undefined,
+        entryType: row.entry_type,
+        reason: 'Applied customer credit row has no source_entry_id.',
+        severity: 'high'
+      });
+      if (row.entry_type === 'applied' && !row.target_invoice_id) integrityWarnings.push({
+        code: 'MISSING_CUSTOMER_CREDIT_TARGET',
+        recordId: String(row.id),
+        customerId: row.customer_id || undefined,
+        entryType: row.entry_type,
+        reason: 'Applied customer credit row has no target_invoice_id.',
+        severity: 'high'
+      });
+    }
+    for (const customer of customers) {
+      const calculated = money(customer.totalCreated - customer.totalApplied - customer.totalRefunded);
+      if (calculated < -0.0001) integrityWarnings.push({
+        code: 'NEGATIVE_CUSTOMER_CREDIT_BALANCE',
+        recordId: customer.customerId,
+        customerId: customer.customerId,
+        reason: 'Calculated customer credit balance is negative.',
+        severity: 'high'
+      });
+    }
+    const totals = customers.reduce((result, customer) => ({
+      created: money(result.created + customer.totalCreated),
+      applied: money(result.applied + customer.totalApplied),
+      refunded: money(result.refunded + customer.totalRefunded),
+      availableBalance: money(result.availableBalance + customer.availableBalance)
+    }), { created: 0, applied: 0, refunded: 0, availableBalance: 0 });
+    return {
+      generatedAt: new Date().toISOString(),
+      totals,
+      customers,
+      legacyExceptions,
+      integrityWarnings
+    };
   }
 
   getOperation(operationId: string): CustomerCreditOperationResult | undefined {

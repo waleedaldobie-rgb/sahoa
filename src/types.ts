@@ -173,6 +173,33 @@ export interface CustomerCreditSummary {
   availableBalance: number;
 }
 
+export interface CustomerCreditDiagnosticsCustomer extends CustomerCreditSummary {
+  customerName?: string;
+  customerPhone?: string;
+}
+
+export interface CustomerCreditDiagnosticsException {
+  code: string;
+  recordId: string;
+  customerId?: string;
+  entryType?: CustomerCreditEntryType;
+  reason: string;
+  severity: 'high' | 'medium' | 'low';
+}
+
+export interface CustomerCreditDiagnostics {
+  generatedAt: string;
+  totals: {
+    created: number;
+    applied: number;
+    refunded: number;
+    availableBalance: number;
+  };
+  customers: CustomerCreditDiagnosticsCustomer[];
+  legacyExceptions: CustomerCreditDiagnosticsException[];
+  integrityWarnings: CustomerCreditDiagnosticsException[];
+}
+
 export interface CustomerCreditHistoryFilters {
   entryType?: CustomerCreditEntryType;
   limit?: number;
@@ -512,6 +539,7 @@ declare global {
       customerCredits?: {
         list: (customerId: string, filters?: CustomerCreditHistoryFilters) => Promise<CustomerCreditRecord[]>;
         summary: (customerId: string) => Promise<CustomerCreditSummary>;
+        diagnostics: () => Promise<CustomerCreditDiagnostics>;
         apply: (request: CustomerCreditApplyRequest) => Promise<CustomerCreditOperationResult>;
         refund: (request: CustomerCreditRefundRequest) => Promise<CustomerCreditOperationResult>;
         getOperation: (operationId: string) => Promise<CustomerCreditOperationResult | undefined>;

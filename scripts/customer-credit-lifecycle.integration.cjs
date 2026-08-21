@@ -205,6 +205,11 @@ async function main() {
       'BAD-DUP', 'MISSING-SOURCE', 'customer_credit', 'bad data', new Date().toISOString(), -1
     );
     db.prepare(`INSERT INTO customer_credits (
+      id, customer_id, entry_type, amount, created_at
+    ) VALUES (?, ?, ?, ?, ?)`).run(
+      'BAD-LEGACY', customer.id, 'created', 3, new Date().toISOString()
+    );
+    db.prepare(`INSERT INTO customer_credits (
       id, customer_id, entry_type, amount, created_at, operation_id, source_entry_id,
       method, reason, occurred_at, balance_after
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
@@ -238,9 +243,22 @@ async function main() {
     assert.ok(codes.has('ORPHAN_CUSTOMER_CREDIT_SOURCE'));
     assert.ok(codes.has('DUPLICATE_CUSTOMER_CREDIT_OPERATION'));
     assert.ok(codes.has('CUSTOMER_CREDIT_CASH_MISMATCH'));
-    db.exec('PRAGMA ignore_check_constraints = OFF');
-    db.pragma('foreign_keys = ON');
   });
+
+  await record('Customer credit diagnostics is read-only and reports legacy exceptions', async () => {
+    const before = db.prepare('SELECT COUNT(*) AS count FROM customer_credits').get().count;
+    const diagnostics = await call('customerCredits:diagnostics');
+    assert.ok(Array.isArray(diagnostics.customers));
+    assert.ok(Array.isArray(diagnostics.legacyExceptions));
+    assert.ok(Array.isArray(diagnostics.integrityWarnings));
+    assert.ok(diagnostics.legacyExceptions.some((issue) => issue.recordId === 'BAD-LEGACY'));
+    assert.ok(diagnostics.integrityWarnings.some((issue) => issue.code === 'INVALID_CUSTOMER_CREDIT_AMOUNT'));
+    const after = db.prepare('SELECT COUNT(*) AS count FROM customer_credits').get().count;
+    assert.equal(after, before);
+  });
+
+  db.exec('PRAGMA ignore_check_constraints = OFF');
+  db.pragma('foreign_keys = ON');
 
   const summary = await call('customerCredits:summary', customer.id);
   console.log(JSON.stringify({ ok: true, results, passed: results.filter((item) => item.status === 'passed').length, failed: results.filter((item) => item.status === 'failed').length, finalSummary: summary }, null, 2));

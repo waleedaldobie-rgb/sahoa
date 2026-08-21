@@ -64,6 +64,7 @@ export const electronBridge = {
   customerCredits: {
     list: (customerId: string, filters?: CustomerCreditHistoryFilters) => ipcRenderer.invoke('customerCredits:list', customerId, filters),
     summary: (customerId: string) => ipcRenderer.invoke('customerCredits:summary', customerId),
+    diagnostics: () => ipcRenderer.invoke('customerCredits:diagnostics'),
     apply: (request: CustomerCreditApplyRequest) => ipcRenderer.invoke('customerCredits:apply', request),
     refund: (request: CustomerCreditRefundRequest) => ipcRenderer.invoke('customerCredits:refund', request),
     getOperation: (operationId: string) => ipcRenderer.invoke('customerCredits:getOperation', operationId)

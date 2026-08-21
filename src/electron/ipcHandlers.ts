@@ -427,6 +427,9 @@ export function registerIpcHandlers(dbManager: SahwaDatabaseManager) {
   safeIpcHandle(ipcMain, 'customerCredits:summary', async (_, customerId: string) => {
     return customerCreditService.getCustomerCreditSummary(customerId);
   });
+  safeIpcHandle(ipcMain, 'customerCredits:diagnostics', async () => {
+    return customerCreditService.getDiagnostics();
+  });
   safeIpcHandle(ipcMain, 'customerCredits:apply', async (_, request: any) => {
     return customerCreditService.applyCredit({
       customerId: request.customerId,
