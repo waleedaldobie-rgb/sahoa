@@ -6,7 +6,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { CustomersView } from '../components/CustomersView';
 import { AccountingView } from '../components/AccountingView';
 import { InvoicesView } from '../components/InvoicesView';
-import type { Customer, CustomerCreditRecord, Invoice } from '../types';
+import { ReportsView } from '../components/ReportsView';
+import type { AppData, Customer, CustomerCreditRecord, Invoice } from '../types';
 
 const customer = {
   id: 'CUST-UI-1',
@@ -52,6 +53,29 @@ const setInputValue = async (input: HTMLInputElement, value: string) => {
     input.dispatchEvent(new Event('change', { bubbles: true }));
   });
 };
+
+const reportsData = (): AppData => ({
+  customers: [customer],
+  orders: [{
+    id: 'ORD-REPORT-UI', orderNumber: 'R-UI-1', customerId: customer.id, customerName: customer.name, customerPhone: customer.phone,
+    thobeTypeName: 'ثوب اختباري', fabricName: 'قماش اختباري', fabricColor: 'أبيض', garmentCount: 1,
+    orderDate: '2026-08-20', deliveryDate: '2026-08-20', status: 'delivered', totalAmount: 100, paidAmount: 100,
+    remainingAmount: 0, cashReceived: 100, overpaymentAmount: 0, cancellationWriteoffAmount: 0, isCustomMeasurement: false,
+    measurements: {}, styleDetails: {}, createdAt: '2026-08-20T10:00:00.000Z'
+  } as any],
+  invoices: [{
+    id: 'INV-REPORT-UI', invoiceNumber: 'R-INV-1', orderId: 'ORD-REPORT-UI', customerName: customer.name, customerPhone: customer.phone,
+    orderDate: '2026-08-20', totalAmount: 100, paidAmount: 100, remainingAmount: 0, cashReceived: 100, overpaymentAmount: 0,
+    cancellationWriteoffAmount: 0, paymentStatus: 'paid', payments: [{ id: 'PAY-REPORT-UI', invoiceId: 'INV-REPORT-UI', orderId: 'ORD-REPORT-UI', amount: 100, paymentDate: '2026-08-20', method: 'cash', cashReceived: 100, overpaymentAmount: 0 }]
+  } as any],
+  fabrics: [], accessories: [], thobeTypes: [], colors: [], notifications: [], stockMovements: [], purchases: [], expenses: [], cashTransactions: [{
+    id: 'CASH-REPORT-UI', direction: 'in', sourceType: 'customer_payment', sourceId: 'PAY-REPORT-UI', orderId: 'ORD-REPORT-UI', amount: 100, paymentMethod: 'cash', transactionDate: '2026-08-20', description: 'تحصيل اختباري'
+  } as any], orderMaterialUsages: [], orderEvents: [], customerCredits: [
+    { id: 'CC-REPORT-CREATED', customerId: customer.id, entryType: 'created', amount: 20, createdAt: '2026-08-20T10:00:00.000Z', occurredAt: '2026-08-20T10:00:00.000Z', method: 'customer_credit', balanceAfter: 20 },
+    { id: 'CC-REPORT-CASH', customerId: customer.id, entryType: 'refunded', amount: 5, createdAt: '2026-08-20T11:00:00.000Z', occurredAt: '2026-08-20T11:00:00.000Z', method: 'cash', balanceAfter: 15 },
+    { id: 'CC-REPORT-NONCASH', customerId: customer.id, entryType: 'refunded', amount: 2, createdAt: '2026-08-20T12:00:00.000Z', occurredAt: '2026-08-20T12:00:00.000Z', method: 'card', balanceAfter: 13 }
+  ]
+});
 
 const customersView = (customerCredits: CustomerCreditRecord[], onCustomerCreditChanged = vi.fn()) => (
   <CustomersView
@@ -116,6 +140,7 @@ describe('Customer Credit UI', () => {
     const confirmButton = Array.from(container.querySelectorAll('button')).find((button) => button.textContent?.includes('تأكيد التنفيذ')) as HTMLButtonElement;
     await act(async () => { confirmButton.click(); confirmButton.click(); });
     expect(refund).toHaveBeenCalledTimes(1);
+    expect(confirmButton.disabled).toBe(true);
     const result = { operationId: 'REFUND-1', idempotent: false, customerId: customer.id, amount: 25, entryType: 'refunded', method: 'cash', balanceAfter: 75 };
     await act(async () => resolveRefund(result));
     expect(onCustomerCreditChanged).toHaveBeenCalledTimes(1);
@@ -139,6 +164,27 @@ describe('Customer Credit UI', () => {
     expect(refund).toHaveBeenCalledTimes(2);
     expect(refund.mock.calls[0][0].idempotencyKey).toBe(refund.mock.calls[1][0].idempotencyKey);
     expect(container.querySelector('[data-testid="customer-credit-refund-result"]')?.textContent).toContain('نتيجة العملية السابقة');
+  });
+
+  it('renders populated Customer Credit reporting as a separate section', async () => {
+    await render(<ReportsView data={reportsData()} dataRevision={{ global: 1, orders: 1, inventory: 1, accounting: 1, customers: 1 }} showToast={showToast} />);
+    const section = container.querySelector('[data-testid="customer-credit-reporting-section"]');
+    expect(section).not.toBeNull();
+    expect(section?.textContent).toContain('Customer Credit liability');
+    expect(section?.textContent).toContain('Cash refunds');
+    expect(section?.textContent).toContain('Non-cash refunds');
+    expect(section?.textContent).toContain('13');
+  });
+
+  it('keeps report period controls keyboard-focusable', async () => {
+    await render(<ReportsView data={reportsData()} dataRevision={{ global: 2, orders: 1, inventory: 1, accounting: 1, customers: 1 }} showToast={showToast} />);
+    const todayButton = Array.from(container.querySelectorAll('button')).find((button) => button.textContent?.trim() === 'اليوم') as HTMLButtonElement;
+    expect(todayButton).not.toBeUndefined();
+    expect(todayButton.tabIndex).toBeGreaterThanOrEqual(0);
+    todayButton.focus();
+    expect(document.activeElement).toBe(todayButton);
+    await act(async () => todayButton.click());
+    expect(todayButton.className).toContain('bg-white');
   });
 
   it('keeps refunds separate from cash and invoice applied payment UI', async () => {
