@@ -83,6 +83,8 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ data, dataRevision, sh
       overpaymentCreated: projection.overpaymentCreated,
       overpaymentApplied: projection.overpaymentApplied,
       overpaymentRefunded: projection.overpaymentRefunded,
+      customerCreditCashRefunds: projection.customerCreditCashRefunds,
+      customerCreditNonCashRefunds: projection.customerCreditNonCashRefunds,
       closingCustomerCreditLiability: projection.closingCustomerCreditLiability,
       cancellationWriteoff: projection.cancellationWriteoff,
       remainingAmount: projection.activeOutstanding,
@@ -113,6 +115,8 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ data, dataRevision, sh
     overpaymentCreated,
     overpaymentApplied,
     overpaymentRefunded,
+    customerCreditCashRefunds,
+    customerCreditNonCashRefunds,
     closingCustomerCreditLiability,
     cancellationWriteoff,
     remainingAmount,
@@ -191,7 +195,18 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ data, dataRevision, sh
         ];
       });
 
-      const csvContent = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
+      const customerCreditSection = [
+        [],
+        ['Customer Credit Section'],
+        ['metric', 'value', 'net_profit_impact', 'cash_received_impact', 'applied_collected_impact', 'recognized_revenue_impact'],
+        ['overpayment_created', projection.overpaymentCreated, 0, 0, 0, 0],
+        ['overpayment_applied', projection.overpaymentApplied, 0, 0, 0, 0],
+        ['overpayment_refunded', projection.overpaymentRefunded, 0, 0, 0, 0],
+        ['customer_credit_cash_refunds', customerCreditCashRefunds, 0, 0, 0, 0],
+        ['customer_credit_non_cash_refunds', customerCreditNonCashRefunds, 0, 0, 0, 0],
+        ['closing_customer_credit_liability', closingCustomerCreditLiability, 0, 0, 0, 0]
+      ];
+      const csvContent = [headers.join(','), ...rows.map(r => r.join(',')), ...customerCreditSection.map(r => r.join(','))].join('\n');
       const blob = new Blob(['\ufeff' + csvContent], { type: 'text/csv;charset=utf-8;' });
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
@@ -430,6 +445,13 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ data, dataRevision, sh
           <p className="text-2xl font-black font-mono mt-3 text-rose-700">{lowStockItems.length}</p>
           <div className="flex flex-wrap gap-1.5 mt-2">{lowStockItems.slice(0, 4).map((item) => <Badge key={item} variant="red">{item}</Badge>)}{lowStockItems.length > 4 && <Badge variant="slate">+{lowStockItems.length - 4}</Badge>}</div>
         </div>
+      </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4" data-testid="customer-credit-reporting-section">
+        <div className="bg-amber-50 border border-amber-200 rounded-2xl p-5"><span className="text-xs font-bold text-amber-800">Customer Credit liability</span><div className="text-2xl font-black text-amber-800 font-mono mt-2">{closingCustomerCreditLiability} ر.س</div><span className="text-[11px] text-amber-700 block mt-1">لا يدخل net_profit أو recognized_revenue</span></div>
+        <div className="bg-slate-50 border border-slate-200 rounded-2xl p-5"><span className="text-xs font-bold text-slate-600">Overpayment created</span><div className="text-2xl font-black text-slate-900 font-mono mt-2">{overpaymentCreated} ر.س</div><span className="text-[11px] text-slate-500 block mt-1">التزام منفصل للعميل</span></div>
+        <div className="bg-rose-50 border border-rose-200 rounded-2xl p-5"><span className="text-xs font-bold text-rose-800">Cash refunds</span><div className="text-2xl font-black text-rose-800 font-mono mt-2">{customerCreditCashRefunds} ر.س</div><span className="text-[11px] text-rose-700 block mt-1">خروج نقدي منفصل</span></div>
+        <div className="bg-slate-50 border border-slate-200 rounded-2xl p-5"><span className="text-xs font-bold text-slate-600">Non-cash refunds</span><div className="text-2xl font-black text-slate-900 font-mono mt-2">{customerCreditNonCashRefunds} ر.س</div><span className="text-[11px] text-slate-500 block mt-1">لا يغير Cash Drawer</span></div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">

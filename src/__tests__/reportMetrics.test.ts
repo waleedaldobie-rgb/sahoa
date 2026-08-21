@@ -94,6 +94,42 @@ describe('shared report projection', () => {
     expect(result.salesBooked).toBe(100);
   });
 
+  it('keeps customer credit refunds separate from profit, cash, and recognized revenue', () => {
+    const result = calculateReportProjection({
+      orders: [],
+      invoices: [],
+      customerCredits: [
+        { id: 'CC-CREATED', customerId: 'CUS-REPORT-1', entryType: 'created', amount: 20, createdAt: '2026-08-01', occurredAt: '2026-08-10' },
+        { id: 'CC-CASH-REFUND', customerId: 'CUS-REPORT-1', entryType: 'refunded', amount: 5, method: 'cash', createdAt: '2026-08-01', occurredAt: '2026-08-11' },
+        { id: 'CC-CARD-REFUND', customerId: 'CUS-REPORT-1', entryType: 'refunded', amount: 2, method: 'card', createdAt: '2026-08-01', occurredAt: '2026-08-12' }
+      ],
+      startDate: '2026-08-01',
+      endDate: '2026-08-31'
+    });
+    expect(result.overpaymentCreated).toBe(20);
+    expect(result.overpaymentRefunded).toBe(7);
+    expect(result.customerCreditCashRefunds).toBe(5);
+    expect(result.customerCreditNonCashRefunds).toBe(2);
+    expect(result.closingCustomerCreditLiability).toBe(13);
+    expect(result.cashReceived).toBe(0);
+    expect(result.recognizedRevenue).toBe(0);
+    expect(result.netProfit).toBe(0);
+  });
+
+  it('uses occurred_at as the strict customer-credit closing date basis', () => {
+    const result = calculateReportProjection({
+      orders: [],
+      invoices: [],
+      customerCredits: [
+        { id: 'CC-DATE', customerId: 'CUS-REPORT-1', entryType: 'created', amount: 20, createdAt: '2026-07-31', occurredAt: '2026-09-01' }
+      ],
+      startDate: '2026-08-01',
+      endDate: '2026-08-31'
+    });
+    expect(result.overpaymentCreated).toBe(0);
+    expect(result.closingCustomerCreditLiability).toBe(0);
+  });
+
   it('uses delivery date for recognized revenue and keeps booked sales separate', () => {
     const result = calculateReportProjection({
       orders: [order({ orderDate: '2026-07-31', deliveryDate: '2026-08-05', status: 'delivered', totalAmount: 200, materialCost: 80, remainingAmount: 0, paidAmount: 200 })],

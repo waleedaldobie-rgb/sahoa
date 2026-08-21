@@ -49,6 +49,8 @@ export interface ReportProjection {
   overpaymentCreated: number;
   overpaymentApplied: number;
   overpaymentRefunded: number;
+  customerCreditCashRefunds: number;
+  customerCreditNonCashRefunds: number;
   closingCustomerCreditLiability: number;
   cancellationWriteoff: number;
   activeOutstanding: number;
@@ -157,11 +159,14 @@ export const calculateReportProjection = (input: ReportProjectionInput): ReportP
   const customerPaymentCash = filteredCash.filter((transaction) => transaction.direction === 'in' && transaction.sourceType === 'customer_payment');
   const appliedCollected = sum(invoices.flatMap((invoice) => invoice.payments.filter((payment) => inRange(payment.paymentDate, range)).map((payment) => payment.amount)));
   const cashReceived = sum(customerPaymentCash.map((transaction) => transaction.amount));
-  const creditsInPeriod = customerCredits.filter((credit) => inRange(credit.createdAt, range));
+  const creditDate = (credit: CustomerCreditRecord) => credit.occurredAt || credit.createdAt;
+  const creditsInPeriod = customerCredits.filter((credit) => inRange(creditDate(credit), range));
   const overpaymentCreated = sum(creditsInPeriod.filter((credit) => credit.entryType === 'created').map((credit) => credit.amount));
   const overpaymentApplied = sum(creditsInPeriod.filter((credit) => credit.entryType === 'applied').map((credit) => credit.amount));
   const overpaymentRefunded = sum(creditsInPeriod.filter((credit) => credit.entryType === 'refunded').map((credit) => credit.amount));
-  const creditsToEnd = customerCredits.filter((credit) => !endDate || dateKey(credit.createdAt) <= dateKey(endDate));
+  const customerCreditCashRefunds = sum(creditsInPeriod.filter((credit) => credit.entryType === 'refunded' && credit.method === 'cash').map((credit) => credit.amount));
+  const customerCreditNonCashRefunds = sum(creditsInPeriod.filter((credit) => credit.entryType === 'refunded' && credit.method !== 'cash').map((credit) => credit.amount));
+  const creditsToEnd = customerCredits.filter((credit) => !endDate || dateKey(creditDate(credit)) <= dateKey(endDate));
   const closingCustomerCreditLiability = round2(
     sum(creditsToEnd.filter((credit) => credit.entryType === 'created').map((credit) => credit.amount))
       - sum(creditsToEnd.filter((credit) => credit.entryType === 'applied').map((credit) => credit.amount))
@@ -185,6 +190,8 @@ export const calculateReportProjection = (input: ReportProjectionInput): ReportP
     overpaymentCreated,
     overpaymentApplied,
     overpaymentRefunded,
+    customerCreditCashRefunds,
+    customerCreditNonCashRefunds,
     closingCustomerCreditLiability,
     cancellationWriteoff,
     activeOutstanding,

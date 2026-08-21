@@ -461,6 +461,9 @@ async function verifyCsvAndReportingViews(pageRef) {
   assert(reportText.includes('recognized_revenue حسب تاريخ التسليم'), 'Reports do not show recognized_revenue presentation.');
   assert(reportText.includes('applied_paid') || reportText.includes('المطبق'), 'Reports do not show applied settlement.');
   assert(reportText.includes('cash_received') || reportText.includes('النقد'), 'Reports do not show cash received.');
+  assert(reportText.includes('Customer Credit liability') || reportText.includes('التزام ائتمان العملاء'), 'Reports do not show the separate Customer Credit liability section.');
+  assert(reportText.includes('Cash refunds'), 'Reports do not show Customer Credit cash refunds separately.');
+  assert(reportText.includes('Non-cash refunds'), 'Reports do not show Customer Credit non-cash refunds separately.');
   await pageRef.screenshot({ path: path.join(evidenceDir, 'reports-formula-matrix.png'), fullPage: true });
   pass('reports.formula-separation', 'sales_booked, recognized_revenue, applied collection, and cash are visible separately');
 
@@ -485,7 +488,10 @@ async function verifyCsvAndReportingViews(pageRef) {
   for (const header of ['applied_paid', 'cash_received', 'overpayment', 'cancellation writeoff']) {
     assert(csv.includes(header), `CSV is missing settlement column: ${header}`);
   }
-  fs.writeFileSync(path.join(evidenceDir, 'csv-evidence.json'), JSON.stringify({ path: csvPath, bytes: fs.statSync(csvPath).size, headers: ['applied_paid', 'cash_received', 'overpayment', 'cancellation writeoff'] }, null, 2));
+  for (const metric of ['Customer Credit Section', 'customer_credit_cash_refunds', 'customer_credit_non_cash_refunds', 'closing_customer_credit_liability']) {
+    assert(csv.includes(metric), `CSV is missing Customer Credit section metric: ${metric}`);
+  }
+  fs.writeFileSync(path.join(evidenceDir, 'csv-evidence.json'), JSON.stringify({ path: csvPath, bytes: fs.statSync(csvPath).size, headers: ['applied_paid', 'cash_received', 'overpayment', 'cancellation writeoff'], customerCreditMetrics: ['customer_credit_cash_refunds', 'customer_credit_non_cash_refunds', 'closing_customer_credit_liability'] }, null, 2));
   pass('reports.csv-export', `CSV exported and settlement columns verified (${fs.statSync(csvPath).size} bytes)`);
 
   await openTab(pageRef, 'المحاسبة والمشتريات', 'المحاسبة والتدفقات المالية');
@@ -515,6 +521,10 @@ async function exportExcelAndBackup(pageRef) {
   assert(workbook.SheetNames.includes('تقرير المبيعات'), `Missing sales sheet: ${workbook.SheetNames.join(', ')}`);
   assert(workbook.SheetNames.includes('ملخص المحاسبة'), `Missing accounting sheet: ${workbook.SheetNames.join(', ')}`);
   assert(workbook.SheetNames.includes('قيمة المخزون'), `Missing inventory sheet: ${workbook.SheetNames.join(', ')}`);
+  assert(workbook.SheetNames.includes('Customer Credit'), `Missing Customer Credit sheet: ${workbook.SheetNames.join(', ')}`);
+  const customerCreditRows = (xlsxModule.default || xlsxModule).utils.sheet_to_json(workbook.Sheets['Customer Credit']);
+  assert(customerCreditRows.some((row) => row.metric === 'customer_credit_cash_refunds'), 'Customer Credit sheet is missing cash refunds metric.');
+  assert(customerCreditRows.some((row) => row.metric === 'customer_credit_non_cash_refunds'), 'Customer Credit sheet is missing non-cash refunds metric.');
   fs.writeFileSync(path.join(evidenceDir, 'excel-evidence.json'), JSON.stringify({ xlsxVersion, uiButtonClicked: true, sheetNames: workbook.SheetNames, bytes: fs.statSync(excelPath).size }, null, 2));
   pass('reports.open', 'opened reports with local order/accounting data');
   pass('reports.excel-export', `UI export invoked and XLSX verified with xlsx@${xlsxVersion} (${fs.statSync(excelPath).size} bytes)`);

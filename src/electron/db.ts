@@ -961,6 +961,8 @@ export class SahwaDatabaseManager {
       { البيان: 'Overpayment applied', القيمة: projection.overpaymentApplied },
       { البيان: 'Overpayment refunded', القيمة: projection.overpaymentRefunded },
       { البيان: 'Closing customer credit liability', القيمة: projection.closingCustomerCreditLiability },
+      { البيان: 'Customer credit cash refunds', القيمة: projection.customerCreditCashRefunds },
+      { البيان: 'Customer credit non-cash refunds', القيمة: projection.customerCreditNonCashRefunds },
       { البيان: 'Cancellation Writeoff (Non-Cash Settlement)', القيمة: projection.cancellationWriteoff },
       { البيان: 'Active outstanding balance', القيمة: projection.activeOutstanding },
       { البيان: 'إجمالي المشتريات', القيمة: projection.totalPurchases },
@@ -972,6 +974,18 @@ export class SahwaDatabaseManager {
     ];
     const fabrics = data.fabrics || [];
     const accessories = data.accessories || [];
+    const customerCreditRows = [
+      { البيان: 'overpayment_created', القيمة: projection.overpaymentCreated },
+      { البيان: 'overpayment_applied', القيمة: projection.overpaymentApplied },
+      { البيان: 'overpayment_refunded', القيمة: projection.overpaymentRefunded },
+      { البيان: 'closing_customer_credit_liability', القيمة: projection.closingCustomerCreditLiability },
+      { البيان: 'customer_credit_cash_refunds', القيمة: projection.customerCreditCashRefunds },
+      { البيان: 'customer_credit_non_cash_refunds', القيمة: projection.customerCreditNonCashRefunds },
+      { البيان: 'net_profit_impact', القيمة: 0 },
+      { البيان: 'cash_received_impact', القيمة: 0 },
+      { البيان: 'applied_collected_impact', القيمة: 0 },
+      { البيان: 'recognized_revenue_impact', القيمة: 0 }
+    ];
     const inventoryRows = [
       ...fabrics.map((fabric: any) => ({ النوع: 'قماش', الصنف: fabric.name, الكمية: fabric.quantityMeters, الوحدة: 'متر', 'سعر الشراء': fabric.purchasePrice || 0, 'قيمة المخزون': fabric.quantityMeters * (fabric.purchasePrice || 0) })),
       ...accessories.map((accessory: any) => ({ النوع: 'مستلزم', الصنف: accessory.name, الكمية: accessory.quantity, الوحدة: accessory.unit, 'سعر الشراء': accessory.purchasePrice || 0, 'قيمة المخزون': accessory.quantity * (accessory.purchasePrice || 0) }))
@@ -982,6 +996,7 @@ export class SahwaDatabaseManager {
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(orderRows), 'تقرير المبيعات');
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(summaryRows), 'ملخص المحاسبة');
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(customerCreditRows), 'Customer Credit');
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(inventoryRows), 'قيمة المخزون');
     return XLSX.write(wb, { bookType: 'xlsx', type: 'buffer' });
   }
