@@ -254,7 +254,11 @@ async function main() {
     const report = await call('reports:exportExcel', '2026-08-01', '2026-08-31');
     assert.ok(typeof report === 'string' && report.length > 100);
     const workbook = XLSX.read(Buffer.from(report, 'base64'), { type: 'buffer' });
-    assert.deepEqual(workbook.SheetNames, ['تقرير المبيعات', 'ملخص المحاسبة', 'قيمة المخزون']);
+    assert.deepEqual(workbook.SheetNames, ['تقرير المبيعات', 'ملخص المحاسبة', 'Customer Credit', 'قيمة المخزون']);
+    const customerCreditRows = XLSX.utils.sheet_to_json(workbook.Sheets['Customer Credit']);
+    const customerCreditMetric = (row) => row.metric ?? row['البيان'];
+    assert.ok(customerCreditRows.some((row) => customerCreditMetric(row) === 'customer_credit_cash_refunds'));
+    assert.ok(customerCreditRows.some((row) => customerCreditMetric(row) === 'customer_credit_non_cash_refunds'));
     const summaryRows = XLSX.utils.sheet_to_json(workbook.Sheets['ملخص المحاسبة']);
     assert.ok(summaryRows.some((row) => row['البيان'] === 'إجمالي المشتريات' && row['القيمة'] === 234));
     assert.equal(summaryRows.find((row) => row['البيان'] === 'Overpayment created')['القيمة'], 1);
