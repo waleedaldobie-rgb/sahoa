@@ -12,6 +12,7 @@
     "preview": "vite preview",
     "build:electron": "node scripts/build-electron.mjs",
     "perf:report": "node scripts/performance-report.mjs",
+    "perf:v130": "npm run build:electron && electron --no-sandbox scripts/performance-v130.integration.cjs",
     "electron:dev": "npm run build:electron && concurrently -k \"npm run dev\" \"wait-on http://localhost:3000 && cross-env NODE_ENV=development electron .\"",
     "dist": "npm run build:electron:renderer && npm run build:electron && electron-builder --win",
     "clean": "rm -rf dist server.js",
