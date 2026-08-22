@@ -479,7 +479,7 @@ async function main() {
       'OVERPAYMENT-CLEAR-001', 'clearAllData regression fixture', new Date().toISOString(),
       'OP-CLEAR-001', 'IDEMP-CLEAR-001', 'integration-test', 'fixture', new Date().toISOString(), 25
     );
-    assert.equal(reopenedDb.prepare('SELECT COUNT(*) AS count FROM customer_credits WHERE customer_id = ?').get(customerId).count, 1);
+    assert.equal(reopenedDb.prepare('SELECT COUNT(*) AS count FROM customer_credits WHERE id = ?').get('CREDIT-CLEAR-001').count, 1);
     assert.equal(await reopened.clearAllData(), true);
     assert.equal(reopenedDb.prepare('SELECT COUNT(*) AS count FROM customer_credits').get().count, 0);
     assert.equal(reopenedDb.prepare('SELECT COUNT(*) AS count FROM customers').get().count, 0);
