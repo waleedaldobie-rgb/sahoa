@@ -312,7 +312,7 @@ $result | ConvertTo-Json -Depth 6 -Compress
   const evidence = JSON.parse(raw.split(/\r?\n/).filter(Boolean).at(-1));
   fs.writeFileSync(path.join(evidenceDir, 'package-identity-evidence.json'), JSON.stringify(evidence, null, 2));
   assert(evidence.executableName === 'sahwa-tailoring.exe', `Unexpected executable name: ${evidence.executableName}`);
-  assert(evidence.matchingShortcutCount >= 1, `No shortcut named '${expectedShortcutName}' targets ${exePath}. Found: ${JSON.stringify(evidence.shortcuts)}`);
+  assert(evidence.matchingShortcutCount >= 1, `No shortcut named '${expectedShortcutName}' targets ${executablePath}. Found: ${JSON.stringify(evidence.shortcuts)}`);
   assert(evidence.iconLocationValid, `No matching shortcut exposes a Sahwa icon location. Found: ${JSON.stringify(evidence.shortcuts)}`);
   assert(evidence.iconResourceMatchesSource, `Installed executable icon rendering does not match build/icon.ico. Evidence: ${JSON.stringify({ executableIconHash: evidence.executableIconHash, sourceIconHash: evidence.sourceIconHash })}`);
   return `executable=${evidence.executableName}; shortcuts=${evidence.matchingShortcutCount}; icon_match=${evidence.iconResourceMatchesSource}`;
