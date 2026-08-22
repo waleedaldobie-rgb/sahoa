@@ -245,10 +245,14 @@ try {
   if ($sourceIcon) { $sourceIcon.Dispose() }
 }
 
-$desktopRoot = [Environment]::GetFolderPath('Desktop')
-$startMenuRoot = Join-Path $env:APPDATA 'Microsoft\\Windows\\Start Menu\\Programs'
+$shortcutRoots = @(
+  [Environment]::GetFolderPath('Desktop'),
+  [Environment]::GetFolderPath('CommonDesktopDirectory'),
+  (Join-Path $env:APPDATA 'Microsoft\\Windows\\Start Menu\\Programs'),
+  (Join-Path $env:ProgramData 'Microsoft\\Windows\\Start Menu\\Programs')
+) | Where-Object { $_ -and (Test-Path -LiteralPath $_) } | Select-Object -Unique
 $shortcutCandidates = @()
-foreach ($root in @($desktopRoot, $startMenuRoot)) {
+foreach ($root in $shortcutRoots) {
   if (Test-Path -LiteralPath $root) {
     $shortcutCandidates += Get-ChildItem -LiteralPath $root -Filter '*.lnk' -File -Recurse -ErrorAction SilentlyContinue
   }
