@@ -14,7 +14,8 @@ export class WhatsAppService {
   ) {}
 
   prepareMessage(phone: string, customerName: string, orderNumber: string, statusText: string): { url: string; message: string; orderId?: string } {
-    const internationalPhone = phone.startsWith('0') ? '966' + phone.slice(1) : phone;
+    const cleanPhone = phone.replace(/\D/g, '');
+    const internationalPhone = cleanPhone.startsWith('0') ? '966' + cleanPhone.slice(1) : cleanPhone;
     const message = `مرحباً بك أ/ ${customerName}، نفيدك بنتيجة متابعة طلبك رقم (#${orderNumber}) لدى صهوة للخياطة. حالياً: ${statusText}. يسعدنا تواصلكم دائماً!`;
     const order = this.orderRepository.findByOrderNumber(orderNumber);
     return { url: `https://wa.me/${internationalPhone}?text=${encodeURIComponent(message)}`, message, orderId: order?.id };

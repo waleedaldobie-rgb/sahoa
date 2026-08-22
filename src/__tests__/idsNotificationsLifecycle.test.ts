@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { DEFAULT_MEASUREMENTS, DEFAULT_STYLE_DETAILS, initElectronMock } from '../services/electronMock';
 import type { AppData } from '../types';
+import { WhatsAppService } from '../electron/services/whatsappService';
 
 const seed = (): AppData => ({
   customers: [{ id: 'CUS-SEQ', name: 'عميل اختبار', phone: '0500000000', measurements: DEFAULT_MEASUREMENTS, styleDetails: DEFAULT_STYLE_DETAILS, measurementHistory: [], createdAt: '2026-08-20T00:00:00.000Z' }],
@@ -32,6 +33,19 @@ describe('IDs/sequences and Notifications lifecycle', () => {
     expect(numbers).toEqual(['1001', '1002']);
     expect(new Set(numbers).size).toBe(2);
     expect((await window.electronAPI.getInvoices()).map((invoice) => invoice.invoiceNumber).sort()).toEqual(['INV-1001', 'INV-1002']);
+  });
+
+  it('normalizes production WhatsApp phone numbers before building wa.me URLs', () => {
+    const service = new WhatsAppService(
+      {} as any,
+      { findByOrderNumber: () => undefined } as any,
+      {} as any
+    );
+    const prepared = service.prepareMessage('+966 (50) 123-4567', 'عميل اختبار', '1001', 'جاهز');
+    const parsedUrl = new URL(prepared.url);
+    expect(parsedUrl.hostname).toBe('wa.me');
+    expect(parsedUrl.pathname).toBe('/966501234567');
+    expect(parsedUrl.searchParams.get('text')).toContain('عميل اختبار');
   });
 
   it('upserts WhatsApp notifications by source and preserves sent status', async () => {

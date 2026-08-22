@@ -78,7 +78,8 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
     category: 'أزرار',
     quantity: 10,
     minStock: 5,
-    unit: 'حبة'
+    unit: 'حبة',
+    sellingPrice: 0
   });
 
   // Thobe Type Modal State
@@ -120,7 +121,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
   };
 
   const handleOpenAddAccessory = () => {
-    setAccessoryForm({ id: '', name: '', category: 'أزرار', quantity: 50, minStock: 10, unit: 'حبة' });
+    setAccessoryForm({ id: '', name: '', category: 'أزرار', quantity: 50, minStock: 10, unit: 'حبة', sellingPrice: 0 });
     setIsAccessoryModalOpen(true);
   };
 
@@ -420,8 +421,9 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
       <Modal isOpen={isFabricModalOpen} onClose={() => setIsFabricModalOpen(false)} title={fabricForm.id ? 'تعديل قماش' : 'إضافة قماش جديد'}>
         <div className="space-y-4">
           <Input label="اسم القماش *" value={fabricForm.name} onChange={e => setFabricForm({...fabricForm, name: e.target.value})} />
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <Input label="اللون" value={fabricForm.color} onChange={e => setFabricForm({...fabricForm, color: e.target.value})} />
+            <Input label="سعر البيع (ر.س)" type="number" min="0" step="0.01" value={fabricForm.sellingPrice} onChange={e => setFabricForm({...fabricForm, sellingPrice: Number(e.target.value)})} />
             <Input label="المخزون (متر)" type="number" value={fabricForm.quantityMeters} onChange={e => setFabricForm({...fabricForm, quantityMeters: Number(e.target.value)})} />
           </div>
           <div className="flex items-center justify-end gap-3 mt-4 pt-4 border-t border-[#F3F4F6]"><Button variant="ghost" onClick={() => setIsFabricModalOpen(false)}>إلغاء</Button><Button variant="primary" onClick={handleSaveFabricSubmit}>حفظ البيانات</Button></div>
@@ -439,6 +441,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
             </Select>
             <Input label="الكمية" type="number" value={accessoryForm.quantity} onChange={e => setAccessoryForm({...accessoryForm, quantity: Number(e.target.value)})} />
           </div>
+          <Input label="سعر البيع (ر.س)" type="number" min="0" step="0.01" value={accessoryForm.sellingPrice || 0} onChange={e => setAccessoryForm({...accessoryForm, sellingPrice: Number(e.target.value)})} />
           <div className="flex items-center justify-end gap-3 mt-4 pt-4 border-t border-[#F3F4F6]"><Button variant="ghost" onClick={() => setIsAccessoryModalOpen(false)}>إلغاء</Button><Button variant="primary" onClick={handleSaveAccessorySubmit}>حفظ الإكسسوار</Button></div>
         </div>
       </Modal>
