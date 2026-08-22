@@ -256,13 +256,22 @@ foreach ($root in @($desktopRoot, $startMenuRoot)) {
 $wsh = New-Object -ComObject WScript.Shell
 $shortcuts = @($shortcutCandidates | ForEach-Object {
   $shortcut = $wsh.CreateShortcut($_.FullName)
+  $targetPath = [string]$shortcut.TargetPath
+  $matchesExecutable = $false
+  if (-not [string]::IsNullOrWhiteSpace($targetPath)) {
+    try {
+      $matchesExecutable = ([IO.Path]::GetFullPath($targetPath) -ieq [IO.Path]::GetFullPath($exePath))
+    } catch {
+      $matchesExecutable = $false
+    }
+  }
   [pscustomobject]@{
     path = $_.FullName
     name = $_.BaseName
-    targetPath = [string]$shortcut.TargetPath
+    targetPath = $targetPath
     iconLocation = [string]$shortcut.IconLocation
     workingDirectory = [string]$shortcut.WorkingDirectory
-    matchesExecutable = ([IO.Path]::GetFullPath([string]$shortcut.TargetPath) -ieq [IO.Path]::GetFullPath($exePath))
+    matchesExecutable = $matchesExecutable
     matchesExpectedName = ($_.BaseName -eq $expectedShortcutName)
   }
 })
