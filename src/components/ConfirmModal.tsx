@@ -1,5 +1,5 @@
 import React from 'react';
-import { Modal, Button } from './ui';
+import { Modal, Button, Input } from './ui';
 
 export interface ConfirmModalProps {
   isOpen: boolean;
@@ -9,6 +9,9 @@ export interface ConfirmModalProps {
   cancelLabel?: string;
   onConfirm: () => void;
   onCancel: () => void;
+  reason?: string;
+  reasonLabel?: string;
+  onReasonChange?: (value: string) => void;
 }
 
 /**
@@ -24,7 +27,10 @@ export const ConfirmModal: React.FC<ConfirmModalProps> = ({
   confirmLabel = 'حذف',
   cancelLabel = 'إلغاء',
   onConfirm,
-  onCancel
+  onCancel,
+  reason,
+  reasonLabel = 'السبب',
+  onReasonChange
 }) => {
   return (
     <Modal
@@ -44,6 +50,16 @@ export const ConfirmModal: React.FC<ConfirmModalProps> = ({
       }
     >
       <p className="text-sm leading-relaxed text-slate-700">{message}</p>
+      {onReasonChange && (
+        <div className="mt-4">
+          <Input
+            label={`${reasonLabel} *`}
+            value={reason || ''}
+            onChange={(event) => onReasonChange(event.target.value)}
+            placeholder="اكتب السبب"
+          />
+        </div>
+      )}
     </Modal>
   );
 };

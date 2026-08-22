@@ -339,7 +339,7 @@ export default function App() {
   };
 
   // 2. Orders
-  const handleSaveOrder = async (order: Order): Promise<boolean> => {
+  const handleSaveOrder = async (order: Order): Promise<boolean | Order> => {
     const validationErrors = validateEntityErrors('order', order);
     if (validationErrors.length > 0) {
       showToast(validationErrors.join('\n'), 'danger');
@@ -348,12 +348,14 @@ export default function App() {
 
     const result = await executeCrud('جاري حفظ بيانات الطلب واستقطاع الأقمشة...', async () => {
       let alerts: string[] = [];
+      let savedOrder: Order = order;
       if (window.electronAPI.createOrder && window.electronAPI.updateOrder) {
         const exists = data?.orders.some((o) => o.id === order.id);
         if (exists) {
-          await window.electronAPI.updateOrder(order);
+          const updated = await window.electronAPI.updateOrder(order);
+          if (updated === false) return false;
         } else {
-          await window.electronAPI.createOrder(order);
+          savedOrder = await window.electronAPI.createOrder(order);
         }
         alerts = await loadAppData();
       } else {
@@ -408,9 +410,9 @@ export default function App() {
       } else {
         showToast('تم حفظ الطلب بنجاح وخصم القماش من المخزون', 'success');
       }
-      return true;
+      return savedOrder;
     });
-    return result === true;
+    return result ?? false;
   };
 
   const handleUpdateOrderStatus = async (orderId: string, newStatus: OrderStatus) => {

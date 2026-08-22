@@ -200,5 +200,8 @@ describe('Customer Credit UI', () => {
     await render(<InvoicesView invoices={[invoice]} orders={[]} invoicePrintMode="detailed" onUpdateInvoiceMode={vi.fn()} onAddPayment={vi.fn()} showToast={showToast} />);
     expect(container.querySelector('[data-testid="invoice-credit-applied-INV-UI-1"]')).not.toBeNull();
     expect(container.querySelector('[data-testid="invoice-credit-applied-INV-UI-1"]')?.textContent).toContain('غير نقدي');
+
+    await render(<InvoicesView invoices={[{ ...invoice, paymentStatus: 'settled_by_cancellation', remainingAmount: 0, cancellationWriteoffAmount: 60 }]} orders={[]} invoicePrintMode="detailed" onUpdateInvoiceMode={vi.fn()} onAddPayment={vi.fn()} showToast={showToast} />);
+    expect(container.textContent).toContain('مُسوّى بالإلغاء');
   });
 });

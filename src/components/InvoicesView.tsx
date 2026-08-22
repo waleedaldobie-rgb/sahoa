@@ -110,6 +110,8 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
         return <Badge variant="amber">دفعة جزئية</Badge>;
       case 'unpaid':
         return <Badge variant="red">غير مدفوع</Badge>;
+      case 'settled_by_cancellation':
+        return <Badge variant="slate">مُسوّى بالإلغاء</Badge>;
     }
   };
 

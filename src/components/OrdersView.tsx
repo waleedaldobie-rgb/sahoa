@@ -78,7 +78,7 @@ export interface OrdersViewProps {
   accessories?: AccessoryItem[];
   thobeTypes: ThobeType[];
   userPreferences?: UserPreferences;
-  onSaveOrder: (order: Order) => Promise<boolean | void> | boolean | void;
+  onSaveOrder: (order: Order) => Promise<boolean | void | Order> | boolean | void;
   onSaveCustomer?: (customer: Customer) => Promise<void> | void;
   onUpdateOrderStatus: (orderId: string, newStatus: OrderStatus) => void;
   onDeleteOrder?: (orderId: string) => void;
@@ -115,6 +115,8 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
   const [isDetailModalOpen, setIsDetailModalOpen] = useState(!!initialSelectedOrder);
   const [isNewOrderModalOpen, setIsNewOrderModalOpen] = useState(!!openNewOrderTrigger);
   const [orderToDelete, setOrderToDelete] = useState<Order | null>(null);
+  const [orderToCancel, setOrderToCancel] = useState<Order | null>(null);
+  const [cancellationReason, setCancellationReason] = useState('');
   const [showDiscardConfirm, setShowDiscardConfirm] = useState(false);
   const [isSubmittingOrder, setIsSubmittingOrder] = useState(false);
   const [orderEvents, setOrderEvents] = useState<OrderEvent[]>([]);
@@ -407,11 +409,12 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
 
     try {
       if (shouldPersistCustomer) await onSaveCustomer?.(customer);
-      await onSaveOrder(newOrder);
+      const savedOrder = await onSaveOrder(newOrder);
       try {
         localStorage.removeItem(draftKeyFor(customer.name, customer.phone, 'new-order'));
       } catch { }
-      showToast(`تم تسجيل الطلب الجديد رقم (#${newOrderNumber}) بنجاح!`, 'success');
+      const actualOrderNumber = savedOrder && typeof savedOrder === 'object' ? savedOrder.orderNumber : newOrderNumber;
+      showToast(`تم تسجيل الطلب الجديد رقم (#${actualOrderNumber}) بنجاح!`, 'success');
       setHasUnsavedChanges(false);
       setIsNewOrderModalOpen(false);
     } catch {
@@ -447,6 +450,7 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
       case 'processing': return 'تحت التنفيذ';
       case 'ready': return 'جاهز للتسليم';
       case 'delivered': return 'تم التسليم';
+      case 'cancelled': return 'ملغى';
     }
   };
 
@@ -456,6 +460,7 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
       case 'processing': return 'الطلب تحت التنفيذ لدى الخياط';
       case 'ready': return 'الطلب جاهز للاستلام';
       case 'delivered': return 'تم تسليم الطلب بنجاح';
+      case 'cancelled': return 'تم إلغاء الطلب';
     }
   };
 
@@ -465,6 +470,20 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
     if (saved === false) return;
     setSelectedOrder(measurementDraft);
     showToast('تم تحديث المقاسات بنجاح', 'success');
+  };
+
+  const handleCancelOrder = () => {
+    if (!orderToCancel) return;
+    if (!cancellationReason.trim()) {
+      showToast('سبب إلغاء الطلب إلزامي', 'danger');
+      return;
+    }
+    onUpdateOrderStatus(orderToCancel.id, 'cancelled');
+    setSelectedOrder((current) => current?.id === orderToCancel.id ? { ...current, status: 'cancelled' } : current);
+    setOrderToCancel(null);
+    setCancellationReason('');
+    setIsDetailModalOpen(false);
+    showToast(`تم إلغاء الطلب #${orderToCancel.orderNumber}`, 'success');
   };
 
   const handleQuickStatusChange = (order: Order, nextStatus: OrderStatus) => {
@@ -573,7 +592,8 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
               { id: 'new', label: 'جديد' },
               { id: 'processing', label: 'تحت التنفيذ' },
               { id: 'ready', label: 'جاهز' },
-              { id: 'delivered', label: 'مُسلم' }
+              { id: 'delivered', label: 'مُسلم' },
+              { id: 'cancelled', label: 'ملغى' }
             ].map((st) => (
               <button
                 key={st.id}
@@ -656,11 +676,16 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
                             ? 'emerald'
                             : ord.status === 'processing'
                             ? 'amber'
+                            : ord.status === 'cancelled'
+                            ? 'red'
                             : 'slate'
                         }
                       >
                         {getStatusText(ord.status)}
                       </Badge>
+                      {Number(ord.cancellationWriteoffAmount || 0) > 0 && (
+                        <div className="mt-1"><Badge variant="red">ملغى مع تسوية</Badge></div>
+                      )}
                     </td>
                     <td className="text-center">
                       <div className="flex flex-wrap items-center justify-center gap-1.5 min-w-[190px]">
@@ -1031,7 +1056,18 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
         maxWidth={detailTab === 'measurements' ? 'full' : '2xl'}
         footer={
           <div className="flex items-center justify-between w-full">
-            <Button variant="danger" size="sm" onClick={() => setOrderToDelete(selectedOrder)} icon={<Trash2 className="w-4 h-4" />}>حذف الطلب</Button>
+            <div className="flex items-center gap-2">
+              {selectedOrder?.status !== 'cancelled' && (
+                <Button
+                  variant="danger"
+                  size="sm"
+                  onClick={() => { setCancellationReason(''); setOrderToCancel(selectedOrder); }}
+                >
+                  إلغاء الطلب
+                </Button>
+              )}
+              <Button variant="danger" size="sm" onClick={() => setOrderToDelete(selectedOrder)} icon={<Trash2 className="w-4 h-4" />}>حذف الطلب</Button>
+            </div>
             <div className="flex gap-3">
               <Button variant="secondary" onClick={() => handlePrintOrderSheet(selectedOrder!)} icon={<Printer className="w-4 h-4" />}>طباعة الفاتورة</Button>
               <Button variant="primary" onClick={() => setIsDetailModalOpen(false)}>إغلاق</Button>
@@ -1262,6 +1298,18 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
       </Modal>
 
       {/* DELETE CONFIRMATION */}
+      <ConfirmModal
+        isOpen={!!orderToCancel}
+        onCancel={() => { setOrderToCancel(null); setCancellationReason(''); }}
+        onConfirm={handleCancelOrder}
+        title="إلغاء الطلب"
+        message={`سيتم إلغاء الطلب رقم #${orderToCancel?.orderNumber} وإجراء التسوية النظامية إن وجدت. هل تريد المتابعة؟`}
+        confirmLabel="تأكيد إلغاء الطلب"
+        reason={cancellationReason}
+        reasonLabel="سبب الإلغاء"
+        onReasonChange={setCancellationReason}
+      />
+
       <ConfirmModal
         isOpen={!!orderToDelete}
         onClose={() => setOrderToDelete(null)}
