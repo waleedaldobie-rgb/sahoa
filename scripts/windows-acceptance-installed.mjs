@@ -245,6 +245,18 @@ try {
   if ($sourceIcon) { $sourceIcon.Dispose() }
 }
 
+function Test-ByteSequence([byte[]] $bytes, [byte[]] $pattern) {
+  if ($pattern.Length -eq 0 -or $bytes.Length -lt $pattern.Length) { return $false }
+  for ($i = 0; $i -le $bytes.Length - $pattern.Length; $i += 1) {
+    $matched = $true
+    for ($j = 0; $j -lt $pattern.Length; $j += 1) {
+      if ($bytes[$i + $j] -ne $pattern[$j]) { $matched = $false; break }
+    }
+    if ($matched) { return $true }
+  }
+  return $false
+}
+
 $shortcutRoots = @(
   [Environment]::GetFolderPath('Desktop'),
   [Environment]::GetFolderPath('CommonDesktopDirectory'),
@@ -263,12 +275,15 @@ $wsh = New-Object -ComObject WScript.Shell
 $shortcuts = @($shortcutCandidates | ForEach-Object {
   $shortcut = $wsh.CreateShortcut($_.FullName)
   $targetPath = [string]$shortcut.TargetPath
-  $matchesExecutable = $false
+  $shortcutBytes = [IO.File]::ReadAllBytes($_.FullName)
+  $rawTargetMatchesExecutable = Test-ByteSequence $shortcutBytes ([Text.Encoding]::Unicode.GetBytes('sahwa-tailoring.exe')) -or Test-ByteSequence $shortcutBytes ([Text.Encoding]::ASCII.GetBytes('sahwa-tailoring.exe'))
+  $rawIconMatchesSource = Test-ByteSequence $shortcutBytes ([Text.Encoding]::Unicode.GetBytes('icon.ico')) -or Test-ByteSequence $shortcutBytes ([Text.Encoding]::ASCII.GetBytes('icon.ico'))
+  $matchesExecutable = $rawTargetMatchesExecutable
   if (-not [string]::IsNullOrWhiteSpace($targetPath)) {
     try {
-      $matchesExecutable = ([IO.Path]::GetFullPath($targetPath) -ieq [IO.Path]::GetFullPath($exePath))
+      $matchesExecutable = $matchesExecutable -or ([IO.Path]::GetFullPath($targetPath) -ieq [IO.Path]::GetFullPath($exePath))
     } catch {
-      $matchesExecutable = $false
+      # Some Windows shell links expose an empty/unsupported target through WScript.Shell.
     }
   }
   [pscustomobject]@{
@@ -277,13 +292,20 @@ $shortcuts = @($shortcutCandidates | ForEach-Object {
     targetPath = $targetPath
     iconLocation = [string]$shortcut.IconLocation
     workingDirectory = [string]$shortcut.WorkingDirectory
+    rawTargetMatchesExecutable = $rawTargetMatchesExecutable
+    rawIconMatchesSource = $rawIconMatchesSource
     matchesExecutable = $matchesExecutable
     matchesExpectedName = ($_.BaseName -eq $expectedShortcutName)
   }
 })
 $matchingShortcuts = @($shortcuts | Where-Object { $_.matchesExecutable -and $_.matchesExpectedName })
 $targetShortcuts = @($shortcuts | Where-Object { $_.matchesExecutable })
-$iconLocationValid = $targetShortcuts.Count -gt 0 -and @($targetShortcuts | Where-Object { $_.iconLocation -and $_.iconLocation -match 'sahwa-tailoring|icon\\.ico' }).Count -gt 0
+$iconLocationValid = $targetShortcuts.Count -gt 0 -and @($targetShortcuts | Where-Object {
+  $_.rawTargetMatchesExecutable -and (
+    [string]::IsNullOrWhiteSpace($_.iconLocation) -or
+    $_.iconLocation -match 'sahwa-tailoring|icon\\.ico'
+  )
+}).Count -gt 0
 
 $result = [pscustomobject]@{
   executablePath = $exePath
