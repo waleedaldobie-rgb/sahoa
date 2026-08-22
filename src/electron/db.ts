@@ -379,7 +379,7 @@ export class SahwaDatabaseManager {
         for (const table of [
           'order_events', 'order_material_usages', 'purchase_lines', 'cash_transactions',
           'expenses', 'purchases', 'inventory_movements', 'invoices', 'orders',
-          'customer_measurement_history', 'customers', 'fabrics', 'accessories'
+          'customer_credits', 'customer_measurement_history', 'customers', 'fabrics', 'accessories'
         ]) {
           db.prepare(`DELETE FROM ${table}`).run();
         }

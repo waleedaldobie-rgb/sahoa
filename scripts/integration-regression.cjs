@@ -469,6 +469,21 @@ async function main() {
     const reopenedInit = reopened.initDatabase();
     assert.equal(reopenedInit.success, true);
     assert.equal(reopened.getRawDb().prepare('SELECT COUNT(*) AS count FROM orders WHERE id = ?').get(orderId).count, 1);
+
+    const reopenedDb = reopened.getRawDb();
+    reopenedDb.prepare(`
+      INSERT INTO customer_credits (id, customer_id, order_id, invoice_id, payment_id, entry_type, amount, reference_id, notes, created_at, operation_id, idempotency_key, method, actor_id, reason, occurred_at, balance_after)
+      VALUES (?, ?, ?, ?, ?, 'created', ?, ?, ?, ?, ?, ?, 'customer_credit', ?, ?, ?, ?)
+    `).run(
+      'CREDIT-CLEAR-001', customerId, orderId, null, 'PAY-CLEAR-001', 25,
+      'OVERPAYMENT-CLEAR-001', 'clearAllData regression fixture', new Date().toISOString(),
+      'OP-CLEAR-001', 'IDEMP-CLEAR-001', 'integration-test', 'fixture', new Date().toISOString(), 25
+    );
+    assert.equal(reopenedDb.prepare('SELECT COUNT(*) AS count FROM customer_credits WHERE customer_id = ?').get(customerId).count, 1);
+    assert.equal(await reopened.clearAllData(), true);
+    assert.equal(reopenedDb.prepare('SELECT COUNT(*) AS count FROM customer_credits').get().count, 0);
+    assert.equal(reopenedDb.prepare('SELECT COUNT(*) AS count FROM customers').get().count, 0);
+    assert.equal(reopenedDb.pragma('foreign_key_check').length, 0);
     await reopened.close();
   });
 
