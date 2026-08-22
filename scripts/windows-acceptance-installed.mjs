@@ -248,6 +248,8 @@ try {
 $shortcutRoots = @(
   [Environment]::GetFolderPath('Desktop'),
   [Environment]::GetFolderPath('CommonDesktopDirectory'),
+  (Join-Path $env:USERPROFILE 'Desktop'),
+  (Join-Path $env:PUBLIC 'Desktop'),
   (Join-Path $env:APPDATA 'Microsoft\\Windows\\Start Menu\\Programs'),
   (Join-Path $env:ProgramData 'Microsoft\\Windows\\Start Menu\\Programs')
 ) | Where-Object { $_ -and (Test-Path -LiteralPath $_) } | Select-Object -Unique
@@ -298,14 +300,21 @@ $result = [pscustomobject]@{
   iconLocationValid = $iconLocationValid
 }
 $result | ConvertTo-Json -Depth 6 -Compress
-if ($result.executableName -ne 'sahwa-tailoring.exe') { throw "Unexpected executable name: $($result.executableName)" }
-if ($result.matchingShortcutCount -lt 1) { throw "No shortcut named '$expectedShortcutName' targets $exePath" }
-if (-not $result.iconLocationValid) { throw 'No matching shortcut exposes a Sahwa icon location.' }
-if (-not $result.iconResourceMatchesSource) { throw 'Installed executable icon rendering does not match build/icon.ico.' }
 `;
-  const raw = runPowerShell(command).trim();
+  let raw;
+  try {
+    raw = runPowerShell(command).trim();
+  } catch (error) {
+    const stdout = error?.stdout?.toString?.() || '';
+    const stderr = error?.stderr?.toString?.() || '';
+    throw new Error(`Windows identity probe failed before producing evidence. stdout=${stdout} stderr=${stderr}`);
+  }
   const evidence = JSON.parse(raw.split(/\r?\n/).filter(Boolean).at(-1));
   fs.writeFileSync(path.join(evidenceDir, 'package-identity-evidence.json'), JSON.stringify(evidence, null, 2));
+  assert(evidence.executableName === 'sahwa-tailoring.exe', `Unexpected executable name: ${evidence.executableName}`);
+  assert(evidence.matchingShortcutCount >= 1, `No shortcut named '${expectedShortcutName}' targets ${exePath}. Found: ${JSON.stringify(evidence.shortcuts)}`);
+  assert(evidence.iconLocationValid, `No matching shortcut exposes a Sahwa icon location. Found: ${JSON.stringify(evidence.shortcuts)}`);
+  assert(evidence.iconResourceMatchesSource, `Installed executable icon rendering does not match build/icon.ico. Evidence: ${JSON.stringify({ executableIconHash: evidence.executableIconHash, sourceIconHash: evidence.sourceIconHash })}`);
   return `executable=${evidence.executableName}; shortcuts=${evidence.matchingShortcutCount}; icon_match=${evidence.iconResourceMatchesSource}`;
 }
 
