@@ -198,6 +198,104 @@ function runPowerShell(command) {
   return execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', command], { encoding: 'utf8' });
 }
 
+function powershellLiteral(value) {
+  return `'${String(value).replaceAll("'", "''")}'`;
+}
+
+function verifyInstalledIdentityAndIcon() {
+  const expectedIconPath = path.resolve(process.cwd(), 'build', 'icon.ico');
+  assert(fs.existsSync(expectedIconPath), `Expected source icon was not found: ${expectedIconPath}`);
+  const expectedShortcutName = 'صهوة للخياطة';
+  const command = `
+$ErrorActionPreference = 'Stop'
+Add-Type -AssemblyName System.Drawing
+$exePath = ${powershellLiteral(path.resolve(executablePath))}
+$expectedIconPath = ${powershellLiteral(expectedIconPath)}
+$expectedShortcutName = ${powershellLiteral(expectedShortcutName)}
+
+function Get-RenderedIconHash([System.Drawing.Icon] $icon) {
+  $bitmap = New-Object System.Drawing.Bitmap 64, 64
+  $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
+  try {
+    $graphics.Clear([System.Drawing.Color]::Transparent)
+    $graphics.DrawIcon($icon, [System.Drawing.Rectangle]::new(0, 0, 64, 64))
+    $stream = New-Object System.IO.MemoryStream
+    try {
+      $bitmap.Save($stream, [System.Drawing.Imaging.ImageFormat]::Png)
+      $hash = [System.Security.Cryptography.SHA256]::Create().ComputeHash($stream.ToArray())
+      return ([BitConverter]::ToString($hash) -replace '-', '')
+    } finally {
+      $stream.Dispose()
+    }
+  } finally {
+    $graphics.Dispose()
+    $bitmap.Dispose()
+  }
+}
+
+$exe = Get-Item -LiteralPath $exePath
+$versionInfo = $exe.VersionInfo
+$exeIcon = [System.Drawing.Icon]::ExtractAssociatedIcon($exePath)
+$sourceIcon = New-Object System.Drawing.Icon($expectedIconPath)
+try {
+  $exeIconHash = Get-RenderedIconHash $exeIcon
+  $sourceIconHash = Get-RenderedIconHash $sourceIcon
+} finally {
+  if ($exeIcon) { $exeIcon.Dispose() }
+  if ($sourceIcon) { $sourceIcon.Dispose() }
+}
+
+$desktopRoot = [Environment]::GetFolderPath('Desktop')
+$startMenuRoot = Join-Path $env:APPDATA 'Microsoft\\Windows\\Start Menu\\Programs'
+$shortcutCandidates = @()
+foreach ($root in @($desktopRoot, $startMenuRoot)) {
+  if (Test-Path -LiteralPath $root) {
+    $shortcutCandidates += Get-ChildItem -LiteralPath $root -Filter '*.lnk' -File -Recurse -ErrorAction SilentlyContinue
+  }
+}
+$wsh = New-Object -ComObject WScript.Shell
+$shortcuts = @($shortcutCandidates | ForEach-Object {
+  $shortcut = $wsh.CreateShortcut($_.FullName)
+  [pscustomobject]@{
+    path = $_.FullName
+    name = $_.BaseName
+    targetPath = [string]$shortcut.TargetPath
+    iconLocation = [string]$shortcut.IconLocation
+    workingDirectory = [string]$shortcut.WorkingDirectory
+    matchesExecutable = ([IO.Path]::GetFullPath([string]$shortcut.TargetPath) -ieq [IO.Path]::GetFullPath($exePath))
+    matchesExpectedName = ($_.BaseName -eq $expectedShortcutName)
+  }
+})
+$matchingShortcuts = @($shortcuts | Where-Object { $_.matchesExecutable -and $_.matchesExpectedName })
+$targetShortcuts = @($shortcuts | Where-Object { $_.matchesExecutable })
+$iconLocationValid = $targetShortcuts.Count -gt 0 -and @($targetShortcuts | Where-Object { $_.iconLocation -and $_.iconLocation -match 'sahwa-tailoring|icon\\.ico' }).Count -gt 0
+
+$result = [pscustomobject]@{
+  executablePath = $exePath
+  executableName = $exe.Name
+  productName = [string]$versionInfo.ProductName
+  fileDescription = [string]$versionInfo.FileDescription
+  sourceIconPath = $expectedIconPath
+  executableIconHash = $exeIconHash
+  sourceIconHash = $sourceIconHash
+  iconResourceMatchesSource = ($exeIconHash -eq $sourceIconHash)
+  shortcutName = $expectedShortcutName
+  shortcuts = $shortcuts
+  matchingShortcutCount = $matchingShortcuts.Count
+  iconLocationValid = $iconLocationValid
+}
+$result | ConvertTo-Json -Depth 6 -Compress
+if ($result.executableName -ne 'sahwa-tailoring.exe') { throw "Unexpected executable name: $($result.executableName)" }
+if ($result.matchingShortcutCount -lt 1) { throw "No shortcut named '$expectedShortcutName' targets $exePath" }
+if (-not $result.iconLocationValid) { throw 'No matching shortcut exposes a Sahwa icon location.' }
+if (-not $result.iconResourceMatchesSource) { throw 'Installed executable icon rendering does not match build/icon.ico.' }
+`;
+  const raw = runPowerShell(command).trim();
+  const evidence = JSON.parse(raw.split(/\r?\n/).filter(Boolean).at(-1));
+  fs.writeFileSync(path.join(evidenceDir, 'package-identity-evidence.json'), JSON.stringify(evidence, null, 2));
+  return `executable=${evidence.executableName}; shortcuts=${evidence.matchingShortcutCount}; icon_match=${evidence.iconResourceMatchesSource}`;
+}
+
 function enableOfflineNetwork() {
   const rawNames = runPowerShell("@(Get-NetAdapter | Where-Object { $_.Status -eq 'Up' -and $_.Name -notlike '*Loopback*' } | Select-Object -ExpandProperty Name) | ConvertTo-Json -Compress").trim();
   offlineAdapters = rawNames ? JSON.parse(rawNames) : [];
@@ -802,6 +900,7 @@ async function offlineAcceptance() {
 try {
   await launchApp();
   await waitForDashboard(page);
+  await runScenario('packaging.identity-icon-shortcut', verifyInstalledIdentityAndIcon);
   await createFabric(page).then(async (fabric) => {
     const order = await createCustomerAndOrder(page, fabric);
     await verifyInvoiceAndPayment(page, order);
