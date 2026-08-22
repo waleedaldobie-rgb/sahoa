@@ -236,7 +236,8 @@ function Get-RenderedIconHash([System.Drawing.Icon] $icon) {
 $exe = Get-Item -LiteralPath $exePath
 $versionInfo = $exe.VersionInfo
 $exeIcon = [System.Drawing.Icon]::ExtractAssociatedIcon($exePath)
-$sourceIcon = New-Object System.Drawing.Icon($expectedIconPath)
+if (-not $exeIcon) { throw "No icon resource was extracted from $exePath" }
+$sourceIcon = New-Object System.Drawing.Icon($expectedIconPath, $exeIcon.Width, $exeIcon.Height)
 try {
   $exeIconHash = Get-RenderedIconHash $exeIcon
   $sourceIconHash = Get-RenderedIconHash $sourceIcon
