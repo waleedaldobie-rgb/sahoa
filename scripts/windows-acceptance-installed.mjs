@@ -303,6 +303,7 @@ $targetShortcuts = @($shortcuts | Where-Object { $_.matchesExecutable })
 $iconLocationValid = $targetShortcuts.Count -gt 0 -and @($targetShortcuts | Where-Object {
   $_.rawTargetMatchesExecutable -and (
     [string]::IsNullOrWhiteSpace($_.iconLocation) -or
+    $_.iconLocation -eq ',0' -or
     $_.iconLocation -match 'sahwa-tailoring|icon\\.ico'
   )
 }).Count -gt 0
