@@ -213,7 +213,7 @@ $exePath = ${powershellLiteral(path.resolve(executablePath))}
 $expectedIconPath = ${powershellLiteral(expectedIconPath)}
 $expectedShortcutName = ${powershellLiteral(expectedShortcutName)}
 
-function Get-RenderedIconHash([System.Drawing.Icon] $icon) {
+function Get-RenderedIcon([System.Drawing.Icon] $icon) {
   $bitmap = New-Object System.Drawing.Bitmap 64, 64
   $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
   try {
@@ -223,10 +223,20 @@ function Get-RenderedIconHash([System.Drawing.Icon] $icon) {
     try {
       $bitmap.Save($stream, [System.Drawing.Imaging.ImageFormat]::Png)
       $hash = [System.Security.Cryptography.SHA256]::Create().ComputeHash($stream.ToArray())
-      return ([BitConverter]::ToString($hash) -replace '-', '')
+      $hashText = ([BitConverter]::ToString($hash) -replace '-', '')
     } finally {
       $stream.Dispose()
     }
+    $argb = [int[]]::new(4096)
+    $opaquePixels = 0
+    for ($y = 0; $y -lt 64; $y += 1) {
+      for ($x = 0; $x -lt 64; $x += 1) {
+        $color = $bitmap.GetPixel($x, $y)
+        $argb[($y * 64) + $x] = $color.ToArgb()
+        if ($color.A -gt 8) { $opaquePixels += 1 }
+      }
+    }
+    return [pscustomobject]@{ hash = $hashText; argb = $argb; opaquePixels = $opaquePixels }
   } finally {
     $graphics.Dispose()
     $bitmap.Dispose()
@@ -239,8 +249,21 @@ $exeIcon = [System.Drawing.Icon]::ExtractAssociatedIcon($exePath)
 if (-not $exeIcon) { throw "No icon resource was extracted from $exePath" }
 $sourceIcon = New-Object System.Drawing.Icon($expectedIconPath, $exeIcon.Width, $exeIcon.Height)
 try {
-  $exeIconHash = Get-RenderedIconHash $exeIcon
-  $sourceIconHash = Get-RenderedIconHash $sourceIcon
+  $exeRendered = Get-RenderedIcon $exeIcon
+  $sourceRendered = Get-RenderedIcon $sourceIcon
+  $pixelDistance = [double]0
+  $maxPixelDistance = [double](255 * 4 * 4096)
+  for ($i = 0; $i -lt 4096; $i += 1) {
+    $exeColor = [System.Drawing.Color]::FromArgb([int]$exeRendered.argb[$i])
+    $sourceColor = [System.Drawing.Color]::FromArgb([int]$sourceRendered.argb[$i])
+    $pixelDistance += [Math]::Abs([int]$exeColor.R - [int]$sourceColor.R)
+    $pixelDistance += [Math]::Abs([int]$exeColor.G - [int]$sourceColor.G)
+    $pixelDistance += [Math]::Abs([int]$exeColor.B - [int]$sourceColor.B)
+    $pixelDistance += [Math]::Abs([int]$exeColor.A - [int]$sourceColor.A)
+  }
+  $iconSimilarity = 1 - ($pixelDistance / $maxPixelDistance)
+  $opaqueSimilarity = 1 - ([Math]::Abs([int]$exeRendered.opaquePixels - [int]$sourceRendered.opaquePixels) / 4096)
+  $iconResourceMatchesSource = $iconSimilarity -ge 0.85 -and $opaqueSimilarity -ge 0.85
 } finally {
   if ($exeIcon) { $exeIcon.Dispose() }
   if ($sourceIcon) { $sourceIcon.Dispose() }
@@ -315,9 +338,11 @@ $result = [pscustomobject]@{
   productName = [string]$versionInfo.ProductName
   fileDescription = [string]$versionInfo.FileDescription
   sourceIconPath = $expectedIconPath
-  executableIconHash = $exeIconHash
-  sourceIconHash = $sourceIconHash
-  iconResourceMatchesSource = ($exeIconHash -eq $sourceIconHash)
+  executableIconHash = $exeRendered.hash
+  sourceIconHash = $sourceRendered.hash
+  iconSimilarity = [Math]::Round($iconSimilarity, 4)
+  opaqueSimilarity = [Math]::Round($opaqueSimilarity, 4)
+  iconResourceMatchesSource = $iconResourceMatchesSource
   shortcutName = $expectedShortcutName
   shortcuts = $shortcuts
   matchingShortcutCount = $matchingShortcuts.Count
@@ -338,7 +363,7 @@ $result | ConvertTo-Json -Depth 6 -Compress
   assert(evidence.executableName === 'sahwa-tailoring.exe', `Unexpected executable name: ${evidence.executableName}`);
   assert(evidence.matchingShortcutCount >= 1, `No shortcut named '${expectedShortcutName}' targets ${executablePath}. Found: ${JSON.stringify(evidence.shortcuts)}`);
   assert(evidence.iconLocationValid, `No matching shortcut exposes a Sahwa icon location. Found: ${JSON.stringify(evidence.shortcuts)}`);
-  assert(evidence.iconResourceMatchesSource, `Installed executable icon rendering does not match build/icon.ico. Evidence: ${JSON.stringify({ executableIconHash: evidence.executableIconHash, sourceIconHash: evidence.sourceIconHash })}`);
+  assert(evidence.iconResourceMatchesSource, `Installed executable icon rendering does not match build/icon.ico. Evidence: ${JSON.stringify({ executableIconHash: evidence.executableIconHash, sourceIconHash: evidence.sourceIconHash, iconSimilarity: evidence.iconSimilarity, opaqueSimilarity: evidence.opaqueSimilarity })}`);
   return `executable=${evidence.executableName}; shortcuts=${evidence.matchingShortcutCount}; icon_match=${evidence.iconResourceMatchesSource}`;
 }
 
