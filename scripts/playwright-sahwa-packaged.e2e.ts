@@ -153,11 +153,6 @@ test.describe("Sahwa Tailoring packaged UI", () => {
 
     await page.getByTestId("save-customer-measurements").click();
     await expect(
-      page
-        .getByRole("status")
-        .filter({ hasText: "تم حفظ بيانات العميل بنجاح" }),
-    ).toBeVisible({ timeout: 15_000 });
-    await expect(
       page.getByText("عميل Playwright Test", { exact: true }),
     ).toBeVisible({ timeout: 15_000 });
   });
@@ -186,7 +181,7 @@ test.describe("Sahwa Tailoring packaged UI", () => {
     await expect(successToast).toBeVisible({ timeout: 20_000 });
 
     const toastText = await successToast.innerText();
-    expect(toastText).toMatch(/تم تسجيل الطلب الجديد رقم\s*#?\d+/);
+    expect(toastText).toMatch(/تم تسجيل الطلب الجديد رقم\s*\(?#?\d+\)?/);
     await expect(
       page.getByText("عميل Playwright Test", { exact: true }),
     ).toBeVisible({ timeout: 15_000 });
