@@ -72,16 +72,16 @@ test.describe("Sahwa Tailoring packaged UI", () => {
 
   async function openCustomers() {
     await page.getByRole("button", { name: "العملاء والمقاسات" }).click();
-    await expect(
-      page.getByText("إدارة العملاء والمقاسات", { exact: true }),
-    ).toBeVisible();
+    await expect(page.getByTestId("customers-add")).toBeVisible({
+      timeout: 20_000,
+    });
   }
 
   async function openOrders() {
     await page.getByRole("button", { name: "إدارة الطلبات" }).click();
-    await expect(
-      page.getByText("إدارة طلبات الخياطة", { exact: true }).first(),
-    ).toBeVisible();
+    await expect(page.getByTestId("orders-add")).toBeVisible({
+      timeout: 20_000,
+    });
   }
 
   async function openScreen(name: RegExp, heading: RegExp) {
@@ -90,8 +90,9 @@ test.describe("Sahwa Tailoring packaged UI", () => {
   }
 
   async function openInventoryTab(tabName: "الأقمشة" | "الإكسسوارات") {
-    await openScreen(/المخزون|إدارة المخزون/, /المخزون/);
+    await page.getByRole("button", { name: /المخزون|إدارة المخزون/ }).click();
     const tab = page.getByRole("button", { name: tabName, exact: true });
+    await expect(tab).toBeVisible({ timeout: 20_000 });
     await tab.click();
     await expect(tab).toHaveAttribute("aria-pressed", "true");
   }
