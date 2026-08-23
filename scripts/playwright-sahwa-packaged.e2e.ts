@@ -99,6 +99,18 @@ test.describe("Sahwa Tailoring packaged UI", () => {
     await expect(tab).toHaveAttribute("aria-pressed", "true");
   }
 
+  async function openInventoryWorkspaceTab(
+    tabName: "الموديلات والألوان" | "حركة المخزون",
+  ) {
+    await page
+      .getByRole("button", { name: "المخزون والأصناف", exact: true })
+      .click();
+    const tab = page.getByRole("button", { name: tabName, exact: true });
+    await expect(tab).toBeVisible({ timeout: 20_000 });
+    await tab.click();
+    await expect(tab).toHaveAttribute("aria-pressed", "true");
+  }
+
   function inventoryRow(name: string) {
     return page.getByRole("row").filter({ hasText: name }).first();
   }
@@ -361,6 +373,163 @@ test.describe("Sahwa Tailoring packaged UI", () => {
       .click();
     await expect(page.getByText(name, { exact: true })).toHaveCount(0);
     await screenshot("16-accessory-deleted");
+  });
+
+  test("creates, edits, and deletes a thobe model after confirmation", async () => {
+    const originalName = "موديل Playwright Edit";
+    const updatedName = "موديل Playwright Edited";
+
+    await openInventoryWorkspaceTab("الموديلات والألوان");
+    await page
+      .getByRole("button", { name: "+ إضافة موديل جديد", exact: true })
+      .click();
+    const addDialog = page.getByRole("dialog");
+    await addDialog
+      .getByLabel("اسم الموديل *", { exact: true })
+      .fill(originalName);
+    await addDialog
+      .getByLabel("السعر الافتراضي (ر.س)", { exact: true })
+      .fill("240");
+    await addDialog.getByLabel("الوصف", { exact: true }).fill("اختبار آلي");
+    await addDialog
+      .getByRole("button", { name: "إضافة الموديل", exact: true })
+      .click();
+    await expect(page.getByText(originalName, { exact: true })).toBeVisible({
+      timeout: 15_000,
+    });
+
+    await page
+      .getByRole("button", { name: `تعديل موديل ${originalName}`, exact: true })
+      .click();
+    const editDialog = page.getByRole("dialog");
+    await editDialog
+      .getByLabel("اسم الموديل *", { exact: true })
+      .fill(updatedName);
+    await editDialog
+      .getByLabel("السعر الافتراضي (ر.س)", { exact: true })
+      .fill("250");
+    await editDialog
+      .getByRole("button", { name: "حفظ التغييرات", exact: true })
+      .click();
+    await expect(page.getByText(originalName, { exact: true })).toHaveCount(0);
+    await expect(page.getByText(updatedName, { exact: true })).toBeVisible({
+      timeout: 15_000,
+    });
+
+    await page
+      .getByRole("button", { name: `حذف موديل ${updatedName}`, exact: true })
+      .click();
+    const confirmDialog = page.getByRole("dialog");
+    await expect(confirmDialog).toContainText(
+      `هل أنت متأكد من حذف "${updatedName}"؟`,
+    );
+    await confirmDialog
+      .getByRole("button", { name: "إلغاء", exact: true })
+      .click();
+    await expect(page.getByText(updatedName, { exact: true })).toBeVisible();
+
+    await page
+      .getByRole("button", { name: `حذف موديل ${updatedName}`, exact: true })
+      .click();
+    await page
+      .getByRole("dialog")
+      .getByRole("button", { name: "حذف", exact: true })
+      .click();
+    await expect(page.getByText(updatedName, { exact: true })).toHaveCount(0);
+    await screenshot("17-model-created-edited-deleted");
+  });
+
+  test("creates, edits, and deletes a color after confirmation", async () => {
+    const originalName = "لون Playwright Edit";
+    const updatedName = "لون Playwright Edited";
+
+    await openInventoryWorkspaceTab("الموديلات والألوان");
+    await page
+      .getByRole("button", { name: "إضافة لون جديد", exact: true })
+      .click();
+    const addDialog = page.getByRole("dialog");
+    await addDialog
+      .getByLabel("اسم اللون *", { exact: true })
+      .fill(originalName);
+    await addDialog
+      .getByLabel("كود اللون (Hex)", { exact: true })
+      .fill("#123456");
+    await addDialog
+      .getByRole("button", { name: "إضافة اللون", exact: true })
+      .click();
+    await expect(page.getByText(originalName, { exact: true })).toBeVisible({
+      timeout: 15_000,
+    });
+
+    await page
+      .getByRole("button", { name: `تعديل لون ${originalName}`, exact: true })
+      .click();
+    const editDialog = page.getByRole("dialog");
+    await editDialog
+      .getByLabel("اسم اللون *", { exact: true })
+      .fill(updatedName);
+    await editDialog
+      .getByLabel("كود اللون (Hex)", { exact: true })
+      .fill("#654321");
+    await editDialog
+      .getByRole("button", { name: "حفظ التغييرات", exact: true })
+      .click();
+    await expect(page.getByText(originalName, { exact: true })).toHaveCount(0);
+    await expect(page.getByText(updatedName, { exact: true })).toBeVisible({
+      timeout: 15_000,
+    });
+
+    await page
+      .getByRole("button", { name: `حذف لون ${updatedName}`, exact: true })
+      .click();
+    const confirmDialog = page.getByRole("dialog");
+    await expect(confirmDialog).toContainText(
+      `هل أنت متأكد من حذف "${updatedName}"؟`,
+    );
+    await confirmDialog
+      .getByRole("button", { name: "حذف", exact: true })
+      .click();
+    await expect(page.getByText(updatedName, { exact: true })).toHaveCount(0);
+    await screenshot("18-color-created-edited-deleted");
+  });
+
+  test("records inventory adjustment in and out with a reason", async () => {
+    await openInventoryWorkspaceTab("حركة المخزون");
+    const itemSelect = page.getByLabel("الصنف", { exact: true });
+    await expect(itemSelect.locator("option").nth(1)).toBeAttached({
+      timeout: 15_000,
+    });
+    const itemId = await itemSelect
+      .locator("option")
+      .nth(1)
+      .getAttribute("value");
+    expect(itemId).toBeTruthy();
+    await itemSelect.selectOption(itemId as string);
+
+    const quantityInput = page.getByLabel("الكمية", { exact: true });
+    const reasonInput = page.getByLabel("السبب", { exact: true });
+    const directionSelect = page.getByLabel("نوع الحركة", { exact: true });
+    const saveMovement = page.getByRole("button", { name: "حفظ", exact: true });
+
+    await quantityInput.fill("3");
+    await directionSelect.selectOption("adjustment");
+    await reasonInput.fill("جرد زيادة Playwright");
+    await saveMovement.click();
+    await expect(
+      page.getByText("جرد زيادة Playwright", { exact: true }),
+    ).toBeVisible({
+      timeout: 15_000,
+    });
+
+    await quantityInput.fill("-1");
+    await reasonInput.fill("جرد نقص Playwright");
+    await saveMovement.click();
+    await expect(
+      page.getByText("جرد نقص Playwright", { exact: true }),
+    ).toBeVisible({
+      timeout: 15_000,
+    });
+    await screenshot("19-inventory-adjustments-in-out");
   });
 
   test("does not produce unexpected renderer errors during the smoke suite", async () => {
