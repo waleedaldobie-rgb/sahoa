@@ -6,6 +6,7 @@ on:
     paths:
       - "src/components/InventoryView.tsx"
       - "scripts/playwright-sahwa-packaged.e2e.ts"
+      - "playwright.config.ts"
       - ".github/workflows/playwright-inventory.yml"
       - "package.json"
       - "package-lock.json"
@@ -14,6 +15,7 @@ on:
     paths:
       - "src/components/InventoryView.tsx"
       - "scripts/playwright-sahwa-packaged.e2e.ts"
+      - "playwright.config.ts"
       - ".github/workflows/playwright-inventory.yml"
       - "package.json"
       - "package-lock.json"
@@ -109,11 +111,8 @@ jobs:
         shell: pwsh
         run: |
           npx playwright test scripts/playwright-sahwa-packaged.e2e.ts `
-            --workers=1 `
-            --trace=retain-on-failure `
-            --screenshot=only-on-failure `
-            --video=retain-on-failure `
-            --reporter=line
+            --config=playwright.config.ts `
+            --workers=1
 
       - name: Upload Playwright evidence
         if: always()
