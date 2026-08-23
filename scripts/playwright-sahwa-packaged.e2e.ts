@@ -546,6 +546,7 @@ test.describe("Sahwa Tailoring packaged UI", () => {
       )
       .toBe(true);
     await openInventoryWorkspaceTab("حركة المخزون");
+    await itemSelect.selectOption(itemId as string);
     await expect(
       page.getByText("جرد زيادة Playwright", { exact: true }),
     ).toBeVisible({
