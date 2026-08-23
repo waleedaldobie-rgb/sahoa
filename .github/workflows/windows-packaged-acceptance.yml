@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
     inputs:
       expected_commit:
-        description: 'Optional exact commit SHA to test'
+        description: "Optional exact commit SHA to test"
         required: false
         type: string
 
@@ -16,8 +16,8 @@ permissions:
   contents: read
 
 env:
-  NODE_VERSION: '22'
-  PYTHON_VERSION: '3.11'
+  NODE_VERSION: "22"
+  PYTHON_VERSION: "3.11"
 
 jobs:
   windows-packaged-acceptance:
@@ -88,8 +88,8 @@ jobs:
       - name: Build renderer
         shell: pwsh
         env:
-          GITHUB_PAGES: 'false'
-          ELECTRON_BUILD: 'true'
+          GITHUB_PAGES: "false"
+          ELECTRON_BUILD: "true"
         run: npm run build
 
       - name: Build Electron files
@@ -102,7 +102,7 @@ jobs:
       - name: Build unsigned Windows NSIS installer
         shell: pwsh
         env:
-          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
         run: npm run dist -- --publish never
 
       - name: Verify installer and write SHA-256
@@ -182,6 +182,17 @@ jobs:
         run: |
           $installDir = Join-Path $env:RUNNER_TEMP 'SahwaTailoring-Automation'
           if (Test-Path $installDir) { Remove-Item $installDir -Recurse -Force -ErrorAction SilentlyContinue }
+
+      - name: Upload failure evidence
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sahwa-failure-evidence-${{ github.run_id }}-${{ github.sha }}
+          retention-days: 30
+          if-no-files-found: warn
+          path: |
+            test-results/windows-packaged-acceptance/**
+            release/**
 
   upload-release-artifacts:
     name: Upload release artifacts with retry
@@ -277,3 +288,59 @@ jobs:
           if ($env:GITHUB_STEP_SUMMARY) {
             "Acceptance remained successful; artifact upload was isolated with three network retry attempts." >> $env:GITHUB_STEP_SUMMARY
           }
+
+  notify-on-failure:
+    name: Notify Slack or Teams on failure
+    needs:
+      - windows-packaged-acceptance
+      - upload-release-artifacts
+    if: ${{ always() && (needs.windows-packaged-acceptance.result == 'failure' || needs.upload-release-artifacts.result == 'failure') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+      SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+      TEAMS_WEBHOOK_URL: ${{ secrets.TEAMS_WEBHOOK_URL }}
+
+    steps:
+      - name: Notify Slack
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "${SLACK_WEBHOOK_URL:-}" ]; then
+            echo "Slack notification skipped: SLACK_WEBHOOK_URL is not configured."
+            exit 0
+          fi
+          payload=$(python3 - <<'PY'
+          import json, os
+          print(json.dumps({
+              "text": f":x: Sahwa Windows Acceptance failed. <{os.environ['RUN_URL']}|Open workflow>"
+          }))
+          PY
+          )
+          curl --fail-with-body --silent --show-error \
+            -X POST \
+            -H 'Content-Type: application/json' \
+            --data "$payload" \
+            "$SLACK_WEBHOOK_URL"
+
+      - name: Notify Microsoft Teams
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "${TEAMS_WEBHOOK_URL:-}" ]; then
+            echo "Teams notification skipped: TEAMS_WEBHOOK_URL is not configured."
+            exit 0
+          fi
+          payload=$(python3 - <<'PY'
+          import json, os
+          print(json.dumps({
+              "text": f"Sahwa Windows Acceptance failed.\\n\\n[Open workflow]({os.environ['RUN_URL']})"
+          }))
+          PY
+          )
+          curl --fail-with-body --silent --show-error \
+            -X POST \
+            -H 'Content-Type: application/json' \
+            --data "$payload" \
+            "$TEAMS_WEBHOOK_URL"
