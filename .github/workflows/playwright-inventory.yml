@@ -35,8 +35,6 @@ jobs:
       CI: true
       NODE_VERSION: "22"
       PYTHON_VERSION: "3.11"
-      SAHWA_TEST_DATA: ${{ runner.temp }}\\Sahwa-Playwright-Data
-      SAHWA_EVIDENCE_DIR: ${{ github.workspace }}\\test-results\\playwright-inventory
 
     steps:
       - name: Checkout
@@ -75,13 +73,15 @@ jobs:
         shell: pwsh
         env:
           INSTALL_DIR: ${{ runner.temp }}\\Sahwa-Playwright-Install
+          TEST_DATA_DIR: ${{ runner.temp }}\\Sahwa-Playwright-Data
+          EVIDENCE_DIR: ${{ github.workspace }}\\test-results\\playwright-inventory
         run: |
           if (Test-Path $env:INSTALL_DIR) {
             Remove-Item $env:INSTALL_DIR -Recurse -Force
           }
           New-Item -ItemType Directory -Force -Path $env:INSTALL_DIR | Out-Null
-          New-Item -ItemType Directory -Force -Path $env:SAHWA_TEST_DATA | Out-Null
-          New-Item -ItemType Directory -Force -Path $env:SAHWA_EVIDENCE_DIR | Out-Null
+          New-Item -ItemType Directory -Force -Path $env:TEST_DATA_DIR | Out-Null
+          New-Item -ItemType Directory -Force -Path $env:EVIDENCE_DIR | Out-Null
 
           $installer = Get-ChildItem -Path release -Filter '*Setup*.exe' -File | Select-Object -First 1
           if ($null -eq $installer) {
@@ -101,6 +101,8 @@ jobs:
           }
 
           "SAHWA_EXE=$($installedExe.FullName)" >> $env:GITHUB_ENV
+          "SAHWA_TEST_DATA=$env:TEST_DATA_DIR" >> $env:GITHUB_ENV
+          "SAHWA_EVIDENCE_DIR=$env:EVIDENCE_DIR" >> $env:GITHUB_ENV
           Write-Host "Installed executable: $($installedExe.FullName)"
 
       - name: Run inventory Playwright tests
