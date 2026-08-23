@@ -128,13 +128,13 @@ test.describe("Sahwa Tailoring packaged UI", () => {
     await openScreen(/المخزون|إدارة المخزون/, /المخزون/);
     await screenshot("04-inventory");
 
-    await openScreen(/الفواتير|إدارة الفواتير/, /الفواتير/);
+    await openScreen(/^الفواتير والحسابات$/, /الفواتير/);
     await screenshot("05-invoices");
 
-    await openScreen(/التقارير|التقارير المالية/, /التقارير/);
+    await openScreen(/^التقارير$/, /التقارير/);
     await screenshot("06-reports");
 
-    await openScreen(/المحاسبة|الحسابات/, /المحاسبة|Accounting/);
+    await openScreen(/^المحاسبة والمشتريات$/, /المحاسبة|Accounting/);
     await screenshot("07-accounting");
   });
 
