@@ -90,7 +90,9 @@ test.describe("Sahwa Tailoring packaged UI", () => {
   }
 
   async function openInventoryTab(tabName: "الأقمشة" | "الإكسسوارات") {
-    await page.getByRole("button", { name: /المخزون|إدارة المخزون/ }).click();
+    await page
+      .getByRole("button", { name: "المخزون والأصناف", exact: true })
+      .click();
     const tab = page.getByRole("button", { name: tabName, exact: true });
     await expect(tab).toBeVisible({ timeout: 20_000 });
     await tab.click();
@@ -102,6 +104,8 @@ test.describe("Sahwa Tailoring packaged UI", () => {
   }
 
   test.beforeAll(async () => {
+    fs.rmSync(testData, { recursive: true, force: true });
+    fs.mkdirSync(testData, { recursive: true });
     await launchApp();
   });
 
