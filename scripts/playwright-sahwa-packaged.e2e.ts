@@ -168,6 +168,21 @@ test.describe("Sahwa Tailoring packaged UI", () => {
     await screenshot("08-customer-form");
 
     await page.getByTestId("save-customer-measurements").click();
+    await expect
+      .poll(
+        async () =>
+          page.evaluate(() =>
+            window.electronAPI
+              .getData()
+              .then((data) =>
+                data.customers.some(
+                  (customer) => customer.name === "عميل Playwright Test",
+                ),
+              ),
+          ),
+        { timeout: 20_000 },
+      )
+      .toBe(true);
     await expect(page.getByTestId("customers-add")).toBeVisible({
       timeout: 20_000,
     });
@@ -518,6 +533,9 @@ test.describe("Sahwa Tailoring packaged UI", () => {
     await directionSelect.selectOption("adjustment");
     await reasonInput.fill("جرد زيادة Playwright");
     await saveMovement.click();
+    await expect(
+      page.getByText("تم تسجيل حركة التسوية بنجاح", { exact: true }).last(),
+    ).toBeVisible({ timeout: 20_000 });
     await openInventoryWorkspaceTab("حركة المخزون");
     await expect(
       page.getByText("جرد زيادة Playwright", { exact: true }),
@@ -528,6 +546,9 @@ test.describe("Sahwa Tailoring packaged UI", () => {
     await quantityInput.fill("-1");
     await reasonInput.fill("جرد نقص Playwright");
     await saveMovement.click();
+    await expect(
+      page.getByText("تم تسجيل حركة التسوية بنجاح", { exact: true }).last(),
+    ).toBeVisible({ timeout: 20_000 });
     await openInventoryWorkspaceTab("حركة المخزون");
     await expect(
       page.getByText("جرد نقص Playwright", { exact: true }),
