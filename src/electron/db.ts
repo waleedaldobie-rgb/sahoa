@@ -1098,6 +1098,17 @@ export class SahwaDatabaseManager {
       const cStmt = db.prepare('INSERT INTO customers (id, customer_number, name, phone, created_at, measurements_json, style_details_json) VALUES (?, ?, ?, ?, ?, ?, ?)');
       seedCustomers.forEach((c, index) => cStmt.run(c.id, index + 1, c.name, c.phone, c.createdAt, JSON.stringify(c.measurements), JSON.stringify(c.styleDetails)));
 
+      db.prepare(`
+        INSERT INTO visible_number_sequences (name, next_number)
+        VALUES ('customers', COALESCE((SELECT MAX(customer_number) + 1 FROM customers), 1))
+        ON CONFLICT(name) DO UPDATE SET next_number = MAX(visible_number_sequences.next_number, excluded.next_number)
+      `).run();
+      db.prepare(`
+        INSERT INTO visible_number_sequences (name, next_number)
+        VALUES ('invoices', COALESCE((SELECT MAX(visible_invoice_number) + 1 FROM invoices), 1))
+        ON CONFLICT(name) DO UPDATE SET next_number = MAX(visible_number_sequences.next_number, excluded.next_number)
+      `).run();
+
       const fStmt = db.prepare('INSERT INTO fabrics (id, name, color, color_hex, purchase_price, selling_price, quantity_meters, min_stock_meters, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)');
       seedFabrics.forEach(f => fStmt.run(f.id, f.name, f.color, f.colorHex, f.purchasePrice, f.sellingPrice, f.quantityMeters, f.minStockMeters, new Date().toISOString()));
 

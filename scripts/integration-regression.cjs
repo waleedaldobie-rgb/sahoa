@@ -44,6 +44,21 @@ async function main() {
     }
   });
 
+  await record('fresh seed visible customer sequence allocates after seeded customers', async () => {
+    const seededCustomers = await call('customers:list');
+    assert.equal(seededCustomers.length, 2);
+    assert.deepEqual(seededCustomers.map((customer) => customer.customerNumber).sort((a, b) => a - b), [1, 2]);
+    assert.equal(manager.getRawDb().prepare("SELECT next_number FROM visible_number_sequences WHERE name = 'customers'").get().next_number, 3);
+
+    const freshCustomer = await call('customers:create', {
+      id: 'CUST-FRESH-SEQUENCE-001', name: 'عميل fresh sequence', phone: '0500000099',
+      measurements: {}, styleDetails: {}
+    });
+    assert.equal(freshCustomer.customerNumber, 3);
+    assert.equal(manager.getRawDb().prepare('SELECT customer_number FROM customers WHERE id = ?').get('CUST-FRESH-SEQUENCE-001').customer_number, 3);
+    assert.equal(manager.getRawDb().prepare("SELECT next_number FROM visible_number_sequences WHERE name = 'customers'").get().next_number, 4);
+  });
+
   await record('clear data integration path', async () => {
     const cleared = await call('system:clearAllData');
     assert.equal(cleared, true);
