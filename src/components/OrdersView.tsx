@@ -73,6 +73,7 @@ const OrderStatusStepper: React.FC<{
 
 export interface OrdersViewProps {
   orders: Order[];
+  invoices?: Invoice[];
   customers: Customer[];
   fabrics: FabricItem[];
   accessories?: AccessoryItem[];
@@ -92,6 +93,7 @@ export interface OrdersViewProps {
 
 export const OrdersView: React.FC<OrdersViewProps> = ({
   orders,
+  invoices = [],
   customers,
   fabrics,
   accessories = [],
@@ -385,6 +387,7 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
       id: createSafeId('ORD'),
       orderNumber: newOrderNumber,
       customerId: customer.id,
+      customerNumber: customer.customerNumber,
       customerName: customer.name,
       customerPhone: customer.phone,
       thobeTypeId: thobe.id,
@@ -527,9 +530,11 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
     <div className="view-wrapper">
       {/* Printable Area */}
       {printableOrder && (() => {
+        const sourceInvoice = invoices.find((invoice) => invoice.orderId === printableOrder.id);
         const printableInvoice: Invoice = {
-          id: `INV-${printableOrder.id}`,
-          invoiceNumber: printableOrder.orderNumber,
+          id: sourceInvoice?.id || `INV-${printableOrder.id}`,
+          visibleInvoiceNumber: sourceInvoice?.visibleInvoiceNumber,
+          invoiceNumber: sourceInvoice?.invoiceNumber || `INV-${printableOrder.orderNumber}`,
           orderId: printableOrder.id,
           customerName: printableOrder.customerName,
           customerPhone: printableOrder.customerPhone,
@@ -537,8 +542,11 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
           totalAmount: printableOrder.totalAmount,
           paidAmount: printableOrder.paidAmount,
           remainingAmount: printableOrder.remainingAmount,
-          paymentStatus: printableOrder.remainingAmount <= 0 ? 'paid' : printableOrder.paidAmount > 0 ? 'partial' : 'unpaid',
-          payments: []
+          paymentStatus: sourceInvoice?.paymentStatus || (printableOrder.remainingAmount <= 0 ? 'paid' : printableOrder.paidAmount > 0 ? 'partial' : 'unpaid'),
+          cashReceived: sourceInvoice?.cashReceived ?? printableOrder.cashReceived,
+          overpaymentAmount: sourceInvoice?.overpaymentAmount ?? printableOrder.overpaymentAmount,
+          cancellationWriteoffAmount: sourceInvoice?.cancellationWriteoffAmount ?? printableOrder.cancellationWriteoffAmount,
+          payments: sourceInvoice?.payments || []
         };
         return (
           <div className="hidden-on-screen">

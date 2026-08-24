@@ -170,11 +170,16 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ data, dataRevision, sh
   // Export to CSV using standard browser Blob APIs
   const handleExportCSV = () => {
     try {
-      const headers = ['م', 'رقم الطلب', 'اسم العميل', 'رقم الجوال', 'نوع الثوب', 'القماش', 'تاريخ الطلب', 'الحالة', 'حالة التسوية', 'داخل المبيعات', 'applied_paid (ر.س)', 'cash_received (ر.س)', 'overpayment (ر.س)', 'cancellation writeoff (ر.س)', 'الإجمالي (ر.س)', 'المتبقي (ر.س)', 'تكلفة المواد (ر.س)', 'الربح المعترف به (ر.س)'];
+      const headers = ['م', 'رقم العميل', 'رقم الفاتورة', 'رقم الطلب', 'اسم العميل', 'رقم الجوال', 'نوع الثوب', 'القماش', 'تاريخ الطلب', 'الحالة', 'حالة التسوية', 'داخل المبيعات', 'applied_paid (ر.س)', 'cash_received (ر.س)', 'overpayment (ر.س)', 'cancellation writeoff (ر.س)', 'الإجمالي (ر.س)', 'المتبقي (ر.س)', 'تكلفة المواد (ر.س)', 'الربح المعترف به (ر.س)'];
       const rows = reportDetails.map((detail, idx) => {
         const ord = detail.order;
+        const customer = data.customers.find((item) => item.id === ord.customerId);
+        const invoice = invoices.find((item) => item.orderId === ord.id);
+        const visibleInvoiceNumber = invoice?.visibleInvoiceNumber ? `INV-${invoice.visibleInvoiceNumber}` : invoice?.invoiceNumber || '';
         return [
           idx + 1,
+          customer?.customerNumber || '',
+          visibleInvoiceNumber,
           ord.orderNumber,
           `"${ord.customerName}"`,
           ord.customerPhone,

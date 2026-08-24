@@ -99,6 +99,7 @@ export interface MeasurementHistoryRecord {
 
 export interface Customer {
   id: string;
+  customerNumber?: number;
   name: string;
   phone: string;
   createdAt: string;
@@ -334,6 +335,7 @@ export interface Order {
   id: string;
   orderNumber: string; // e.g. ORD-1001
   customerId: string;
+  customerNumber?: number;
   customerName: string;
   customerPhone: string;
   thobeTypeId: string;
@@ -381,6 +383,8 @@ export interface PaymentRecord {
 
 export interface Invoice {
   id: string;
+  visibleInvoiceNumber?: number;
+  customerNumber?: number;
   invoiceNumber: string;
   orderId: string;
   customerName: string;

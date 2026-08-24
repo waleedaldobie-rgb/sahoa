@@ -2,6 +2,7 @@ import Database from 'better-sqlite3';
 
 export interface CustomerRow {
   id: string;
+  customer_number?: number | null;
   name: string;
   phone: string;
   created_at: string;
@@ -34,6 +35,16 @@ export class CustomerRepository {
     return this.db.prepare('SELECT * FROM customers WHERE id = ?').get(id) as CustomerRow | undefined;
   }
 
+  nextCustomerNumber(): number {
+    const row = this.db.prepare(`
+      INSERT INTO visible_number_sequences (name, next_number)
+      VALUES ('customers', 2)
+      ON CONFLICT(name) DO UPDATE SET next_number = visible_number_sequences.next_number + 1
+      RETURNING next_number - 1 AS allocated
+    `).get() as { allocated: number };
+    return row.allocated;
+  }
+
   findByPhone(phone: string): Pick<CustomerRow, 'id'> | undefined {
     return this.db.prepare('SELECT id FROM customers WHERE phone = ?').get(phone) as Pick<CustomerRow, 'id'> | undefined;
   }
@@ -50,12 +61,14 @@ export class CustomerRepository {
     updatedAt?: string | null;
     measurementsJson: string;
     styleDetailsJson: string;
+    customerNumber: number;
   }): void {
     this.db.prepare(`
-      INSERT INTO customers (id, name, phone, created_at, updated_at, measurements_json, style_details_json)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO customers (id, customer_number, name, phone, created_at, updated_at, measurements_json, style_details_json)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       row.id,
+      row.customerNumber,
       row.name,
       row.phone,
       row.createdAt,

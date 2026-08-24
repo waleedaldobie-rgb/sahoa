@@ -72,7 +72,8 @@ export const CustomersView: React.FC<CustomersViewProps> = ({
   const filteredCustomers = customers.filter(
     (c) =>
       c.name.toLowerCase().includes(normalizedSearch) ||
-      c.phone.includes(searchTerm.trim())
+      c.phone.includes(searchTerm.trim()) ||
+      String(c.customerNumber ?? '').includes(searchTerm.trim())
   );
   const hasSearch = Boolean(searchTerm.trim());
   const creditEntriesFor = (customerId: string) => customerCredits.filter((entry) => entry.customerId === customerId);
@@ -437,8 +438,8 @@ export const CustomersView: React.FC<CustomersViewProps> = ({
           <div className="relative flex-1 min-w-0">
             <Input
               ref={searchInputRef}
-              aria-label="البحث في العملاء بالاسم أو رقم الجوال"
-              placeholder="ابحث باسم العميل أو رقم الجوال"
+              aria-label="البحث في العملاء برقم العميل أو الاسم أو رقم الجوال"
+              placeholder="ابحث برقم العميل أو الاسم أو رقم الجوال"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               icon={<Search className="w-5 h-5" aria-hidden="true" />}
@@ -453,7 +454,7 @@ export const CustomersView: React.FC<CustomersViewProps> = ({
           )}
         </div>
         <div className="customers-search-meta" aria-live="polite">
-          {hasSearch ? `${filteredCustomers.length} نتيجة مطابقة من أصل ${customers.length}` : 'ابحث بالاسم أو رقم الجوال للوصول السريع إلى ملف العميل'}
+          {hasSearch ? `${filteredCustomers.length} نتيجة مطابقة من أصل ${customers.length}` : 'ابحث برقم العميل أو الاسم أو رقم الجوال للوصول السريع إلى ملف العميل'}
         </div>
       </Card>
 
@@ -470,6 +471,7 @@ export const CustomersView: React.FC<CustomersViewProps> = ({
             <table className="premium-table">
               <thead>
                 <tr>
+                  <th>رقم العميل</th>
                   <th>اسم العميل</th>
                   <th>رقم الجوال</th>
                   <th className="text-center">الطول الأمامي</th>
@@ -483,9 +485,11 @@ export const CustomersView: React.FC<CustomersViewProps> = ({
               <tbody>
                 {filteredCustomers.map((cust) => (
                   <tr key={cust.id}>
+                    <td className="text-center" data-testid={`customer-number-${cust.id}`}>
+                      <span className="rounded-lg bg-slate-100 px-2.5 py-1 font-mono text-xs font-black text-slate-700">{cust.customerNumber ? `#${cust.customerNumber}` : '—'}</span>
+                    </td>
                     <td>
                       <div className="font-black text-[#111111] text-sm">{cust.name}</div>
-                      <div className="text-[10px] text-[#9CA3AF] font-bold mt-0.5">#{cust.id.split('-').pop()}</div>
                     </td>
                     <td className="font-black font-mono text-[#4B5563]">{cust.phone}</td>
                     <td className="text-center font-black text-[#111111]">

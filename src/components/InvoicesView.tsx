@@ -45,9 +45,11 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
   const [isSubmittingPayment, setIsSubmittingPayment] = useState(false);
   const paymentSubmitLock = useRef(false);
 
+  const displayInvoiceNumber = (invoice: Invoice) => invoice.visibleInvoiceNumber ? `INV-${invoice.visibleInvoiceNumber}` : invoice.invoiceNumber;
   const filteredInvoices = invoices.filter(
     (inv) =>
-      inv.invoiceNumber.includes(searchTerm) ||
+      (inv.invoiceNumber || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+      displayInvoiceNumber(inv).toLowerCase().includes(searchTerm.toLowerCase()) ||
       inv.customerName.toLowerCase().includes(searchTerm.toLowerCase()) ||
       inv.customerPhone.includes(searchTerm)
   );
@@ -169,6 +171,7 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
               <thead>
                 <tr>
                   <th className="w-24 text-center">رقم الفاتورة</th>
+                  <th className="w-24 text-center">رقم العميل</th>
                   <th>العميل</th>
                   <th>تاريخ الفاتورة</th>
                   <th className="text-center">الإجمالي</th>
@@ -182,7 +185,10 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
                 {filteredInvoices.map((inv) => (
                   <tr key={inv.id}>
                     <td className="text-center">
-                      <span className="font-black text-[#111111] bg-[#F3F4F6] px-2.5 py-1 rounded-lg text-xs">#{inv.invoiceNumber}</span>
+                      <span className="font-black text-[#111111] bg-[#F3F4F6] px-2.5 py-1 rounded-lg text-xs">#{displayInvoiceNumber(inv)}</span>
+                    </td>
+                    <td className="text-center">
+                      <span className="font-mono text-xs font-black text-slate-600">{inv.customerNumber ? `#${inv.customerNumber}` : '—'}</span>
                     </td>
                     <td>
                       <div className="font-black text-[#111111]">{inv.customerName}</div>
@@ -238,7 +244,7 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
         <Modal
           isOpen={isPaymentModalOpen}
           onClose={() => setIsPaymentModalOpen(false)}
-          title={`تحصيل دفعة - فاتورة #${selectedInvoice.invoiceNumber}`}
+          title={`تحصيل دفعة - فاتورة #${displayInvoiceNumber(selectedInvoice)}`}
           maxWidth="md"
           footer={
             <div className="flex items-center justify-end gap-3">
@@ -296,7 +302,7 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
         <Modal
           isOpen={isPreviewModalOpen}
           onClose={() => setIsPreviewModalOpen(false)}
-          title={`معاينة الفاتورة #${selectedInvoice.invoiceNumber}`}
+          title={`معاينة الفاتورة #${displayInvoiceNumber(selectedInvoice)}`}
           maxWidth="full"
           allowPrint
           footer={

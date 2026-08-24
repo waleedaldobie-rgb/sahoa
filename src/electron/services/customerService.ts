@@ -44,18 +44,20 @@ export class CustomerService {
     const phone = (input.phone || '').trim();
     const createdAt = input.createdAt || new Date().toISOString().slice(0, 10);
     if (this.repository.findByPhone(phone)) throw new Error('رقم الجوال مسجل بالفعل لعميل آخر');
+    const customerNumber = this.repository.nextCustomerNumber();
 
     const measurements = normalizeMeasurements(input.measurements);
     const styleDetails = normalizeStyleDetails(input.styleDetails);
     this.repository.insert({
       id,
+      customerNumber,
       name,
       phone,
       createdAt,
       measurementsJson: JSON.stringify(measurements),
       styleDetailsJson: JSON.stringify(styleDetails)
     });
-    return { id, name, phone, createdAt, updatedAt: createdAt, measurements, styleDetails, measurementHistory: [] };
+    return { id, customerNumber, name, phone, createdAt, updatedAt: createdAt, measurements, styleDetails, measurementHistory: [] };
   }
 
   update(customer: Customer): boolean {
@@ -129,6 +131,7 @@ export class CustomerService {
   private toCustomer(row: CustomerRow, measurementHistory: any[]): Customer {
     return {
       id: row.id,
+      customerNumber: row.customer_number ?? undefined,
       name: row.name,
       phone: row.phone,
       createdAt: row.created_at,

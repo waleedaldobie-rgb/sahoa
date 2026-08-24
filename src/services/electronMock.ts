@@ -31,6 +31,45 @@ function nextMockOrderNumber(orders: Order[]): string {
   return String(next);
 }
 
+function nextMockCustomerNumber(customers: Customer[]): number {
+  return customers.reduce((max, customer) => Math.max(max, Number(customer.customerNumber) || 0), 0) + 1;
+}
+
+function nextMockInvoiceNumber(invoices: Invoice[]): number {
+  return invoices.reduce((max, invoice) => Math.max(max, Number(invoice.visibleInvoiceNumber) || 0), 0) + 1;
+}
+
+function backfillVisibleNumbers<T extends { id: string }>(
+  items: T[],
+  getNumber: (item: T) => number | undefined,
+  setNumber: (item: T, number: number) => T,
+  compare: (left: T, right: T) => number,
+): T[] {
+  let next = items.reduce((max, item) => Math.max(max, Number(getNumber(item)) || 0), 0) + 1;
+  return items.map((item) => item).map((item, index, source) => {
+    if (Number(getNumber(item)) > 0) return item;
+    const missing = source.filter((candidate) => !(Number(getNumber(candidate)) > 0)).sort(compare);
+    const missingIndex = missing.findIndex((candidate) => candidate.id === item.id);
+    return missingIndex >= 0 ? setNumber(item, next + missingIndex) : item;
+  });
+}
+
+function normalizeVisibleNumbers(rawCustomers: Customer[], rawInvoices: Invoice[]): { customers: Customer[]; invoices: Invoice[] } {
+  const customers = backfillVisibleNumbers(
+    rawCustomers,
+    (customer) => customer.customerNumber,
+    (customer, number) => ({ ...customer, customerNumber: number }),
+    (left, right) => String(left.createdAt || '').localeCompare(String(right.createdAt || '')) || left.id.localeCompare(right.id),
+  );
+  const invoices = backfillVisibleNumbers(
+    rawInvoices,
+    (invoice) => invoice.visibleInvoiceNumber,
+    (invoice, number) => ({ ...invoice, visibleInvoiceNumber: number }),
+    (left, right) => String(left.orderDate || '').localeCompare(String(right.orderDate || '')) || left.id.localeCompare(right.id),
+  );
+  return { customers, invoices };
+}
+
 import { DEFAULT_MEASUREMENTS, DEFAULT_STYLE_DETAILS, EMPTY_MEASUREMENTS, EMPTY_STYLE_DETAILS, normalizeMeasurements, normalizeStyleDetails } from './shared/measurementDefaults';
 export { DEFAULT_MEASUREMENTS, DEFAULT_STYLE_DETAILS, EMPTY_MEASUREMENTS, EMPTY_STYLE_DETAILS, normalizeMeasurements, normalizeStyleDetails } from './shared/measurementDefaults';
 
@@ -120,10 +159,14 @@ const normalizeOrder = (order: Order): Order => ({
 });
 
 function sanitizeAppData(raw: Partial<AppData>): AppData {
+  const visibleNumbers = normalizeVisibleNumbers(
+    deduplicateById(raw.customers || INITIAL_CUSTOMERS).map(normalizeCustomer),
+    deduplicateById(raw.invoices || INITIAL_INVOICES),
+  );
   return {
-    customers: deduplicateById(raw.customers || INITIAL_CUSTOMERS).map(normalizeCustomer),
+    customers: visibleNumbers.customers,
     orders: deduplicateById(raw.orders || INITIAL_ORDERS).map(normalizeOrder),
-    invoices: deduplicateById(raw.invoices || INITIAL_INVOICES),
+    invoices: visibleNumbers.invoices,
     fabrics: deduplicateById(raw.fabrics || INITIAL_FABRICS),
     accessories: deduplicateById(raw.accessories || INITIAL_ACCESSORIES),
     thobeTypes: deduplicateById(raw.thobeTypes || INITIAL_THOBE_TYPES),
@@ -713,7 +756,8 @@ export function initElectronMock() {
         draft.orders = [newOrder, ...draft.orders];
 
         // Create invoice and initial payment through the isolated order adapter.
-        const { invoice: newInvoice, payment: initialPayment } = buildInitialInvoiceDraft({ ...orderData, status: initialStatus, initialPaymentMethod }, orderId, orderNumber, totalAmount, cashReceived);
+        const visibleInvoiceNumber = nextMockInvoiceNumber(draft.invoices);
+        const { invoice: newInvoice, payment: initialPayment } = buildInitialInvoiceDraft({ ...orderData, status: initialStatus, initialPaymentMethod }, orderId, orderNumber, totalAmount, cashReceived, visibleInvoiceNumber);
         const initialPaymentId = initialPayment?.id;
 
         draft.invoices = [newInvoice, ...draft.invoices];

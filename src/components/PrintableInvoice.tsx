@@ -75,7 +75,8 @@ export const PrintableInvoice: React.FC<PrintableInvoiceProps> = ({ invoice, ord
   const m = (order?.measurements || {}) as unknown as Record<string, unknown>;
   const sd = (order?.styleDetails || {}) as unknown as Record<string, unknown>;
 
-  const customerId = order?.customerId || '--';
+  const displayInvoiceNumber = invoice.visibleInvoiceNumber ? `INV-${invoice.visibleInvoiceNumber}` : invoice.invoiceNumber;
+  const customerNumber = order?.customerNumber ? `#${order.customerNumber}` : '--';
   const customerPhone = order?.customerPhone || invoice.customerPhone || '--';
   const invoiceDate = order?.orderDate || invoice.orderDate || '--';
   const deliveryDate = order?.deliveryDate || '--';
@@ -131,7 +132,7 @@ export const PrintableInvoice: React.FC<PrintableInvoiceProps> = ({ invoice, ord
           </div>
         </div>
         <div className="header-meta-box">
-          <div className="meta-item"><span className="meta-label">رقم الفاتورة:</span> <span className="meta-value">#{invoice.invoiceNumber}</span></div>
+          <div className="meta-item"><span className="meta-label">رقم الفاتورة:</span> <span className="meta-value">#{displayInvoiceNumber}</span></div>
           <div className="meta-item"><span className="meta-label">التاريخ:</span> <span className="meta-value">{invoiceDate}</span></div>
           <div className="meta-item"><span className="meta-label">موعد التسليم:</span> <span className="meta-value">{deliveryDate}</span></div>
         </div>
@@ -142,7 +143,7 @@ export const PrintableInvoice: React.FC<PrintableInvoiceProps> = ({ invoice, ord
         <div className="info-card invoice-grid-card">
           <div className="info-row-new"><span>اسم العميل</span><strong>{invoice.customerName || '--'}</strong></div>
           <div className="info-row-new"><span>رقم الجوال</span><strong>{customerPhone}</strong></div>
-          <div className="info-row-new"><span>رقم العميل</span><strong>#{customerId}</strong></div>
+          <div className="info-row-new"><span>رقم العميل</span><strong>{customerNumber}</strong></div>
         </div>
         <div className="info-card invoice-grid-card">
           <div className="info-row-new highlight-black"><span>إجمالي المبلغ</span><strong>{invoice.totalAmount} ر.س</strong></div>

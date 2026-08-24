@@ -3,8 +3,10 @@ import { normalizeMeasurements, normalizeStyleDetails } from '../shared/measurem
 import { createSafeId } from '../../domain/idGenerator';
 
 export function createCustomerInDraft(draft: AppData, customer: Partial<Customer>): Customer {
+  const nextCustomerNumber = draft.customers.reduce((max, item) => Math.max(max, Number(item.customerNumber) || 0), 0) + 1;
   const newCustomer: Customer = {
     id: customer.id || createSafeId('CUST'),
+    customerNumber: nextCustomerNumber,
     name: customer.name || 'عميل جديد',
     phone: customer.phone || '',
     createdAt: customer.createdAt || new Date().toISOString().slice(0, 10),

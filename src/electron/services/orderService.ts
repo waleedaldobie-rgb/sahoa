@@ -66,6 +66,7 @@ export class OrderService {
     const tx = this.db.transaction(() => {
       const orderId = orderData.id || createSafeId('ORD');
       const orderNumber = orderData.orderNumber || this.orderRepository.nextOrderNumber();
+      const visibleInvoiceNumber = this.invoiceRepository.nextVisibleInvoiceNumber();
       const amounts = calculateOrderAmounts(validatedTotal, validatedPaid);
       const { totalAmount, paidAmount, remainingAmount } = amounts;
       const settlement = calculatePaymentSettlement({
@@ -180,6 +181,7 @@ export class OrderService {
       this.orderWriteRepository.insertInvoice({
         id: invId,
         invoiceNumber: `INV-${orderNumber}`,
+        visibleInvoiceNumber,
         orderId,
         customerName: orderData.customerName,
         customerPhone: orderData.customerPhone,

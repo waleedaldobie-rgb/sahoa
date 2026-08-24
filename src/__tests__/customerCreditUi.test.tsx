@@ -11,6 +11,7 @@ import type { AppData, Customer, CustomerCreditRecord, Invoice } from '../types'
 
 const customer = {
   id: 'CUST-UI-1',
+  customerNumber: 1,
   name: 'عميل الاختبار',
   phone: '0500000000',
   createdAt: '2026-08-20',
@@ -64,7 +65,7 @@ const reportsData = (): AppData => ({
     measurements: {}, styleDetails: {}, createdAt: '2026-08-20T10:00:00.000Z'
   } as any],
   invoices: [{
-    id: 'INV-REPORT-UI', invoiceNumber: 'R-INV-1', orderId: 'ORD-REPORT-UI', customerName: customer.name, customerPhone: customer.phone,
+    id: 'INV-REPORT-UI', visibleInvoiceNumber: 1, customerNumber: customer.customerNumber, invoiceNumber: 'R-INV-1', orderId: 'ORD-REPORT-UI', customerName: customer.name, customerPhone: customer.phone,
     orderDate: '2026-08-20', totalAmount: 100, paidAmount: 100, remainingAmount: 0, cashReceived: 100, overpaymentAmount: 0,
     cancellationWriteoffAmount: 0, paymentStatus: 'paid', payments: [{ id: 'PAY-REPORT-UI', invoiceId: 'INV-REPORT-UI', orderId: 'ORD-REPORT-UI', amount: 100, paymentDate: '2026-08-20', method: 'cash', cashReceived: 100, overpaymentAmount: 0 }]
   } as any],
@@ -164,6 +165,26 @@ describe('Customer Credit UI', () => {
     expect(refund).toHaveBeenCalledTimes(2);
     expect(refund.mock.calls[0][0].idempotencyKey).toBe(refund.mock.calls[1][0].idempotencyKey);
     expect(container.querySelector('[data-testid="customer-credit-refund-result"]')?.textContent).toContain('نتيجة العملية السابقة');
+  });
+
+  it('searches customers by visible customer number and renders it', async () => {
+    await render(customersView([]));
+    const search = container.querySelector<HTMLInputElement>('input[aria-label*="رقم العميل"]');
+    expect(search).not.toBeNull();
+    await setInputValue(search!, '1');
+    expect(container.querySelector(`[data-testid="customer-number-${customer.id}"]`)?.textContent).toContain('#1');
+    expect(container.textContent).toContain('عميل الاختبار');
+  });
+
+  it('renders the visible invoice number independently from legacy invoiceNumber', async () => {
+    const invoice: Invoice = {
+      id: 'INV-VISIBLE-UI', visibleInvoiceNumber: 1, customerNumber: 1, invoiceNumber: 'INV-1001', orderId: 'ORD-VISIBLE-UI',
+      customerName: customer.name, customerPhone: customer.phone, orderDate: '2026-08-20', totalAmount: 100, paidAmount: 0,
+      remainingAmount: 100, paymentStatus: 'unpaid', payments: []
+    };
+    await render(<InvoicesView invoices={[invoice]} orders={[]} invoicePrintMode="detailed" onUpdateInvoiceMode={vi.fn()} onAddPayment={vi.fn()} showToast={showToast} />);
+    expect(container.textContent).toContain('INV-1');
+    expect(container.textContent).not.toContain('#INV-1001');
   });
 
   it('renders populated Customer Credit reporting as a separate section', async () => {

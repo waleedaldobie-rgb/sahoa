@@ -309,9 +309,15 @@ export default function App() {
       } else {
         if (!data) return;
         const exists = data.customers.some((c) => c.id === customer.id);
+        const customerToPersist = exists
+          ? customer
+          : {
+              ...customer,
+              customerNumber: data.customers.reduce((max, item) => Math.max(max, Number(item.customerNumber) || 0), 0) + 1
+            };
         const updatedCustomers = exists
-          ? data.customers.map((c) => (c.id === customer.id ? customer : c))
-          : [customer, ...data.customers];
+          ? data.customers.map((c) => (c.id === customer.id ? customerToPersist : c))
+          : [customerToPersist, ...data.customers];
         await persistData({ ...data, customers: updatedCustomers });
         showToast('تم حفظ بيانات العميل بنجاح', 'success');
       }
@@ -369,8 +375,10 @@ export default function App() {
         const invId = 'INV-' + order.orderNumber;
         const existingInvoice = data.invoices.find((i) => i.id === invId || i.orderId === order.id);
 
+        const nextVisibleInvoiceNumber = data.invoices.reduce((max, invoice) => Math.max(max, Number(invoice.visibleInvoiceNumber) || 0), 0) + 1;
         const newInvoice: Invoice = {
           id: existingInvoice ? existingInvoice.id : invId,
+          visibleInvoiceNumber: existingInvoice?.visibleInvoiceNumber ?? nextVisibleInvoiceNumber,
           invoiceNumber: existingInvoice ? existingInvoice.invoiceNumber : invId,
           orderId: order.id,
           customerName: order.customerName,
@@ -867,6 +875,7 @@ await executeCrud('جاري حذف الإكسسوار...', async () => {
           {prefs.activeTab === 'orders' && (
             <OrdersView
               orders={data.orders}
+              invoices={data.invoices}
               customers={data.customers}
               fabrics={data.fabrics}
               accessories={data.accessories}

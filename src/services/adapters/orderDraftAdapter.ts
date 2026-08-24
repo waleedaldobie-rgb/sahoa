@@ -137,7 +137,8 @@ export function buildInitialInvoiceDraft(
   orderId: string,
   orderNumber: string,
   totalAmount: number,
-  paidAmount: number
+  paidAmount: number,
+  visibleInvoiceNumber: number
 ) {
   const invoiceId = `INV-${orderNumber}`;
   const settlement = paidAmount > 0
@@ -163,6 +164,8 @@ export function buildInitialInvoiceDraft(
     invoice: {
       id: invoiceId,
       invoiceNumber: invoiceId,
+      visibleInvoiceNumber,
+      customerNumber: orderData.customerNumber,
       orderId,
       customerName: orderData.customerName || '',
       customerPhone: orderData.customerPhone || '',

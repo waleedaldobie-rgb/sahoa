@@ -196,7 +196,7 @@ async function main() {
   await check('BR-001', 'valid backup payload exists and invalid JSON is rejected', async () => {
     const backupJson = await call('system:backup');
     const parsed = JSON.parse(backupJson);
-    assert.equal(parsed.schemaVersion, 14);
+    assert.equal(parsed.schemaVersion, 15);
     assert.ok(Array.isArray(parsed.customerCredits));
     const invalid = await sourceManager.restoreFromJson('{invalid-json');
     assert.equal(invalid.success, false);
@@ -313,7 +313,7 @@ async function main() {
   });
 
   await check('BR-012', 'restored schema and migration state remain current', async () => {
-    assert.equal(targetManager.getSettings().schemaVersion, 14);
+    assert.equal(targetManager.getSettings().schemaVersion, 15);
     assert.ok(targetDb.pragma('table_info(customer_credits)').some((column) => column.name === 'balance_after'));
     assert.ok(targetDb.pragma('table_info(notifications)').some((column) => column.name === 'retry_history_json'));
   });

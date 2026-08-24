@@ -62,20 +62,20 @@ export class OrderWriteRepository {
   }
 
   insertInvoice(row: {
-    id: string; invoiceNumber: string; orderId: string; customerName?: string; customerPhone?: string; orderDate: string;
+    id: string; invoiceNumber: string; visibleInvoiceNumber: number; orderId: string; customerName?: string; customerPhone?: string; orderDate: string;
     totalAmount: number; paidAmount: number; remainingAmount: number;
     cashReceived?: number; overpaymentAmount?: number; cancellationWriteoffAmount?: number;
     paymentStatus: string; paymentsJson: string;
   }): void {
     this.db.prepare(`
       INSERT INTO invoices (
-        id, invoice_number, order_id, customer_name, customer_phone,
+        id, invoice_number, visible_invoice_number, order_id, customer_name, customer_phone,
         order_date, total_amount, paid_amount, remaining_amount,
         cash_received, overpayment_amount, cancellation_writeoff_amount,
         payment_status, payments_json
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
-      row.id, row.invoiceNumber, row.orderId, row.customerName, row.customerPhone, row.orderDate,
+      row.id, row.invoiceNumber, row.visibleInvoiceNumber, row.orderId, row.customerName, row.customerPhone, row.orderDate,
       row.totalAmount, row.paidAmount, row.remainingAmount, row.cashReceived || 0,
       row.overpaymentAmount || 0, row.cancellationWriteoffAmount || 0,
       row.paymentStatus, row.paymentsJson

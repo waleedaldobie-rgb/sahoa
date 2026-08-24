@@ -315,6 +315,7 @@ export function registerIpcHandlers(dbManager: SahwaDatabaseManager) {
       };
       materialsByOrder.set(row.order_id, [...(materialsByOrder.get(row.order_id) || []), usage]);
     }
+    const customerNumberById = new Map((customerRepository.list() as any[]).map((customer) => [customer.id, customer.customer_number ?? undefined]));
     return rows.map(o => {
       const materialUsages = materialsByOrder.get(o.id) || [];
       const legacyFabricCost = materialUsages.length === 0
@@ -325,6 +326,7 @@ export function registerIpcHandlers(dbManager: SahwaDatabaseManager) {
         id: o.id,
         orderNumber: o.order_number,
         customerId: o.customer_id,
+        customerNumber: customerNumberById.get(o.customer_id),
         customerName: o.customer_name,
         customerPhone: o.customer_phone,
         thobeTypeId: o.thobe_type_id,
@@ -395,8 +397,12 @@ export function registerIpcHandlers(dbManager: SahwaDatabaseManager) {
   // -------------------------------------------------------------
   safeIpcHandle(ipcMain, 'invoices:list', async () => {
     const rows = invoiceRepository.list();
+    const orderRows = orderRepository.list() as any[];
+    const customerNumberById = new Map((customerRepository.list() as any[]).map((customer) => [customer.id, customer.customer_number ?? undefined]));
     return rows.map(i => ({
       id: i.id,
+      visibleInvoiceNumber: i.visible_invoice_number ?? undefined,
+      customerNumber: customerNumberById.get(orderRows.find((order) => order.id === i.order_id)?.customer_id),
       invoiceNumber: i.invoice_number,
       orderId: i.order_id,
       customerName: i.customer_name,

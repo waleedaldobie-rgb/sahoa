@@ -435,15 +435,16 @@ export class SahwaDatabaseManager {
         db.prepare('DELETE FROM dress_types').run();
         db.prepare('DELETE FROM colors').run();
         db.prepare('DELETE FROM notifications').run();
+        db.prepare("DELETE FROM visible_number_sequences").run();
 
         // Restore Customers
         const custStmt = db.prepare(`
-          INSERT INTO customers (id, name, phone, created_at, updated_at, measurements_json, style_details_json)
-          VALUES (?, ?, ?, ?, ?, ?, ?)
+          INSERT INTO customers (id, customer_number, name, phone, created_at, updated_at, measurements_json, style_details_json)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         `);
         for (const c of (parsed.customers as Customer[])) {
           custStmt.run(
-            c.id, c.name, c.phone, c.createdAt || new Date().toISOString(),
+            c.id, c.customerNumber ?? null, c.name, c.phone, c.createdAt || new Date().toISOString(),
             null, JSON.stringify(normalizeMeasurements(c.measurements)), JSON.stringify(normalizeStyleDetails(c.styleDetails))
           );
 
@@ -537,22 +538,32 @@ export class SahwaDatabaseManager {
         if (Array.isArray(parsed.invoices)) {
           const invStmt = db.prepare(`
             INSERT INTO invoices (
-              id, invoice_number, order_id, customer_name, customer_phone,
+              id, invoice_number, visible_invoice_number, order_id, customer_name, customer_phone,
               order_date, total_amount, paid_amount, remaining_amount,
               cash_received, overpayment_amount, cancellation_writeoff_amount,
               payment_status, payments_json
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
           `);
           for (const inv of (parsed.invoices as Invoice[])) {
             const rem = inv.remainingAmount ?? Math.max(0, (inv.totalAmount || 0) - (inv.paidAmount || 0) - (inv.cancellationWriteoffAmount || 0));
             invStmt.run(
-              inv.id, inv.invoiceNumber, inv.orderId, inv.customerName, inv.customerPhone,
+              inv.id, inv.invoiceNumber, inv.visibleInvoiceNumber ?? null, inv.orderId, inv.customerName, inv.customerPhone,
               inv.orderDate, inv.totalAmount || 0, inv.paidAmount || 0, rem,
               inv.cashReceived ?? inv.paidAmount ?? 0, inv.overpaymentAmount || 0,
               inv.cancellationWriteoffAmount || 0, inv.paymentStatus || 'unpaid', JSON.stringify(inv.payments || [])
             );
           }
         }
+
+        // Rebuild visible-number allocators from restored data. Legacy backups may not contain the optional fields.
+        db.prepare(`
+          INSERT INTO visible_number_sequences (name, next_number)
+          VALUES ('customers', COALESCE((SELECT MAX(customer_number) + 1 FROM customers), 1))
+        `).run();
+        db.prepare(`
+          INSERT INTO visible_number_sequences (name, next_number)
+          VALUES ('invoices', COALESCE((SELECT MAX(visible_invoice_number) + 1 FROM invoices), 1))
+        `).run();
 
         // Restore customer credit / refund-liability audit ledger.
         if (Array.isArray(parsed.customerCredits)) {
@@ -707,7 +718,7 @@ export class SahwaDatabaseManager {
     const rawCashTransactions = db.prepare('SELECT * FROM cash_transactions').all() as any[];
     const rawOrderMaterialUsages = db.prepare('SELECT * FROM order_material_usages').all() as any[];
     const rawOrderEvents = db.prepare('SELECT * FROM order_events ORDER BY created_at DESC').all() as any[];
-    const rawCustomerCredits = db.prepare('SELECT * FROM customer_credits ORDER BY created_at ASC').all() as any[];
+    const rawCustomerCredits = db.prepare('SELECT * FROM customer_credits ORDER BY occurred_at ASC, created_at ASC, id ASC').all() as any[];
 
     const purchaseLinesMap = new Map<string, any[]>();
     for (const line of rawPurchaseLines) {
@@ -732,6 +743,7 @@ export class SahwaDatabaseManager {
 
     const customers = rawCustomers.map(c => ({
       id: c.id,
+      customerNumber: c.customer_number ?? undefined,
       name: c.name,
       phone: c.phone,
       createdAt: c.created_at,
@@ -777,10 +789,12 @@ export class SahwaDatabaseManager {
       hex: cl.hex
     }));
 
+    const customerNumberById = new Map(rawCustomers.map((customer) => [customer.id, customer.customer_number ?? undefined]));
     const orders = rawOrders.map(o => ({
       id: o.id,
       orderNumber: o.order_number,
       customerId: o.customer_id,
+      customerNumber: customerNumberById.get(o.customer_id),
       customerName: o.customer_name,
       customerPhone: o.customer_phone,
       thobeTypeId: o.thobe_type_id,
@@ -809,6 +823,8 @@ export class SahwaDatabaseManager {
 
     const invoices = rawInvoices.map(i => ({
       id: i.id,
+      visibleInvoiceNumber: i.visible_invoice_number ?? undefined,
+      customerNumber: customerNumberById.get(i.customer_id || rawOrders.find((order) => order.id === i.order_id)?.customer_id),
       invoiceNumber: i.invoice_number,
       orderId: i.order_id,
       customerName: i.customer_name,
@@ -930,8 +946,14 @@ export class SahwaDatabaseManager {
       endDate
     });
     const statusLabel = (status: string) => status === 'cancelled' ? 'ملغى' : status === 'delivered' ? 'مُسلم' : status === 'ready' ? 'جاهز' : status === 'processing' ? 'تحت التنفيذ' : 'جديد';
-    const orderRows = projection.details.map((detail, index) => ({
+    const orderRows = projection.details.map((detail, index) => {
+      const customer = (data.customers || []).find((item: any) => item.id === detail.order.customerId);
+      const invoice = (data.invoices || []).find((item: any) => item.orderId === detail.order.id);
+      const visibleInvoiceNumber = invoice?.visibleInvoiceNumber ? `INV-${invoice.visibleInvoiceNumber}` : invoice?.invoiceNumber || '';
+      return {
       'م': index + 1,
+      'رقم العميل': customer?.customerNumber || '',
+      'رقم الفاتورة': visibleInvoiceNumber,
       'رقم الطلب': detail.order.orderNumber,
       'اسم العميل': detail.order.customerName,
       'رقم الجوال': detail.order.customerPhone,
@@ -951,7 +973,8 @@ export class SahwaDatabaseManager {
       'المتبقي (ر.س)': detail.order.remainingAmount,
       'تكلفة المواد (ر.س)': detail.order.materialCost || 0,
       'الربح المعترف به (ر.س)': detail.includedInRecognizedRevenue ? Number(detail.order.totalAmount || 0) - Number(detail.order.materialCost || 0) : 0
-    }));
+      };
+    });
     const summaryRows = [
       { البيان: 'Sales booked', القيمة: projection.salesBooked },
       { البيان: 'Recognized revenue', القيمة: projection.recognizedRevenue },
@@ -1072,8 +1095,8 @@ export class SahwaDatabaseManager {
     ];
 
     const seedTx = db.transaction(() => {
-      const cStmt = db.prepare('INSERT INTO customers (id, name, phone, created_at, measurements_json, style_details_json) VALUES (?, ?, ?, ?, ?, ?)');
-      seedCustomers.forEach(c => cStmt.run(c.id, c.name, c.phone, c.createdAt, JSON.stringify(c.measurements), JSON.stringify(c.styleDetails)));
+      const cStmt = db.prepare('INSERT INTO customers (id, customer_number, name, phone, created_at, measurements_json, style_details_json) VALUES (?, ?, ?, ?, ?, ?, ?)');
+      seedCustomers.forEach((c, index) => cStmt.run(c.id, index + 1, c.name, c.phone, c.createdAt, JSON.stringify(c.measurements), JSON.stringify(c.styleDetails)));
 
       const fStmt = db.prepare('INSERT INTO fabrics (id, name, color, color_hex, purchase_price, selling_price, quantity_meters, min_stock_meters, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)');
       seedFabrics.forEach(f => fStmt.run(f.id, f.name, f.color, f.colorHex, f.purchasePrice, f.sellingPrice, f.quantityMeters, f.minStockMeters, new Date().toISOString()));

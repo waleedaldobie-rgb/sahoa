@@ -4,10 +4,10 @@ export interface DatabaseSettings {
   autoBackupIntervalHours: number; // default 1 hour
   maxBackupFiles: number; // default 14
   lastBackupTimestamp?: string;
-  schemaVersion: number; // current: 14
+  schemaVersion: number; // current: 15
 }
 
-export const CURRENT_SCHEMA_VERSION = 14;
+export const CURRENT_SCHEMA_VERSION = 15;
 
 export const CREATE_TABLES_SQL = `
 -- Enable PRAGMA FKs and WAL
@@ -23,6 +23,7 @@ CREATE TABLE IF NOT EXISTS system_settings (
 -- Customers
 CREATE TABLE IF NOT EXISTS customers (
   id TEXT PRIMARY KEY,
+  customer_number INTEGER UNIQUE CHECK (customer_number IS NULL OR customer_number >= 1),
   name TEXT NOT NULL,
   phone TEXT NOT NULL,
   created_at TEXT NOT NULL,
@@ -123,6 +124,7 @@ CREATE TABLE IF NOT EXISTS orders (
 CREATE TABLE IF NOT EXISTS invoices (
   id TEXT PRIMARY KEY,
   invoice_number TEXT NOT NULL UNIQUE,
+  visible_invoice_number INTEGER UNIQUE CHECK (visible_invoice_number IS NULL OR visible_invoice_number >= 1),
   order_id TEXT NOT NULL,
   customer_name TEXT NOT NULL,
   customer_phone TEXT NOT NULL,

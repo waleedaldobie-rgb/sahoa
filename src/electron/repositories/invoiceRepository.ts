@@ -15,6 +15,16 @@ export class InvoiceRepository {
     return this.db.prepare('SELECT * FROM invoices WHERE order_id = ?').get(orderId);
   }
 
+  nextVisibleInvoiceNumber(): number {
+    const row = this.db.prepare(`
+      INSERT INTO visible_number_sequences (name, next_number)
+      VALUES ('invoices', 2)
+      ON CONFLICT(name) DO UPDATE SET next_number = visible_number_sequences.next_number + 1
+      RETURNING next_number - 1 AS allocated
+    `).get() as { allocated: number };
+    return row.allocated;
+  }
+
   deleteByOrderId(orderId: string): void {
     this.db.prepare('DELETE FROM invoices WHERE order_id = ?').run(orderId);
   }
