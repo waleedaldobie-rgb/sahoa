@@ -140,6 +140,12 @@ CREATE TABLE IF NOT EXISTS invoices (
   FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE CASCADE
 );
 
+-- Independent visible number sequences used by customers and invoices.
+CREATE TABLE IF NOT EXISTS visible_number_sequences (
+  name TEXT PRIMARY KEY,
+  next_number INTEGER NOT NULL CHECK (next_number >= 1)
+);
+
 -- Customer credit / refund-liability audit ledger. Entries are append-only.
 CREATE TABLE IF NOT EXISTS customer_credits (
   id TEXT PRIMARY KEY,

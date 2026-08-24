@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const { DatabaseSync } = require('node:sqlite') as { DatabaseSync: new (path: string) => any };
 import { migration015 } from '../electron/migrations/015_visible_customer_invoice_numbers';
+import { CREATE_TABLES_SQL } from '../electron/schema';
 
 type MigrationDatabase = {
   exec(sql: string): void;
@@ -57,6 +58,15 @@ function createSchemaVersion14Database(): MigrationDatabase {
 }
 
 describe('visible customer and invoice numbers migration 015', () => {
+  it('creates visible number sequences in the current base schema for fresh databases', () => {
+    const db = adapt(new DatabaseSync(':memory:'));
+    db.exec(CREATE_TABLES_SQL);
+    expect(db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'visible_number_sequences'").get()).toEqual({ name: 'visible_number_sequences' });
+    expect(db.prepare('PRAGMA table_info(customers)').all().map((row: any) => row.name)).toContain('customer_number');
+    expect(db.prepare('PRAGMA table_info(invoices)').all().map((row: any) => row.name)).toContain('visible_invoice_number');
+    db.close();
+  });
+
   it('upgrades schemaVersion 14 to 15 and backfills both visible sequences in deterministic order', () => {
     const db = createSchemaVersion14Database();
     expect(db.prepare("SELECT value FROM system_settings WHERE key = 'schemaVersion'").get()).toEqual({ value: '14' });
