@@ -417,7 +417,11 @@ async function createCustomerAndOrder(pageRef, fabric) {
   await pageRef.getByTestId('save-customer-measurements').click();
   await expect(pageRef.getByRole('row', { name: /عميل Windows Acceptance/ })).toBeVisible({ timeout: 20_000 });
   await waitForData(pageRef, (data) => data.customers.some((item) => item.name === 'عميل Windows Acceptance'), 'customer data was not persisted');
-  pass('customer.measurement-create', 'created customer and saved measurements');
+  const customerData = await getDataSnapshot(pageRef);
+  const acceptanceCustomer = customerData.customers.find((item) => item.name === 'عميل Windows Acceptance');
+  assert(acceptanceCustomer, 'The acceptance customer was not returned after persistence.');
+  assert(Number.isInteger(Number(acceptanceCustomer.customerNumber)) && Number(acceptanceCustomer.customerNumber) > 0, `Invalid visible customer number: ${acceptanceCustomer.customerNumber}`);
+  pass('customer.measurement-create', `created customer #${acceptanceCustomer.customerNumber} and saved measurements`);
 
   await openTab(pageRef, 'إدارة الطلبات', 'إدارة طلبات الخياطة');
   await pageRef.getByTestId('orders-add').click();
@@ -460,7 +464,9 @@ async function verifyInvoiceAndPayment(pageRef, order) {
   assert(invoice, 'Invoice was not generated for the order.');
   assert(Number(invoice.paidAmount) === 220, `Unexpected invoice paid amount: ${invoice.paidAmount}`);
   assert(Number(invoice.remainingAmount) === 0, `Unexpected invoice remaining amount: ${invoice.remainingAmount}`);
-  pass('invoice.create', `invoice ${invoice.invoiceNumber} visible and paid`);
+  assert(Number.isInteger(Number(invoice.visibleInvoiceNumber)) && Number(invoice.visibleInvoiceNumber) > 0, `Invalid visible invoice number: ${invoice.visibleInvoiceNumber}`);
+  assert(invoice.invoiceNumber === `INV-${order.orderNumber}`, `Legacy invoice number changed unexpectedly: ${invoice.invoiceNumber}`);
+  pass('invoice.create', `invoice INV-${invoice.visibleInvoiceNumber} (legacy ${invoice.invoiceNumber}) visible and paid`);
   pass('payment.create', 'registered payment and reconciled invoice');
 }
 
