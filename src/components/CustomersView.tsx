@@ -136,7 +136,7 @@ export const CustomersView: React.FC<CustomersViewProps> = ({
     setIsFormOpen(true);
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
     const nextErrors: { name?: string; phone?: string } = {};
     if (!formData.name.trim()) nextErrors.name = 'يرجى إدخال اسم العميل بشكل صحيح';
     if (!formData.phone.trim()) nextErrors.phone = 'يرجى إدخال رقم الجوال بشكل صحيح';
@@ -166,9 +166,17 @@ export const CustomersView: React.FC<CustomersViewProps> = ({
       measurementHistory: selectedCustomer?.measurementHistory || []
     };
 
-    onSaveCustomer(newCust);
-    showToast(selectedCustomer ? 'تم حفظ المقاس الجديد مع الاحتفاظ بالمقاس السابق' : 'تم حفظ بيانات العميل بنجاح', 'success');
-    setIsFormOpen(false);
+    if (!onSaveCustomer) {
+      showToast('خدمة حفظ العملاء غير متاحة في هذه النسخة', 'danger');
+      return;
+    }
+    try {
+      await onSaveCustomer(newCust);
+      showToast(selectedCustomer ? 'تم حفظ المقاس الجديد مع الاحتفاظ بالمقاس السابق' : 'تم حفظ بيانات العميل بنجاح', 'success');
+      setIsFormOpen(false);
+    } catch {
+      // Keep the form open after a failed persistence operation so the user can retry.
+    }
   };
 
   if (isFormOpen) {

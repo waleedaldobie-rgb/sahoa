@@ -289,14 +289,14 @@ export default function App() {
 
 // DATA UPDATERS
   // 1. Customers
-  const handleSaveCustomer = async (customer: Customer) => {
+  const handleSaveCustomer = async (customer: Customer): Promise<boolean> => {
     const err = validateEntity('customer', customer);
     if (err) {
       showToast(err, 'danger');
-      return;
+      return false;
     }
 
-    await executeCrud('جاري حفظ بيانات العميل...', async () => {
+    const result = await executeCrud('جاري حفظ بيانات العميل...', async () => {
       if (window.electronAPI.createCustomer && window.electronAPI.updateCustomer) {
         const exists = data?.customers.some((c) => c.id === customer.id);
         if (exists) {
@@ -306,6 +306,7 @@ export default function App() {
         }
         await loadAppData();
         showToast('تم حفظ بيانات العميل بنجاح', 'success');
+        return true;
       } else {
         if (!data) return;
         const exists = data.customers.some((c) => c.id === customer.id);
@@ -320,8 +321,10 @@ export default function App() {
           : [customerToPersist, ...data.customers];
         await persistData({ ...data, customers: updatedCustomers });
         showToast('تم حفظ بيانات العميل بنجاح', 'success');
+        return true;
       }
     });
+    return result === true;
   };
 
   const handleDeleteCustomer = async (customerId: string) => {
