@@ -149,6 +149,7 @@ export interface EmptyStateProps {
   title: string;
   description?: string;
   action?: React.ReactNode;
+  compact?: boolean;
   className?: string;
 }
 
@@ -157,16 +158,17 @@ export const EmptyState: React.FC<EmptyStateProps> = ({
   title,
   description,
   action,
+  compact = false,
   className = ''
 }) => {
   return (
-    <div className={`flex flex-col items-center justify-center text-center p-12 bg-[#F9FAFB] border-2 border-dashed border-[#E5E7EB] rounded-3xl my-6 ${className}`}>
-      <div className="w-16 h-16 rounded-2xl bg-white border border-[#E5E7EB] text-[#111111] flex items-center justify-center mb-5 shadow-sm">
+    <div className={`sahwa-empty-state ${compact ? 'sahwa-empty-state--compact' : ''} ${className}`} role="status" aria-live="polite">
+      <div className="sahwa-empty-state-icon">
         {icon}
       </div>
-      <h4 className="text-base font-black text-[#111111] mb-2">{title}</h4>
-      {description && <p className="text-sm text-[#374151] max-w-sm mb-6 leading-relaxed font-black">{description}</p>}
-      {action && <div className="mt-2">{action}</div>}
+      <h4 className="sahwa-empty-state-title">{title}</h4>
+      {description && <p className="sahwa-empty-state-description">{description}</p>}
+      {action && <div className="sahwa-empty-state-action">{action}</div>}
     </div>
   );
 };

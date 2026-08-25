@@ -480,8 +480,9 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ data, dataRevision, sh
         </div>
 
         {filteredOrders.length === 0 ? (
-          <div className="p-12">
+          <div className="p-4">
             <EmptyState
+              compact
               icon={<BarChart3 className="w-8 h-8 text-slate-400" />}
               title="لا توجد بيانات للفترة المحددة"
               description="يرجى تغيير نطاق التاريخ أو اختيار فترة مختلفة لعرض الإحصائيات."

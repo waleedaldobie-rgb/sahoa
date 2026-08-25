@@ -282,7 +282,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
               </thead>
                 <tbody>
                 {fabrics.length === 0 ? (
-                  <tr><td colSpan={6}><EmptyState icon={<Layers className="w-7 h-7" />} title="لا توجد أقمشة بعد" description="أضف أول قماش لتبدأ متابعة الأسعار والكميات وحالة المخزون." action={<Button size="sm" variant="primary" onClick={handleOpenAddFabric} icon={<Plus className="w-4 h-4" />}>إضافة قماش</Button>} className="my-4" /></td></tr>
+                  <tr><td colSpan={6}><EmptyState compact icon={<Layers className="w-7 h-7" />} title="لا توجد أقمشة بعد" description="أضف أول قماش لتبدأ متابعة الأسعار والكميات وحالة المخزون." action={<Button size="sm" variant="primary" onClick={handleOpenAddFabric} icon={<Plus className="w-4 h-4" />}>إضافة قماش</Button>} className="my-4" /></td></tr>
                 ) : sortedFabrics.map((fab) => {
                   const isLowStock = fab.quantityMeters <= fab.minStockMeters;
                   return (
@@ -328,7 +328,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
               </thead>
                 <tbody>
                 {accessories.length === 0 ? (
-                  <tr><td colSpan={5}><EmptyState icon={<Package className="w-7 h-7" />} title="لا توجد إكسسوارات بعد" description="أضف أول إكسسوار لتسجيل الكميات والحد الأدنى للمخزون." action={<Button size="sm" variant="primary" onClick={handleOpenAddAccessory} icon={<Plus className="w-4 h-4" />}>إضافة إكسسوار</Button>} className="my-4" /></td></tr>
+                  <tr><td colSpan={5}><EmptyState compact icon={<Package className="w-7 h-7" />} title="لا توجد إكسسوارات بعد" description="أضف أول إكسسوار لتسجيل الكميات والحد الأدنى للمخزون." action={<Button size="sm" variant="primary" onClick={handleOpenAddAccessory} icon={<Plus className="w-4 h-4" />}>إضافة إكسسوار</Button>} className="my-4" /></td></tr>
                 ) : sortedAccessories.map((acc) => {
                   const isLowStock = acc.quantity <= acc.minStock;
                   return (
@@ -362,7 +362,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
           <Card title="موديلات الثياب" headerIcon={<Scissors className="w-5 h-5" />}>
              <div className="space-y-4">
-                {thobeTypes.length === 0 && <EmptyState icon={<Scissors className="w-7 h-7" />} title="لا توجد موديلات بعد" description="أضف موديل الثوب الأول لتظهر خياراته في الطلبات." className="my-0" />}
+                {thobeTypes.length === 0 && <EmptyState compact icon={<Scissors className="w-7 h-7" />} title="لا توجد موديلات بعد" description="أضف موديل الثوب الأول لتظهر خياراته في الطلبات." className="my-0" />}
                 {thobeTypes.map(t => (
                   <div key={t.id} className="flex items-center justify-between p-4 bg-[#F9FAFB] rounded-xl border border-[#E5E7EB]">
                     <div className="flex-1">
@@ -384,7 +384,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
 
           <Card title="الألوان المتاحة" headerIcon={<Palette className="w-5 h-5" />}>
              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                {colors.length === 0 && <div className="sm:col-span-2"><EmptyState icon={<Palette className="w-7 h-7" />} title="لا توجد ألوان بعد" description="أضف لونًا لتسهيل اختيار القماش في الطلبات." className="my-0" /></div>}
+                {colors.length === 0 && <div className="sm:col-span-2"><EmptyState compact icon={<Palette className="w-7 h-7" />} title="لا توجد ألوان بعد" description="أضف لونًا لتسهيل اختيار القماش في الطلبات." className="my-0" /></div>}
                 {colors.map(c => (
                   <div key={c.id} className="flex items-center justify-between p-3 bg-[#F9FAFB] rounded-xl border border-[#E5E7EB]">
                     <div className="flex items-center gap-3">

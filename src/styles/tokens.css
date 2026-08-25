@@ -417,6 +417,64 @@
     }
   }
 
+  .sahwa-empty-state {
+    align-items: center;
+    background: var(--color-surface-soft-token);
+    border: 1px dashed var(--color-border-token);
+    border-radius: var(--radius-card-token);
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    margin-block: 1rem;
+    padding: 2rem 1.5rem;
+    text-align: center;
+  }
+
+  .sahwa-empty-state--compact {
+    margin-block: 0.5rem;
+    padding: 1.25rem 1rem;
+  }
+
+  .sahwa-empty-state-icon {
+    align-items: center;
+    background: var(--color-surface-token);
+    border: 1px solid var(--color-border-token);
+    border-radius: var(--radius-control-token);
+    color: var(--brand-brass-dark);
+    display: flex;
+    height: 3.25rem;
+    justify-content: center;
+    margin-bottom: 0.875rem;
+    width: 3.25rem;
+  }
+
+  .sahwa-empty-state--compact .sahwa-empty-state-icon {
+    height: 2.75rem;
+    margin-bottom: 0.625rem;
+    width: 2.75rem;
+  }
+
+  .sahwa-empty-state-title {
+    color: var(--color-text-token);
+    font-size: 0.9375rem;
+    font-weight: 800;
+    line-height: 1.5;
+    margin: 0;
+  }
+
+  .sahwa-empty-state-description {
+    color: var(--color-text-muted-token);
+    font-size: 0.8125rem;
+    font-weight: 500;
+    line-height: 1.7;
+    margin: 0.375rem auto 0;
+    max-width: 30rem;
+  }
+
+  .sahwa-empty-state-action {
+    margin-top: 0.875rem;
+  }
+
   /* One readable table language for both premium-table and sahwa-table markup. */
   .sahwa-sort-header {
     align-items: center;

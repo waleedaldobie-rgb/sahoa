@@ -176,6 +176,7 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
       <Card className="p-0 overflow-hidden">
         {filteredInvoices.length === 0 ? (
           <EmptyState
+            compact
             icon={<Receipt className="w-8 h-8" />}
             title={searchTerm.trim() ? 'لا توجد فواتير مطابقة لبحثك' : 'لا توجد فواتير بعد'}
             description={searchTerm.trim() ? 'جرّب رقم فاتورة أو اسم عميل مختلفًا، أو امسح البحث.' : 'ستظهر الفواتير هنا تلقائيًا عند تسجيل طلبات جديدة للعملاء.'}

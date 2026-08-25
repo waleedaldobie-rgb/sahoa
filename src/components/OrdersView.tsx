@@ -641,6 +641,7 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
       <Card className="p-0 overflow-hidden">
         {filteredOrders.length === 0 ? (
           <EmptyState
+            compact
             icon={<Scissors className="w-8 h-8" />}
             title="لا توجد طلبات مطابقة"
             description="يمكنك تغيير خيارات البحث أو إضافة طلب جديد للبدء."
