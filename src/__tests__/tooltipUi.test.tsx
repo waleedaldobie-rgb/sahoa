@@ -39,6 +39,7 @@ describe('Tooltip UI', () => {
     expect(wrapper).not.toBeNull();
     expect(tooltip?.textContent).toBe('طباعة الطلب ORD-1');
     expect(button?.getAttribute('aria-label')).toBe('طباعة الطلب ORD-1');
+    expect(button?.getAttribute('aria-describedby')).toBe(tooltip?.getAttribute('id'));
   });
 
   it('keeps tooltip content non-interactive and preserves the wrapped action', async () => {

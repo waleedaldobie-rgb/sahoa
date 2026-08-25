@@ -554,8 +554,9 @@
     font-weight: 700;
     left: 50%;
     line-height: 1.4;
-    max-width: 16rem;
+    max-width: min(16rem, calc(100vw - 2rem));
     opacity: 0;
+    overflow-wrap: anywhere;
     padding: 0.4375rem 0.625rem;
     pointer-events: none;
     position: absolute;
@@ -563,7 +564,7 @@
     transform: translate(-50%, 0.25rem);
     transition: opacity 140ms ease, transform 140ms ease, visibility 140ms ease;
     visibility: hidden;
-    white-space: nowrap;
+    white-space: normal;
     width: max-content;
     z-index: 60;
   }

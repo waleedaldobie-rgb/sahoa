@@ -515,9 +515,9 @@ export const CustomersView: React.FC<CustomersViewProps> = ({
                       <span className="rounded-lg bg-slate-100 px-2.5 py-1 font-mono text-xs font-black text-slate-700">{cust.customerNumber ? `#${cust.customerNumber}` : '—'}</span>
                     </td>
                     <td>
-                      <div className="font-black text-[#111111] text-sm">{cust.name}</div>
+                      <div title={cust.name} className="font-black text-[#111111] text-sm">{cust.name}</div>
                     </td>
-                    <td className="font-black font-mono text-[#4B5563]">{cust.phone}</td>
+                    <td title={cust.phone} className="font-black font-mono text-[#4B5563]">{cust.phone}</td>
                     <td className="text-center font-black text-[#111111]">
                       {cust.measurements.frontLength ? (
                         <span className="bg-[#F3F4F6] px-2 py-1 rounded text-xs font-mono">{cust.measurements.frontLength}"</span>
@@ -528,7 +528,7 @@ export const CustomersView: React.FC<CustomersViewProps> = ({
                         <span className="bg-[#F3F4F6] px-2 py-1 rounded text-xs font-mono">{cust.measurements.shoulderWidth}"</span>
                       ) : '--'}
                     </td>
-                    <td className="text-center font-bold text-[#6B7280]">
+                    <td title={cust.styleDetails.neckType || undefined} className="text-center font-bold text-[#6B7280]">
                       {cust.styleDetails.neckType || '--'}
                     </td>
                     <td className="text-center text-[#9CA3AF] font-mono text-[11px] font-bold">{cust.createdAt}</td>

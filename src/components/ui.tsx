@@ -61,10 +61,17 @@ export interface TooltipProps {
 }
 
 export const Tooltip: React.FC<TooltipProps> = ({ content, children }) => {
+  const tooltipId = React.useId();
+  const trigger = React.isValidElement(children)
+    ? React.cloneElement(children as React.ReactElement<{ 'aria-describedby'?: string }>, {
+        'aria-describedby': [children.props['aria-describedby'], tooltipId].filter(Boolean).join(' ')
+      })
+    : children;
+
   return (
     <span className="sahwa-tooltip">
-      {children}
-      <span className="sahwa-tooltip-content" role="tooltip">
+      {trigger}
+      <span id={tooltipId} className="sahwa-tooltip-content" role="tooltip">
         {content}
       </span>
     </span>

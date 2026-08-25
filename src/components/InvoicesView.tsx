@@ -200,14 +200,14 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
                 {sortedInvoices.map((inv) => (
                   <tr key={inv.id}>
                     <td className="text-center">
-                      <span className="font-black text-[#111111] bg-[#F3F4F6] px-2.5 py-1 rounded-lg text-xs">#{displayInvoiceNumber(inv)}</span>
+                      <span title={displayInvoiceNumber(inv)} className="font-black text-[#111111] bg-[#F3F4F6] px-2.5 py-1 rounded-lg text-xs">#{displayInvoiceNumber(inv)}</span>
                     </td>
                     <td className="text-center">
                       <span className="font-mono text-xs font-black text-slate-600">{inv.customerNumber ? `#${inv.customerNumber}` : '—'}</span>
                     </td>
                     <td>
-                      <div className="font-black text-[#111111]">{inv.customerName}</div>
-                      <div className="text-[10px] text-[#9CA3AF] font-mono font-bold mt-0.5">{inv.customerPhone}</div>
+                      <div title={inv.customerName} className="font-black text-[#111111]">{inv.customerName}</div>
+                      <div title={inv.customerPhone} className="text-[10px] text-[#9CA3AF] font-mono font-bold mt-0.5">{inv.customerPhone}</div>
                     </td>
                     <td className="text-[#4B5563] font-bold font-mono">{inv.orderDate}</td>
                     <td className="text-center font-black text-[#111111] font-mono">{inv.totalAmount} ر.س</td>

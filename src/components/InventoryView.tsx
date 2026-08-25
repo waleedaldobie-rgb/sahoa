@@ -287,8 +287,8 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
                   const isLowStock = fab.quantityMeters <= fab.minStockMeters;
                   return (
                     <tr key={fab.id}>
-                      <td className="font-black text-[#111111]">{fab.name}</td>
-                      <td className="font-bold text-[#4B5563]">{fab.color}</td>
+                      <td title={fab.name} className="font-black text-[#111111]">{fab.name}</td>
+                      <td title={fab.color} className="font-bold text-[#4B5563]">{fab.color}</td>
                       <td className="text-center font-black text-emerald-600 font-mono">{fab.sellingPrice} ر.س</td>
                       <td className="text-center font-black font-mono">
                         <span className={isLowStock ? 'text-rose-600' : 'text-[#111111]'}>{fab.quantityMeters} متر</span>
@@ -333,8 +333,8 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
                   const isLowStock = acc.quantity <= acc.minStock;
                   return (
                     <tr key={acc.id}>
-                      <td className="font-black text-[#111111]">{acc.name}</td>
-                      <td className="font-bold text-[#4B5563]">{acc.category}</td>
+                      <td title={acc.name} className="font-black text-[#111111]">{acc.name}</td>
+                      <td title={acc.category} className="font-bold text-[#4B5563]">{acc.category}</td>
                       <td className="text-center font-black font-mono">
                         <span className={isLowStock ? 'text-rose-600' : 'text-[#111111]'}>{acc.quantity} {acc.unit}</span>
                       </td>
@@ -366,8 +366,8 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
                 {thobeTypes.map(t => (
                   <div key={t.id} className="flex items-center justify-between p-4 bg-[#F9FAFB] rounded-xl border border-[#E5E7EB]">
                     <div className="flex-1">
-                      <div className="font-black text-[#111111]">{t.name}</div>
-                      <div className="text-[10px] text-[#6B7280] font-bold">{t.description || 'لا يوجد وصف'}</div>
+                      <div title={t.name} className="font-black text-[#111111]">{t.name}</div>
+                      <div title={t.description || 'لا يوجد وصف'} className="text-[10px] text-[#6B7280] font-bold">{t.description || 'لا يوجد وصف'}</div>
                     </div>
                     <div className="flex items-center gap-4">
                       <div className="text-sm font-black font-mono text-emerald-600">{t.defaultPrice} ر.س</div>
@@ -389,7 +389,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
                   <div key={c.id} className="flex items-center justify-between p-3 bg-[#F9FAFB] rounded-xl border border-[#E5E7EB]">
                     <div className="flex items-center gap-3">
                       <div className="w-6 h-6 rounded-full border border-[#E5E7EB] shadow-sm" style={{ backgroundColor: c.hex }}></div>
-                      <span className="text-xs font-black text-[#111111]">{c.name}</span>
+                      <span title={c.name} className="text-xs font-black text-[#111111]">{c.name}</span>
                     </div>
                     <div className="flex gap-1">
                       <button type="button" title={`تعديل لون ${c.name}`} aria-label={`تعديل لون ${c.name}`} onClick={() => handleOpenEditColor(c)} className="p-1.5 text-slate-400 hover:text-amber-600 hover:bg-amber-50 rounded-lg transition-colors"><Edit2 className="w-3.5 h-3.5" /></button>
@@ -422,7 +422,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
             </div>
           </Card>
           <Card title="سجل حركة كل صنف" subtitle="شراء، صرف للطلبات، إرجاع وتسويات مع الرصيد قبل وبعد الحركة" headerIcon={<ClipboardList className="w-5 h-5" />}>
-            <div className="overflow-x-auto"><table className="premium-table"><caption className="sr-only">سجل حركة المخزون</caption><thead><tr><th aria-sort={movementSort.key === 'createdAt' ? movementSort.direction === 'asc' ? 'ascending' : 'descending' : 'none'}><SortHeader label="التاريخ والوقت" active={movementSort.key === 'createdAt'} direction={movementSort.direction} onClick={() => toggleMovementSort('createdAt')} /></th><th aria-sort={movementSort.key === 'itemName' ? movementSort.direction === 'asc' ? 'ascending' : 'descending' : 'none'}><SortHeader label="الصنف" active={movementSort.key === 'itemName'} direction={movementSort.direction} onClick={() => toggleMovementSort('itemName')} /></th><th>الحركة</th><th aria-sort={movementSort.key === 'quantity' ? movementSort.direction === 'asc' ? 'ascending' : 'descending' : 'none'}><SortHeader label="الكمية" active={movementSort.key === 'quantity'} direction={movementSort.direction} onClick={() => toggleMovementSort('quantity')} align="center" /></th><th>قبل</th><th aria-sort={movementSort.key === 'quantityAfter' ? movementSort.direction === 'asc' ? 'ascending' : 'descending' : 'none'}><SortHeader label="بعد" active={movementSort.key === 'quantityAfter'} direction={movementSort.direction} onClick={() => toggleMovementSort('quantityAfter')} align="center" /></th><th>السبب</th><th>المرجع</th></tr></thead><tbody>{stockMovements.length === 0 ? <tr><td colSpan={8} className="p-10 text-center text-slate-400 font-bold"><div className="space-y-2"><ClipboardList className="w-8 h-8 mx-auto text-slate-300" /><p>لا توجد حركات مخزون بعد</p><p className="text-xs font-medium">ستظهر هنا عمليات الشراء والصرف والإرجاع والتسوية.</p></div></td></tr> : sortedMovements.map((movement) => <tr key={movement.id}><td className="text-xs font-bold">{new Date(movement.createdAt).toLocaleString('ar-SA')}</td><td className="font-black">{movement.itemName}</td><td><Badge variant={movement.direction === 'purchase' || movement.direction === 'return' ? 'emerald' : movement.direction === 'sale' ? 'red' : 'slate'}>{movement.direction === 'purchase' ? 'شراء' : movement.direction === 'sale' ? 'صرف طلب' : movement.direction === 'return' ? 'إرجاع' : 'تسوية'}</Badge></td><td className="font-black">{movement.quantity} {movement.unit}</td><td>{movement.quantityBefore}</td><td className="font-black">{movement.quantityAfter}</td><td>{movement.reason}</td><td className="text-xs">{movement.referenceNumber || movement.referenceId || '—'}</td></tr>)}</tbody></table></div>
+            <div className="overflow-x-auto"><table className="premium-table"><caption className="sr-only">سجل حركة المخزون</caption><thead><tr><th aria-sort={movementSort.key === 'createdAt' ? movementSort.direction === 'asc' ? 'ascending' : 'descending' : 'none'}><SortHeader label="التاريخ والوقت" active={movementSort.key === 'createdAt'} direction={movementSort.direction} onClick={() => toggleMovementSort('createdAt')} /></th><th aria-sort={movementSort.key === 'itemName' ? movementSort.direction === 'asc' ? 'ascending' : 'descending' : 'none'}><SortHeader label="الصنف" active={movementSort.key === 'itemName'} direction={movementSort.direction} onClick={() => toggleMovementSort('itemName')} /></th><th>الحركة</th><th aria-sort={movementSort.key === 'quantity' ? movementSort.direction === 'asc' ? 'ascending' : 'descending' : 'none'}><SortHeader label="الكمية" active={movementSort.key === 'quantity'} direction={movementSort.direction} onClick={() => toggleMovementSort('quantity')} align="center" /></th><th>قبل</th><th aria-sort={movementSort.key === 'quantityAfter' ? movementSort.direction === 'asc' ? 'ascending' : 'descending' : 'none'}><SortHeader label="بعد" active={movementSort.key === 'quantityAfter'} direction={movementSort.direction} onClick={() => toggleMovementSort('quantityAfter')} align="center" /></th><th>السبب</th><th>المرجع</th></tr></thead><tbody>{stockMovements.length === 0 ? <tr><td colSpan={8} className="p-10 text-center text-slate-400 font-bold"><div className="space-y-2"><ClipboardList className="w-8 h-8 mx-auto text-slate-300" /><p>لا توجد حركات مخزون بعد</p><p className="text-xs font-medium">ستظهر هنا عمليات الشراء والصرف والإرجاع والتسوية.</p></div></td></tr> : sortedMovements.map((movement) => <tr key={movement.id}><td className="text-xs font-bold">{new Date(movement.createdAt).toLocaleString('ar-SA')}</td><td title={movement.itemName} className="font-black">{movement.itemName}</td><td><Badge variant={movement.direction === 'purchase' || movement.direction === 'return' ? 'emerald' : movement.direction === 'sale' ? 'red' : 'slate'}>{movement.direction === 'purchase' ? 'شراء' : movement.direction === 'sale' ? 'صرف طلب' : movement.direction === 'return' ? 'إرجاع' : 'تسوية'}</Badge></td><td className="font-black">{movement.quantity} {movement.unit}</td><td>{movement.quantityBefore}</td><td className="font-black">{movement.quantityAfter}</td><td title={movement.reason}>{movement.reason}</td><td title={movement.referenceNumber || movement.referenceId || undefined} className="text-xs">{movement.referenceNumber || movement.referenceId || '—'}</td></tr>)}</tbody></table></div>
           </Card>
         </div>
       )}

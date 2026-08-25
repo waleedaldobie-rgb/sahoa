@@ -153,6 +153,34 @@ describe('Table sorting UI', () => {
     expect(container.querySelector('details.sahwa-actions-menu')).toBeNull();
   });
 
+  it('preserves long order values and visible row actions with accessible tooltips', async () => {
+    const longName = 'عميل تجريبي باسم طويل جداً لاختبار عدم قص النصوص داخل جداول سطح المكتب';
+    const longType = 'ثوب سعودي كلاسيك فاخر بتفاصيل يدوية وإضافات متعددة لاختبار عرض الخلية';
+    await render(
+      <OrdersView
+        orders={[{ id: 'ORD-LONG', orderNumber: 'VISUAL-P1-9-LONG-ORDER', customerName: longName, customerPhone: '050123456789012345', deliveryDate: '2026-08-20', totalAmount: 350, paidAmount: 0, remainingAmount: 350, status: 'new', thobeTypeName: longType, fabricName: 'بدون قماش طويل', fabricColor: 'أبيض' } as any]}
+        customers={[]}
+        fabrics={[]}
+        accessories={[]}
+        thobeTypes={[]}
+        onSaveOrder={vi.fn()}
+        onUpdateOrderStatus={vi.fn()}
+        onSendWhatsAppNotice={vi.fn()}
+        showToast={showToast}
+      />
+    );
+
+    expect(container.querySelector(`[title="${longName}"]`)).not.toBeNull();
+    expect(container.querySelector(`[title="${longType}"]`)).not.toBeNull();
+    const whatsapp = container.querySelector<HTMLButtonElement>('button[aria-label="إرسال رسالة واتساب للطلب VISUAL-P1-9-LONG-ORDER"]');
+    const print = container.querySelector<HTMLButtonElement>('button[aria-label="طباعة الطلب VISUAL-P1-9-LONG-ORDER"]');
+    expect(whatsapp).not.toBeNull();
+    expect(print).not.toBeNull();
+    expect(whatsapp?.getAttribute('aria-describedby')).toBeTruthy();
+    expect(print?.getAttribute('aria-describedby')).toBeTruthy();
+    expect(container.querySelector('details.sahwa-actions-menu')).toBeNull();
+  });
+
   it('sorts fabrics by stock quantity when the inventory header is clicked', async () => {
     const fabrics: FabricItem[] = [
       { id: 'FAB-20', name: 'قماش ب', color: 'أبيض', purchasePrice: 40, sellingPrice: 100, quantityMeters: 20, minStockMeters: 5 },

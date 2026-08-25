@@ -669,15 +669,15 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
                 {sortedOrders.map((ord) => (
                   <tr key={ord.id} className="group">
                     <td className="text-center">
-                      <span className="font-black text-[#111111] bg-[#F3F4F6] px-2.5 py-1 rounded-lg text-xs">#{ord.orderNumber}</span>
+                      <span title={ord.orderNumber} className="font-black text-[#111111] bg-[#F3F4F6] px-2.5 py-1 rounded-lg text-xs">#{ord.orderNumber}</span>
                     </td>
                     <td>
-                      <div className="font-black text-[#111111]">{ord.customerName}</div>
-                      <div className="text-[10px] text-[#9CA3AF] font-mono font-bold mt-0.5">{ord.customerPhone}</div>
+                      <div title={ord.customerName} className="font-black text-[#111111]">{ord.customerName}</div>
+                      <div title={ord.customerPhone} className="text-[10px] text-[#9CA3AF] font-mono font-bold mt-0.5">{ord.customerPhone}</div>
                     </td>
                     <td>
-                      <div className="text-xs font-black text-[#111111]">{ord.thobeTypeName}</div>
-                      <div className="text-[10px] text-[#6B7280] font-bold mt-0.5">{ord.fabricName} ({ord.fabricColor})</div>
+                      <div title={ord.thobeTypeName} className="text-xs font-black text-[#111111]">{ord.thobeTypeName}</div>
+                      <div title={`${ord.fabricName} (${ord.fabricColor})`} className="text-[10px] text-[#6B7280] font-bold mt-0.5">{ord.fabricName} ({ord.fabricColor})</div>
                     </td>
                     <td>
                       <div className="flex items-center gap-1.5 text-rose-600 font-black text-xs font-mono">

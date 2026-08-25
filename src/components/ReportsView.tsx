@@ -504,11 +504,11 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ data, dataRevision, sh
               <tbody className="divide-y divide-slate-100">
                 {filteredOrders.map((ord) => (
                   <tr key={ord.id} className="hover:bg-[#F0F0EE]/50 transition-colors">
-                    <td className="p-3.5 text-center font-black text-slate-900 font-mono">#{ord.orderNumber}</td>
-                    <td className="p-3.5 font-extrabold text-slate-900">{ord.customerName}</td>
+                    <td title={ord.orderNumber} className="p-3.5 text-center font-black text-slate-900 font-mono">#{ord.orderNumber}</td>
+                    <td title={ord.customerName} className="p-3.5 font-extrabold text-slate-900">{ord.customerName}</td>
                     <td className="p-3.5 text-slate-600 font-medium">
-                      <div>{ord.thobeTypeName}</div>
-                      <div className="text-[11px] text-slate-400">{ord.fabricName}</div>
+                      <div title={ord.thobeTypeName}>{ord.thobeTypeName}</div>
+                      <div title={ord.fabricName} className="text-[11px] text-slate-400">{ord.fabricName}</div>
                     </td>
                     <td className="p-3.5 text-slate-600 font-mono">{ord.orderDate}</td>
                     <td className="p-3.5 text-slate-600 font-mono">{ord.deliveryDate}</td>
