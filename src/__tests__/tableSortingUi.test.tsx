@@ -132,6 +132,27 @@ describe('Table sorting UI', () => {
     expect(rowTexts()[0]).toContain('#ORD-10');
   });
 
+  it('keeps all order row actions visible without a secondary menu', async () => {
+    await render(
+      <OrdersView
+        orders={[{ id: 'ORD-1', orderNumber: 'ORD-1', customerName: 'عميل', customerPhone: '0500000001', deliveryDate: '2026-08-20', totalAmount: 100, paidAmount: 0, remainingAmount: 100, status: 'new' } as any]}
+        customers={[]}
+        fabrics={[]}
+        accessories={[]}
+        thobeTypes={[]}
+        onSaveOrder={vi.fn()}
+        onUpdateOrderStatus={vi.fn()}
+        onSendWhatsAppNotice={vi.fn()}
+        showToast={showToast}
+      />
+    );
+
+    expect(Array.from(container.querySelectorAll('button')).find((button) => button.textContent?.trim() === 'عرض')).not.toBeUndefined();
+    expect(container.querySelector('button[aria-label="إرسال رسالة واتساب للطلب ORD-1"]')).not.toBeNull();
+    expect(container.querySelector('button[aria-label="طباعة الطلب ORD-1"]')).not.toBeNull();
+    expect(container.querySelector('details.sahwa-actions-menu')).toBeNull();
+  });
+
   it('sorts fabrics by stock quantity when the inventory header is clicked', async () => {
     const fabrics: FabricItem[] = [
       { id: 'FAB-20', name: 'قماش ب', color: 'أبيض', purchasePrice: 40, sellingPrice: 100, quantityMeters: 20, minStockMeters: 5 },
