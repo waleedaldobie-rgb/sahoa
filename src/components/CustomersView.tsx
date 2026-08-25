@@ -3,7 +3,7 @@ import { Customer, CustomerCreditOperationResult, CustomerCreditRecord, Customer
 import { calculateCustomerCreditBalance } from '../domain/customerCreditRules';
 import { createSafeId } from '../domain/idGenerator';
 import { EMPTY_MEASUREMENTS, EMPTY_STYLE_DETAILS } from '../services/shared/measurementDefaults';
-import { Card, Button, Input, EmptyState } from './ui';
+import { Card, Button, Input, EmptyState, SortHeader, SortDirection } from './ui';
 import { ConfirmModal } from './ConfirmModal';
 import { MeasurementsTableForm } from './MeasurementsTableForm';
 import { CustomerCreditRefundModal } from './CustomerCreditRefundModal';
@@ -44,6 +44,7 @@ export const CustomersView: React.FC<CustomersViewProps> = ({
   showToast
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
+  const [customerSort, setCustomerSort] = useState<{ key: 'customerNumber' | 'name' | 'createdAt' | 'creditBalance'; direction: SortDirection }>({ key: 'customerNumber', direction: 'asc' });
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
@@ -81,6 +82,23 @@ export const CustomersView: React.FC<CustomersViewProps> = ({
     try { return calculateCustomerCreditBalance(creditEntriesFor(customerId)); }
     catch { return 0; }
   };
+  const toggleCustomerSort = (key: typeof customerSort.key) => {
+    setCustomerSort((current) => current.key === key ? { key, direction: current.direction === 'asc' ? 'desc' : 'asc' } : { key, direction: 'asc' });
+  };
+  const sortedCustomers = [...filteredCustomers].sort((a, b) => {
+    let comparison = 0;
+    if (customerSort.key === 'customerNumber') {
+      comparison = (a.customerNumber ?? Number.MAX_SAFE_INTEGER) - (b.customerNumber ?? Number.MAX_SAFE_INTEGER);
+    } else if (customerSort.key === 'creditBalance') {
+      comparison = creditBalanceFor(a.id) - creditBalanceFor(b.id);
+    } else if (customerSort.key === 'createdAt') {
+      comparison = new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+    } else {
+      comparison = a.name.localeCompare(b.name, 'ar');
+    }
+    if (comparison === 0) comparison = a.id.localeCompare(b.id);
+    return customerSort.direction === 'asc' ? comparison : -comparison;
+  });
   const handleCustomerCreditSuccess = async (_result: CustomerCreditOperationResult) => {
     await onCustomerCreditChanged?.();
   };
@@ -479,19 +497,19 @@ export const CustomersView: React.FC<CustomersViewProps> = ({
             <table className="premium-table">
               <thead>
                 <tr>
-                  <th>رقم العميل</th>
-                  <th>اسم العميل</th>
+                  <th aria-sort={customerSort.key === 'customerNumber' ? customerSort.direction === 'asc' ? 'ascending' : 'descending' : 'none'}><SortHeader label="رقم العميل" active={customerSort.key === 'customerNumber'} direction={customerSort.direction} onClick={() => toggleCustomerSort('customerNumber')} align="center" /></th>
+                  <th aria-sort={customerSort.key === 'name' ? customerSort.direction === 'asc' ? 'ascending' : 'descending' : 'none'}><SortHeader label="اسم العميل" active={customerSort.key === 'name'} direction={customerSort.direction} onClick={() => toggleCustomerSort('name')} /></th>
                   <th>رقم الجوال</th>
                   <th className="text-center">الطول الأمامي</th>
                   <th className="text-center">عرض الكتف</th>
                   <th className="text-center">نوع الرقبة</th>
-                  <th className="text-center">تاريخ التسجيل</th>
-                  <th className="text-center">رصيد العميل</th>
+                  <th className="text-center" aria-sort={customerSort.key === 'createdAt' ? customerSort.direction === 'asc' ? 'ascending' : 'descending' : 'none'}><SortHeader label="تاريخ التسجيل" active={customerSort.key === 'createdAt'} direction={customerSort.direction} onClick={() => toggleCustomerSort('createdAt')} align="center" /></th>
+                  <th className="text-center" aria-sort={customerSort.key === 'creditBalance' ? customerSort.direction === 'asc' ? 'ascending' : 'descending' : 'none'}><SortHeader label="رصيد العميل" active={customerSort.key === 'creditBalance'} direction={customerSort.direction} onClick={() => toggleCustomerSort('creditBalance')} align="center" /></th>
                   <th className="text-center">الإجراءات</th>
                 </tr>
               </thead>
               <tbody>
-                {filteredCustomers.map((cust) => (
+                {sortedCustomers.map((cust) => (
                   <tr key={cust.id}>
                     <td className="text-center" data-testid={`customer-number-${cust.id}`}>
                       <span className="rounded-lg bg-slate-100 px-2.5 py-1 font-mono text-xs font-black text-slate-700">{cust.customerNumber ? `#${cust.customerNumber}` : '—'}</span>

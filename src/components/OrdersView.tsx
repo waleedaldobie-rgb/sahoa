@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Order, Invoice, Customer, FabricItem, AccessoryItem, ThobeType, OrderStatus, CustomerMeasurements, CustomerStyleDetails, UserPreferences, MeasurementHistoryRecord, OrderEvent } from '../types';
 import { createSafeId } from '../domain/idGenerator';
 import { EMPTY_MEASUREMENTS, EMPTY_STYLE_DETAILS } from '../services/shared/measurementDefaults';
-import { Card, Button, Input, Select, Modal, EmptyState, Badge } from './ui';
+import { Card, Button, Input, Select, Modal, EmptyState, Badge, SortHeader, SortDirection } from './ui';
 import { ConfirmModal } from './ConfirmModal';
 import { MeasurementsTableForm, draftKeyFor } from './MeasurementsTableForm';
 import { PrintableInvoice } from './PrintableInvoice';
@@ -112,6 +112,7 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
+  const [orderSort, setOrderSort] = useState<{ key: 'orderNumber' | 'customerName' | 'deliveryDate' | 'totalAmount' | 'remainingAmount' | 'status'; direction: SortDirection }>({ key: 'orderNumber', direction: 'asc' });
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(initialSelectedOrder || null);
   const [measurementDraft, setMeasurementDraft] = useState<Order | null>(initialSelectedOrder || null);
   const [isDetailModalOpen, setIsDetailModalOpen] = useState(!!initialSelectedOrder);
@@ -175,6 +176,22 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
 
     const matchesStatus = statusFilter === 'all' || ord.status === statusFilter;
     return matchesSearch && matchesStatus;
+  });
+  const toggleOrderSort = (key: typeof orderSort.key) => {
+    setOrderSort((current) => current.key === key ? { key, direction: current.direction === 'asc' ? 'desc' : 'asc' } : { key, direction: 'asc' });
+  };
+  const orderSortNumber = (order: Order) => Number.parseInt(order.orderNumber.replace(/\D/g, ''), 10) || Number.MAX_SAFE_INTEGER;
+  const orderStatusRank: Record<OrderStatus, number> = { new: 1, processing: 2, ready: 3, delivered: 4, cancelled: 5 };
+  const sortedOrders = [...filteredOrders].sort((a, b) => {
+    let comparison = 0;
+    if (orderSort.key === 'orderNumber') comparison = orderSortNumber(a) - orderSortNumber(b);
+    else if (orderSort.key === 'customerName') comparison = a.customerName.localeCompare(b.customerName, 'ar');
+    else if (orderSort.key === 'deliveryDate') comparison = a.deliveryDate.localeCompare(b.deliveryDate);
+    else if (orderSort.key === 'totalAmount') comparison = a.totalAmount - b.totalAmount;
+    else if (orderSort.key === 'remainingAmount') comparison = a.remainingAmount - b.remainingAmount;
+    else comparison = orderStatusRank[a.status] - orderStatusRank[b.status];
+    if (comparison === 0) comparison = a.id.localeCompare(b.id);
+    return orderSort.direction === 'asc' ? comparison : -comparison;
   });
 
   const [detailTab, setDetailTab] = useState<'info' | 'measurements' | 'events'>('info');
@@ -638,17 +655,17 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
             <table className="premium-table">
               <thead>
                 <tr>
-                  <th className="w-24 text-center">رقم الطلب</th>
-                  <th>العميل</th>
+                  <th className="w-24 text-center" aria-sort={orderSort.key === 'orderNumber' ? orderSort.direction === 'asc' ? 'ascending' : 'descending' : 'none'}><SortHeader label="رقم الطلب" active={orderSort.key === 'orderNumber'} direction={orderSort.direction} onClick={() => toggleOrderSort('orderNumber')} align="center" /></th>
+                  <th aria-sort={orderSort.key === 'customerName' ? orderSort.direction === 'asc' ? 'ascending' : 'descending' : 'none'}><SortHeader label="العميل" active={orderSort.key === 'customerName'} direction={orderSort.direction} onClick={() => toggleOrderSort('customerName')} /></th>
                   <th>التفاصيل</th>
-                  <th>موعد التسليم</th>
-                  <th>المالية</th>
-                  <th>الحالة</th>
+                  <th aria-sort={orderSort.key === 'deliveryDate' ? orderSort.direction === 'asc' ? 'ascending' : 'descending' : 'none'}><SortHeader label="موعد التسليم" active={orderSort.key === 'deliveryDate'} direction={orderSort.direction} onClick={() => toggleOrderSort('deliveryDate')} /></th>
+                  <th aria-sort={orderSort.key === 'totalAmount' ? orderSort.direction === 'asc' ? 'ascending' : 'descending' : 'none'}><SortHeader label="المالية" active={orderSort.key === 'totalAmount'} direction={orderSort.direction} onClick={() => toggleOrderSort('totalAmount')} align="center" /></th>
+                  <th aria-sort={orderSort.key === 'status' ? orderSort.direction === 'asc' ? 'ascending' : 'descending' : 'none'}><SortHeader label="الحالة" active={orderSort.key === 'status'} direction={orderSort.direction} onClick={() => toggleOrderSort('status')} /></th>
                   <th className="text-center">إجراءات</th>
                 </tr>
               </thead>
               <tbody>
-                {filteredOrders.map((ord) => (
+                {sortedOrders.map((ord) => (
                   <tr key={ord.id} className="group">
                     <td className="text-center">
                       <span className="font-black text-[#111111] bg-[#F3F4F6] px-2.5 py-1 rounded-lg text-xs">#{ord.orderNumber}</span>

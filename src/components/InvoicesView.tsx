@@ -1,7 +1,7 @@
 import React, { useRef, useState } from 'react';
 import { Invoice, Order, PaymentRecord, UserPreferences } from '../types';
 import { createSafeId } from '../domain/idGenerator';
-import { Card, Button, Input, Select, Modal, EmptyState, Badge } from './ui';
+import { Card, Button, Input, Select, Modal, EmptyState, Badge, SortHeader, SortDirection } from './ui';
 import { PrintableInvoice } from './PrintableInvoice';
 export { PrintableInvoice };
 import {
@@ -34,6 +34,7 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
   showToast
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
+  const [invoiceSort, setInvoiceSort] = useState<{ key: 'invoiceNumber' | 'customerName' | 'orderDate' | 'totalAmount' | 'remainingAmount' | 'paymentStatus'; direction: SortDirection }>({ key: 'invoiceNumber', direction: 'asc' });
   const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null);
   const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
   const [isPreviewModalOpen, setIsPreviewModalOpen] = useState(false);
@@ -53,6 +54,21 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
       inv.customerName.toLowerCase().includes(searchTerm.toLowerCase()) ||
       inv.customerPhone.includes(searchTerm)
   );
+  const toggleInvoiceSort = (key: typeof invoiceSort.key) => {
+    setInvoiceSort((current) => current.key === key ? { key, direction: current.direction === 'asc' ? 'desc' : 'asc' } : { key, direction: 'asc' });
+  };
+  const invoiceSortNumber = (invoice: Invoice) => invoice.visibleInvoiceNumber ?? (Number.parseInt((invoice.invoiceNumber || '').replace(/\D/g, ''), 10) || Number.MAX_SAFE_INTEGER);
+  const sortedInvoices = [...filteredInvoices].sort((a, b) => {
+    let comparison = 0;
+    if (invoiceSort.key === 'invoiceNumber') comparison = invoiceSortNumber(a) - invoiceSortNumber(b);
+    else if (invoiceSort.key === 'customerName') comparison = a.customerName.localeCompare(b.customerName, 'ar');
+    else if (invoiceSort.key === 'orderDate') comparison = a.orderDate.localeCompare(b.orderDate);
+    else if (invoiceSort.key === 'totalAmount') comparison = a.totalAmount - b.totalAmount;
+    else if (invoiceSort.key === 'remainingAmount') comparison = a.remainingAmount - b.remainingAmount;
+    else comparison = a.paymentStatus.localeCompare(b.paymentStatus, 'ar');
+    if (comparison === 0) comparison = a.id.localeCompare(b.id);
+    return invoiceSort.direction === 'asc' ? comparison : -comparison;
+  });
 
   const handleOpenPaymentModal = (inv: Invoice) => {
     setSelectedInvoice(inv);
@@ -170,19 +186,19 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
             <table className="premium-table">
               <thead>
                 <tr>
-                  <th className="w-24 text-center">رقم الفاتورة</th>
+                  <th className="w-24 text-center" aria-sort={invoiceSort.key === 'invoiceNumber' ? invoiceSort.direction === 'asc' ? 'ascending' : 'descending' : 'none'}><SortHeader label="رقم الفاتورة" active={invoiceSort.key === 'invoiceNumber'} direction={invoiceSort.direction} onClick={() => toggleInvoiceSort('invoiceNumber')} align="center" /></th>
                   <th className="w-24 text-center">رقم العميل</th>
-                  <th>العميل</th>
-                  <th>تاريخ الفاتورة</th>
-                  <th className="text-center">الإجمالي</th>
+                  <th aria-sort={invoiceSort.key === 'customerName' ? invoiceSort.direction === 'asc' ? 'ascending' : 'descending' : 'none'}><SortHeader label="العميل" active={invoiceSort.key === 'customerName'} direction={invoiceSort.direction} onClick={() => toggleInvoiceSort('customerName')} /></th>
+                  <th aria-sort={invoiceSort.key === 'orderDate' ? invoiceSort.direction === 'asc' ? 'ascending' : 'descending' : 'none'}><SortHeader label="تاريخ الفاتورة" active={invoiceSort.key === 'orderDate'} direction={invoiceSort.direction} onClick={() => toggleInvoiceSort('orderDate')} /></th>
+                  <th className="text-center" aria-sort={invoiceSort.key === 'totalAmount' ? invoiceSort.direction === 'asc' ? 'ascending' : 'descending' : 'none'}><SortHeader label="الإجمالي" active={invoiceSort.key === 'totalAmount'} direction={invoiceSort.direction} onClick={() => toggleInvoiceSort('totalAmount')} align="center" /></th>
                   <th className="text-center">المدفوع</th>
-                  <th className="text-center">المتبقي</th>
-                  <th>الحالة</th>
+                  <th className="text-center" aria-sort={invoiceSort.key === 'remainingAmount' ? invoiceSort.direction === 'asc' ? 'ascending' : 'descending' : 'none'}><SortHeader label="المتبقي" active={invoiceSort.key === 'remainingAmount'} direction={invoiceSort.direction} onClick={() => toggleInvoiceSort('remainingAmount')} align="center" /></th>
+                  <th aria-sort={invoiceSort.key === 'paymentStatus' ? invoiceSort.direction === 'asc' ? 'ascending' : 'descending' : 'none'}><SortHeader label="الحالة" active={invoiceSort.key === 'paymentStatus'} direction={invoiceSort.direction} onClick={() => toggleInvoiceSort('paymentStatus')} /></th>
                   <th className="text-center">إجراءات</th>
                 </tr>
               </thead>
               <tbody>
-                {filteredInvoices.map((inv) => (
+                {sortedInvoices.map((inv) => (
                   <tr key={inv.id}>
                     <td className="text-center">
                       <span className="font-black text-[#111111] bg-[#F3F4F6] px-2.5 py-1 rounded-lg text-xs">#{displayInvoiceNumber(inv)}</span>

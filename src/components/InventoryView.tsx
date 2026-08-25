@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { FabricItem, AccessoryItem, ThobeType, ColorItem, StockMovement, InventoryItemType } from '../types';
 import { createSafeId } from '../domain/idGenerator';
-import { Card, Button, Input, Select, Modal, Badge, EmptyState } from './ui';
+import { Card, Button, Input, Select, Modal, Badge, EmptyState, SortHeader, SortDirection } from './ui';
 import { ConfirmModal } from './ConfirmModal';
 import {
   Package,
@@ -51,6 +51,9 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
   showToast
 }) => {
   const [activeTab, setActiveTab] = useState<'fabrics' | 'accessories' | 'models' | 'movements'>('fabrics');
+  const [fabricSort, setFabricSort] = useState<{ key: 'name' | 'color' | 'sellingPrice' | 'quantityMeters'; direction: SortDirection }>({ key: 'name', direction: 'asc' });
+  const [accessorySort, setAccessorySort] = useState<{ key: 'name' | 'category' | 'quantity'; direction: SortDirection }>({ key: 'name', direction: 'asc' });
+  const [movementSort, setMovementSort] = useState<{ key: 'createdAt' | 'itemName' | 'quantity' | 'quantityAfter'; direction: SortDirection }>({ key: 'createdAt', direction: 'desc' });
   const [movementType, setMovementType] = useState<InventoryItemType>('fabric');
   const [movementItemId, setMovementItemId] = useState('');
   const [movementQuantity, setMovementQuantity] = useState('');
@@ -191,6 +194,30 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
   };
 
   const movementItems = movementType === 'fabric' ? fabrics : accessories;
+  const toggleFabricSort = (key: typeof fabricSort.key) => {
+    setFabricSort((current) => current.key === key ? { key, direction: current.direction === 'asc' ? 'desc' : 'asc' } : { key, direction: 'asc' });
+  };
+  const toggleAccessorySort = (key: typeof accessorySort.key) => {
+    setAccessorySort((current) => current.key === key ? { key, direction: current.direction === 'asc' ? 'desc' : 'asc' } : { key, direction: 'asc' });
+  };
+  const toggleMovementSort = (key: typeof movementSort.key) => {
+    setMovementSort((current) => current.key === key ? { key, direction: current.direction === 'asc' ? 'desc' : 'asc' } : { key, direction: 'asc' });
+  };
+  const sortedFabrics = [...fabrics].sort((a, b) => {
+    let comparison = fabricSort.key === 'name' ? a.name.localeCompare(b.name, 'ar') : fabricSort.key === 'color' ? a.color.localeCompare(b.color, 'ar') : fabricSort.key === 'sellingPrice' ? a.sellingPrice - b.sellingPrice : a.quantityMeters - b.quantityMeters;
+    if (comparison === 0) comparison = a.id.localeCompare(b.id);
+    return fabricSort.direction === 'asc' ? comparison : -comparison;
+  });
+  const sortedAccessories = [...accessories].sort((a, b) => {
+    let comparison = accessorySort.key === 'name' ? a.name.localeCompare(b.name, 'ar') : accessorySort.key === 'category' ? a.category.localeCompare(b.category, 'ar') : a.quantity - b.quantity;
+    if (comparison === 0) comparison = a.id.localeCompare(b.id);
+    return accessorySort.direction === 'asc' ? comparison : -comparison;
+  });
+  const sortedMovements = [...stockMovements].sort((a, b) => {
+    let comparison = movementSort.key === 'createdAt' ? a.createdAt.localeCompare(b.createdAt) : movementSort.key === 'itemName' ? a.itemName.localeCompare(b.itemName, 'ar') : movementSort.key === 'quantity' ? a.quantity - b.quantity : a.quantityAfter - b.quantityAfter;
+    if (comparison === 0) comparison = a.id.localeCompare(b.id);
+    return movementSort.direction === 'asc' ? comparison : -comparison;
+  });
 
   return (
     <div className="view-wrapper animate-in fade-in duration-300">
@@ -245,10 +272,10 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
             <table className="premium-table">
               <thead>
                 <tr>
-                  <th>اسم القماش</th>
-                  <th>اللون</th>
-                  <th className="text-center">سعر البيع</th>
-                  <th className="text-center">المخزون</th>
+                  <th aria-sort={fabricSort.key === 'name' ? fabricSort.direction === 'asc' ? 'ascending' : 'descending' : 'none'}><SortHeader label="اسم القماش" active={fabricSort.key === 'name'} direction={fabricSort.direction} onClick={() => toggleFabricSort('name')} /></th>
+                  <th aria-sort={fabricSort.key === 'color' ? fabricSort.direction === 'asc' ? 'ascending' : 'descending' : 'none'}><SortHeader label="اللون" active={fabricSort.key === 'color'} direction={fabricSort.direction} onClick={() => toggleFabricSort('color')} /></th>
+                  <th className="text-center" aria-sort={fabricSort.key === 'sellingPrice' ? fabricSort.direction === 'asc' ? 'ascending' : 'descending' : 'none'}><SortHeader label="سعر البيع" active={fabricSort.key === 'sellingPrice'} direction={fabricSort.direction} onClick={() => toggleFabricSort('sellingPrice')} align="center" /></th>
+                  <th className="text-center" aria-sort={fabricSort.key === 'quantityMeters' ? fabricSort.direction === 'asc' ? 'ascending' : 'descending' : 'none'}><SortHeader label="المخزون" active={fabricSort.key === 'quantityMeters'} direction={fabricSort.direction} onClick={() => toggleFabricSort('quantityMeters')} align="center" /></th>
                   <th>الحالة</th>
                   <th className="text-center">إجراءات</th>
                 </tr>
@@ -256,7 +283,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
                 <tbody>
                 {fabrics.length === 0 ? (
                   <tr><td colSpan={6}><EmptyState icon={<Layers className="w-7 h-7" />} title="لا توجد أقمشة بعد" description="أضف أول قماش لتبدأ متابعة الأسعار والكميات وحالة المخزون." action={<Button size="sm" variant="primary" onClick={handleOpenAddFabric} icon={<Plus className="w-4 h-4" />}>إضافة قماش</Button>} className="my-4" /></td></tr>
-                ) : fabrics.map((fab) => {
+                ) : sortedFabrics.map((fab) => {
                   const isLowStock = fab.quantityMeters <= fab.minStockMeters;
                   return (
                     <tr key={fab.id}>
@@ -292,9 +319,9 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
             <table className="premium-table">
               <thead>
                 <tr>
-                  <th>اسم الإكسسوار</th>
-                  <th>الفئة</th>
-                  <th className="text-center">الكمية</th>
+                  <th aria-sort={accessorySort.key === 'name' ? accessorySort.direction === 'asc' ? 'ascending' : 'descending' : 'none'}><SortHeader label="اسم الإكسسوار" active={accessorySort.key === 'name'} direction={accessorySort.direction} onClick={() => toggleAccessorySort('name')} /></th>
+                  <th aria-sort={accessorySort.key === 'category' ? accessorySort.direction === 'asc' ? 'ascending' : 'descending' : 'none'}><SortHeader label="الفئة" active={accessorySort.key === 'category'} direction={accessorySort.direction} onClick={() => toggleAccessorySort('category')} /></th>
+                  <th className="text-center" aria-sort={accessorySort.key === 'quantity' ? accessorySort.direction === 'asc' ? 'ascending' : 'descending' : 'none'}><SortHeader label="الكمية" active={accessorySort.key === 'quantity'} direction={accessorySort.direction} onClick={() => toggleAccessorySort('quantity')} align="center" /></th>
                   <th>الحالة</th>
                   <th className="text-center">إجراءات</th>
                 </tr>
@@ -302,7 +329,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
                 <tbody>
                 {accessories.length === 0 ? (
                   <tr><td colSpan={5}><EmptyState icon={<Package className="w-7 h-7" />} title="لا توجد إكسسوارات بعد" description="أضف أول إكسسوار لتسجيل الكميات والحد الأدنى للمخزون." action={<Button size="sm" variant="primary" onClick={handleOpenAddAccessory} icon={<Plus className="w-4 h-4" />}>إضافة إكسسوار</Button>} className="my-4" /></td></tr>
-                ) : accessories.map((acc) => {
+                ) : sortedAccessories.map((acc) => {
                   const isLowStock = acc.quantity <= acc.minStock;
                   return (
                     <tr key={acc.id}>
@@ -395,7 +422,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
             </div>
           </Card>
           <Card title="سجل حركة كل صنف" subtitle="شراء، صرف للطلبات، إرجاع وتسويات مع الرصيد قبل وبعد الحركة" headerIcon={<ClipboardList className="w-5 h-5" />}>
-            <div className="overflow-x-auto"><table className="premium-table"><caption className="sr-only">سجل حركة المخزون</caption><thead><tr><th>التاريخ والوقت</th><th>الصنف</th><th>الحركة</th><th>الكمية</th><th>قبل</th><th>بعد</th><th>السبب</th><th>المرجع</th></tr></thead><tbody>{stockMovements.length === 0 ? <tr><td colSpan={8} className="p-10 text-center text-slate-400 font-bold"><div className="space-y-2"><ClipboardList className="w-8 h-8 mx-auto text-slate-300" /><p>لا توجد حركات مخزون بعد</p><p className="text-xs font-medium">ستظهر هنا عمليات الشراء والصرف والإرجاع والتسوية.</p></div></td></tr> : stockMovements.map((movement) => <tr key={movement.id}><td className="text-xs font-bold">{new Date(movement.createdAt).toLocaleString('ar-SA')}</td><td className="font-black">{movement.itemName}</td><td><Badge variant={movement.direction === 'purchase' || movement.direction === 'return' ? 'emerald' : movement.direction === 'sale' ? 'red' : 'slate'}>{movement.direction === 'purchase' ? 'شراء' : movement.direction === 'sale' ? 'صرف طلب' : movement.direction === 'return' ? 'إرجاع' : 'تسوية'}</Badge></td><td className="font-black">{movement.quantity} {movement.unit}</td><td>{movement.quantityBefore}</td><td className="font-black">{movement.quantityAfter}</td><td>{movement.reason}</td><td className="text-xs">{movement.referenceNumber || movement.referenceId || '—'}</td></tr>)}</tbody></table></div>
+            <div className="overflow-x-auto"><table className="premium-table"><caption className="sr-only">سجل حركة المخزون</caption><thead><tr><th aria-sort={movementSort.key === 'createdAt' ? movementSort.direction === 'asc' ? 'ascending' : 'descending' : 'none'}><SortHeader label="التاريخ والوقت" active={movementSort.key === 'createdAt'} direction={movementSort.direction} onClick={() => toggleMovementSort('createdAt')} /></th><th aria-sort={movementSort.key === 'itemName' ? movementSort.direction === 'asc' ? 'ascending' : 'descending' : 'none'}><SortHeader label="الصنف" active={movementSort.key === 'itemName'} direction={movementSort.direction} onClick={() => toggleMovementSort('itemName')} /></th><th>الحركة</th><th aria-sort={movementSort.key === 'quantity' ? movementSort.direction === 'asc' ? 'ascending' : 'descending' : 'none'}><SortHeader label="الكمية" active={movementSort.key === 'quantity'} direction={movementSort.direction} onClick={() => toggleMovementSort('quantity')} align="center" /></th><th>قبل</th><th aria-sort={movementSort.key === 'quantityAfter' ? movementSort.direction === 'asc' ? 'ascending' : 'descending' : 'none'}><SortHeader label="بعد" active={movementSort.key === 'quantityAfter'} direction={movementSort.direction} onClick={() => toggleMovementSort('quantityAfter')} align="center" /></th><th>السبب</th><th>المرجع</th></tr></thead><tbody>{stockMovements.length === 0 ? <tr><td colSpan={8} className="p-10 text-center text-slate-400 font-bold"><div className="space-y-2"><ClipboardList className="w-8 h-8 mx-auto text-slate-300" /><p>لا توجد حركات مخزون بعد</p><p className="text-xs font-medium">ستظهر هنا عمليات الشراء والصرف والإرجاع والتسوية.</p></div></td></tr> : sortedMovements.map((movement) => <tr key={movement.id}><td className="text-xs font-bold">{new Date(movement.createdAt).toLocaleString('ar-SA')}</td><td className="font-black">{movement.itemName}</td><td><Badge variant={movement.direction === 'purchase' || movement.direction === 'return' ? 'emerald' : movement.direction === 'sale' ? 'red' : 'slate'}>{movement.direction === 'purchase' ? 'شراء' : movement.direction === 'sale' ? 'صرف طلب' : movement.direction === 'return' ? 'إرجاع' : 'تسوية'}</Badge></td><td className="font-black">{movement.quantity} {movement.unit}</td><td>{movement.quantityBefore}</td><td className="font-black">{movement.quantityAfter}</td><td>{movement.reason}</td><td className="text-xs">{movement.referenceNumber || movement.referenceId || '—'}</td></tr>)}</tbody></table></div>
           </Card>
         </div>
       )}

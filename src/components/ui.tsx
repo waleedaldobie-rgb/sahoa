@@ -1,5 +1,5 @@
 import React from 'react';
-import { X, AlertCircle, CheckCircle2, Info, Loader2 } from 'lucide-react';
+import { X, AlertCircle, CheckCircle2, Info, Loader2, ArrowDown, ArrowDownUp, ArrowUp } from 'lucide-react';
 
 // =================== BUTTON COMPONENT ===================
 export interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
@@ -50,6 +50,42 @@ export const Button: React.FC<ButtonProps> = ({
         icon && <span className="inline-flex shrink-0" aria-hidden={Boolean(children)}>{icon}</span>
       )}
       <span>{children}</span>
+    </button>
+  );
+};
+
+// =================== SORTABLE TABLE HEADER ===================
+export type SortDirection = 'asc' | 'desc';
+
+export interface SortHeaderProps {
+  label: string;
+  active?: boolean;
+  direction?: SortDirection;
+  onClick: () => void;
+  align?: 'right' | 'center' | 'left';
+}
+
+export const SortHeader: React.FC<SortHeaderProps> = ({
+  label,
+  active = false,
+  direction = 'asc',
+  onClick,
+  align = 'right'
+}) => {
+  const Icon = !active ? ArrowDownUp : direction === 'asc' ? ArrowUp : ArrowDown;
+  const alignmentClass = align === 'center' ? 'justify-center' : align === 'left' ? 'justify-start' : 'justify-end';
+
+  return (
+    <button
+      type="button"
+      className={`sahwa-sort-header ${alignmentClass}`}
+      data-active={active}
+      aria-label={`فرز حسب ${label}`}
+      title={`فرز حسب ${label}${active ? ` (${direction === 'asc' ? 'تصاعدي' : 'تنازلي'})` : ''}`}
+      onClick={onClick}
+    >
+      <span>{label}</span>
+      <Icon className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
     </button>
   );
 };
