@@ -127,12 +127,21 @@ export const AccountingView: React.FC<AccountingViewProps> = ({
 
   return (
     <div className="view-wrapper space-y-6" dir="rtl">
-      <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
-        <div><h2 className="page-title flex items-center gap-3"><WalletCards className="w-7 h-7" /> المحاسبة والتدفقات المالية</h2><p className="page-subtitle">المشتريات والمصروفات والصندوق مرتبطة مباشرة بالمخزون والطلبات</p></div>
-        <div className="flex items-center gap-2 bg-white border border-slate-200 rounded-2xl p-1.5 shadow-sm">
-          {([['purchases', 'المشتريات', PackagePlus], ['expenses', 'المصروفات', ReceiptText], ['cash', 'الصندوق', Banknote]] as const).map(([id, label, Icon]) => <button key={id} type="button" onClick={() => setTab(id)} className={`px-4 py-2.5 rounded-xl text-xs font-black flex items-center gap-2 ${tab === id ? 'bg-[#111111] text-white' : 'text-slate-600 hover:bg-slate-50'}`}><Icon className="w-4 h-4" />{label}</button>)}
-        </div>
-      </div>
+      <Card
+        title="المحاسبة والتدفقات المالية"
+        subtitle="المشتريات والمصروفات والصندوق مرتبطة مباشرة بالمخزون والطلبات"
+        headerIcon={<WalletCards className="w-5 h-5" />}
+        headerOnly
+        action={(
+          <div className="flex items-center gap-2 bg-white border border-slate-200 rounded-2xl p-1.5 shadow-sm">
+            {([['purchases', 'المشتريات', PackagePlus], ['expenses', 'المصروفات', ReceiptText], ['cash', 'الصندوق', Banknote]] as const).map(([id, label, Icon]) => (
+              <button key={id} type="button" onClick={() => setTab(id)} className={`px-4 py-2.5 rounded-xl text-xs font-black flex items-center gap-2 ${tab === id ? 'bg-[#111111] text-white' : 'text-slate-600 hover:bg-slate-50'}`}>
+                <Icon className="w-4 h-4" />{label}
+              </button>
+            ))}
+          </div>
+        )}
+      />
 
       {tab === 'purchases' && <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1.1fr)_minmax(360px,.9fr)] gap-6">
         <Card title="اعتماد عملية شراء" subtitle="اعتماد العملية يزيد المخزون ويسجل حركة وصرفاً مالياً واحداً" headerIcon={<FilePlus2 className="w-5 h-5" />}>

@@ -3,7 +3,7 @@ import { AppData } from '../types';
 import { calculateReportProjection, formatReportStatus } from '../domain/reportMetrics';
 import { DataRevision } from '../state/appDataStore';
 import { getCachedDerivedValue } from '../services/derivedDataCache';
-import { Button, Badge, EmptyState } from './ui';
+import { Button, Badge, Card, EmptyState } from './ui';
 import {
   BarChart3,
   FileSpreadsheet,
@@ -277,46 +277,37 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ data, dataRevision, sh
       </div>
 
       {/* View Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-5 sm:p-6 rounded-2xl shadow-sm border border-[#DEDEDA]">
-        <div className="flex items-center gap-4">
-          <div className="w-11 h-11 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-700 shrink-0">
-            <BarChart3 className="w-5 h-5" />
+      <Card
+        title="التقارير والإحصائيات المالية"
+        subtitle="متابعة الأداء المالي، الإيرادات والمبيعات حسب النطاق الزمني"
+        headerIcon={<BarChart3 className="w-5 h-5" />}
+        headerOnly
+        action={(
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              variant="primary"
+              onClick={handleExportExcel}
+              icon={<FileSpreadsheet className="w-4 h-4" />}
+            >
+              تصدير Excel
+            </Button>
+            <Button
+              variant="secondary"
+              onClick={handleExportCSV}
+              icon={<FileSpreadsheet className="w-4 h-4 text-amber-700" />}
+            >
+              تصدير CSV (Blob)
+            </Button>
+            <Button
+              variant="secondary"
+              onClick={handlePrintReport}
+              icon={<Printer className="w-4 h-4 text-slate-700" />}
+            >
+              طباعة التقرير
+            </Button>
           </div>
-          <div>
-            <h1 className="text-xl sm:text-2xl font-black text-slate-900">التقارير والإحصائيات المالية</h1>
-            <p className="text-xs sm:text-sm text-slate-500 font-medium mt-0.5">
-              متابعة الأداء المالي، الإيرادات والمبيعات حسب النطاق الزمني
-            </p>
-          </div>
-        </div>
-
-        {/* Export & Print Actions */}
-        <div className="flex flex-wrap items-center gap-2">
-          <Button
-            variant="primary"
-            onClick={handleExportExcel}
-            icon={<FileSpreadsheet className="w-4 h-4" />}
-          >
-            تصدير Excel
-          </Button>
-
-          <Button
-            variant="secondary"
-            onClick={handleExportCSV}
-            icon={<FileSpreadsheet className="w-4 h-4 text-amber-700" />}
-          >
-            تصدير CSV (Blob)
-          </Button>
-
-          <Button
-            variant="secondary"
-            onClick={handlePrintReport}
-            icon={<Printer className="w-4 h-4 text-slate-700" />}
-          >
-            طباعة التقرير
-          </Button>
-        </div>
-      </div>
+        )}
+      />
 
       {/* Date Filter Toolbar Card */}
       <div className="bg-white p-4 sm:p-5 rounded-2xl shadow-sm border border-[#DEDEDA] flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-4">
@@ -460,24 +451,32 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ data, dataRevision, sh
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div className="bg-white rounded-2xl shadow-sm border border-[#DEDEDA] overflow-hidden">
-          <div className="p-5 border-b border-[#DEDEDA] bg-[#F0F0EE]/40"><h3 className="text-base font-black text-slate-900">الأكثر استهلاكاً</h3><p className="text-xs text-slate-500 mt-1">حسب حركات صرف المواد في الفترة</p></div>
-          <div className="p-5 space-y-3">{topConsumption.length === 0 ? <p className="text-sm text-slate-400 font-bold">لا توجد حركات صرف في الفترة.</p> : topConsumption.map(([name, quantity], index) => <div key={name} className="flex items-center justify-between gap-4 border-b border-slate-100 pb-3 last:border-0"><span className="text-sm font-black">{index + 1}. {name}</span><Badge variant="slate">{quantity} وحدة صرف</Badge></div>)}</div>
-        </div>
-        <div className="bg-white rounded-2xl shadow-sm border border-[#DEDEDA] overflow-hidden">
-          <div className="p-5 border-b border-[#DEDEDA] bg-[#F0F0EE]/40"><h3 className="text-base font-black text-slate-900">ملخص الفترة</h3><p className="text-xs text-slate-500 mt-1">المبيعات ناقص المواد والمصروفات</p></div>
-          <div className="p-5 grid grid-cols-2 gap-4 text-sm"><div><span className="text-slate-500 font-bold">الربح الإجمالي المعترف به</span><p className="font-black text-lg mt-1">{Math.round(grossProfit)} ر.س</p></div><div><span className="text-slate-500 font-bold">صافي الربح</span><p className={`font-black text-lg mt-1 ${netProfit >= 0 ? 'text-emerald-700' : 'text-rose-700'}`}>{Math.round(netProfit)} ر.س</p></div><div><span className="text-slate-500 font-bold">التزام ائتمان العملاء</span><p className="font-black text-lg mt-1">{closingCustomerCreditLiability} ر.س</p></div><div><span className="text-slate-500 font-bold">تسوية الإلغاء غير النقدية</span><p className="font-black text-lg mt-1">{cancellationWriteoff} ر.س</p></div><div><span className="text-slate-500 font-bold">حركات الصندوق</span><p className="font-black text-lg mt-1">{filteredCash.length}</p></div><div><span className="text-slate-500 font-bold">حركات المخزون</span><p className="font-black text-lg mt-1">{filteredMovements.length}</p></div></div>
-        </div>
+        <Card
+          title="الأكثر استهلاكاً"
+          subtitle="حسب حركات صرف المواد في الفترة"
+          headerIcon={<Scissors className="w-5 h-5" />}
+          bodyClassName="space-y-3"
+        >
+          {topConsumption.length === 0 ? <p className="text-sm text-slate-400 font-bold">لا توجد حركات صرف في الفترة.</p> : topConsumption.map(([name, quantity], index) => <div key={name} className="flex items-center justify-between gap-4 border-b border-slate-100 pb-3 last:border-0"><span className="text-sm font-black">{index + 1}. {name}</span><Badge variant="slate">{quantity} وحدة صرف</Badge></div>)}
+        </Card>
+        <Card
+          title="ملخص الفترة"
+          subtitle="المبيعات ناقص المواد والمصروفات"
+          headerIcon={<Wallet className="w-5 h-5" />}
+          bodyClassName="grid grid-cols-2 gap-4 text-sm"
+        >
+          <div><span className="text-slate-500 font-bold">الربح الإجمالي المعترف به</span><p className="font-black text-lg mt-1">{Math.round(grossProfit)} ر.س</p></div><div><span className="text-slate-500 font-bold">صافي الربح</span><p className={`font-black text-lg mt-1 ${netProfit >= 0 ? 'text-emerald-700' : 'text-rose-700'}`}>{Math.round(netProfit)} ر.س</p></div><div><span className="text-slate-500 font-bold">التزام ائتمان العملاء</span><p className="font-black text-lg mt-1">{closingCustomerCreditLiability} ر.س</p></div><div><span className="text-slate-500 font-bold">تسوية الإلغاء غير النقدية</span><p className="font-black text-lg mt-1">{cancellationWriteoff} ر.س</p></div><div><span className="text-slate-500 font-bold">حركات الصندوق</span><p className="font-black text-lg mt-1">{filteredCash.length}</p></div><div><span className="text-slate-500 font-bold">حركات المخزون</span><p className="font-black text-lg mt-1">{filteredMovements.length}</p></div>
+        </Card>
       </div>
 
       {/* Orders Performance Table */}
-      <div className="bg-white rounded-2xl shadow-sm border border-[#DEDEDA] overflow-hidden">
-        <div className="p-5 border-b border-[#DEDEDA] flex items-center justify-between bg-[#F0F0EE]/40">
-          <div>
-            <h3 className="text-base font-black text-slate-900">سجل الأداء المالي والطلبات</h3>
-            <p className="text-xs text-slate-500 font-medium mt-0.5">إجمالي الحركات في النطاق المحدد: {filteredOrders.length} طلب</p>
-          </div>
-        </div>
+      <Card
+        title="سجل الأداء المالي والطلبات"
+        subtitle={`إجمالي الحركات في النطاق المحدد: ${filteredOrders.length} طلب`}
+        headerIcon={<BarChart3 className="w-5 h-5" />}
+        bodyClassName="p-0"
+        className="overflow-hidden"
+      >
 
         {filteredOrders.length === 0 ? (
           <div className="p-4">
@@ -527,7 +526,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ data, dataRevision, sh
             </table>
           </div>
         )}
-      </div>
+      </Card>
     </div>
   );
 };

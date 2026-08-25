@@ -113,6 +113,8 @@ export interface CardProps extends React.HTMLAttributes<HTMLDivElement> {
   subtitle?: string;
   action?: React.ReactNode;
   headerIcon?: React.ReactNode;
+  bodyClassName?: string;
+  headerOnly?: boolean;
   accentBorder?: 'amber' | 'emerald' | 'red' | 'slate' | 'none';
 }
 
@@ -122,6 +124,8 @@ export const Card: React.FC<CardProps> = ({
   subtitle,
   action,
   headerIcon,
+  bodyClassName = '',
+  headerOnly = false,
   accentBorder = 'none',
   className = '',
   ...props
@@ -155,7 +159,7 @@ export const Card: React.FC<CardProps> = ({
           {action && <div className="flex items-center gap-2">{action}</div>}
         </div>
       )}
-      <div className="ui-card-body sahwa-card-body">{children}</div>
+      {!headerOnly && <div className={`ui-card-body sahwa-card-body ${bodyClassName}`}>{children}</div>}
     </div>
   );
 };
