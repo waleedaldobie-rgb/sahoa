@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Order, Invoice, Customer, FabricItem, AccessoryItem, ThobeType, OrderStatus, CustomerMeasurements, CustomerStyleDetails, UserPreferences, MeasurementHistoryRecord, OrderEvent } from '../types';
 import { createSafeId } from '../domain/idGenerator';
 import { EMPTY_MEASUREMENTS, EMPTY_STYLE_DETAILS } from '../services/shared/measurementDefaults';
-import { Card, Button, Input, Select, Modal, EmptyState, Badge, SortHeader, SortDirection } from './ui';
+import { Card, Button, Input, Select, Modal, EmptyState, Badge, SortHeader, SortDirection, Tooltip } from './ui';
 import { ConfirmModal } from './ConfirmModal';
 import { MeasurementsTableForm, draftKeyFor } from './MeasurementsTableForm';
 import { PrintableInvoice } from './PrintableInvoice';
@@ -737,22 +737,24 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
                             {getNextStatusAction(ord.status)?.label}
                           </Button>
                         )}
-                        <Button
-                          variant="secondary"
-                          size="sm"
-                          onClick={() => handleQuickWhatsApp(ord)}
-                          icon={<MessageCircle className="w-3.5 h-3.5" />}
-                          title="إرسال رسالة واتساب بالحالة الحالية"
-                          aria-label={`إرسال رسالة واتساب للطلب ${ord.orderNumber}`}
-                        />
-                        <Button
-                          variant="secondary"
-                          size="sm"
-                          onClick={() => handlePrintOrderSheet(ord)}
-                          icon={<Printer className="w-3.5 h-3.5" />}
-                          title="طباعة"
-                          aria-label={`طباعة الطلب ${ord.orderNumber}`}
-                        />
+                        <Tooltip content="إرسال رسالة واتساب بالحالة الحالية">
+                          <Button
+                            variant="secondary"
+                            size="sm"
+                            onClick={() => handleQuickWhatsApp(ord)}
+                            icon={<MessageCircle className="w-3.5 h-3.5" />}
+                            aria-label={`إرسال رسالة واتساب للطلب ${ord.orderNumber}`}
+                          />
+                        </Tooltip>
+                        <Tooltip content={`طباعة الطلب ${ord.orderNumber}`}>
+                          <Button
+                            variant="secondary"
+                            size="sm"
+                            onClick={() => handlePrintOrderSheet(ord)}
+                            icon={<Printer className="w-3.5 h-3.5" />}
+                            aria-label={`طباعة الطلب ${ord.orderNumber}`}
+                          />
+                        </Tooltip>
                       </div>
                     </td>
                   </tr>

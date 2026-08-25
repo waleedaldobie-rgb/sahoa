@@ -54,6 +54,23 @@ export const Button: React.FC<ButtonProps> = ({
   );
 };
 
+// =================== TOOLTIP COMPONENT ===================
+export interface TooltipProps {
+  content: string;
+  children: React.ReactNode;
+}
+
+export const Tooltip: React.FC<TooltipProps> = ({ content, children }) => {
+  return (
+    <span className="sahwa-tooltip">
+      {children}
+      <span className="sahwa-tooltip-content" role="tooltip">
+        {content}
+      </span>
+    </span>
+  );
+};
+
 // =================== SORTABLE TABLE HEADER ===================
 export type SortDirection = 'asc' | 'desc';
 
@@ -282,15 +299,16 @@ export const Modal: React.FC<ModalProps> = ({
         {/* Header */}
         <div className={`sahwa-modal-header flex items-center justify-between px-8 py-6 ${allowPrint ? 'no-print' : ''}`}>
           <h3 id={titleId} className="text-lg font-black text-[var(--color-text-token)] tracking-tight">{title}</h3>
-          <button
-            type="button"
-            onClick={onClose}
-            className="sahwa-modal-close sahwa-button w-10 h-10 rounded-full flex items-center justify-center focus:outline-none cursor-pointer"
-            title="إغلاق"
-            aria-label="إغلاق النافذة"
-          >
-            <X className="w-5 h-5" />
-          </button>
+          <Tooltip content="إغلاق النافذة">
+            <button
+              type="button"
+              onClick={onClose}
+              className="sahwa-modal-close sahwa-button w-10 h-10 rounded-full flex items-center justify-center focus:outline-none cursor-pointer"
+              aria-label="إغلاق النافذة"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </Tooltip>
         </div>
 
         {/* Content Body */}
@@ -355,14 +373,16 @@ export const Toast: React.FC<{ toast: ToastState; onClose: () => void }> = ({
               {toast.actionLabel}
             </button>
           )}
-          <button
-          type="button"
-          onClick={onClose}
-          aria-label="إغلاق الإشعار"
-          className="text-[#9CA3AF] hover:text-[#111111] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#b08a4a] focus-visible:ring-offset-2 transition-colors p-2 rounded-full hover:bg-[#F3F4F6]"
-        >
-          <X className="w-5 h-5" />
-        </button>
+          <Tooltip content="إغلاق الإشعار">
+            <button
+              type="button"
+              onClick={onClose}
+              aria-label="إغلاق الإشعار"
+              className="text-[#9CA3AF] hover:text-[#111111] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#b08a4a] focus-visible:ring-offset-2 transition-colors p-2 rounded-full hover:bg-[#F3F4F6]"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </Tooltip>
       </div>
     </div>
   );

@@ -476,6 +476,43 @@
   }
 
   /* One readable table language for both premium-table and sahwa-table markup. */
+  .sahwa-tooltip {
+    display: inline-flex;
+    position: relative;
+  }
+
+  .sahwa-tooltip-content {
+    background: var(--brand-charcoal);
+    border: 1px solid rgb(255 255 255 / 12%);
+    border-radius: var(--radius-control-token);
+    bottom: calc(100% + 0.5rem);
+    box-shadow: var(--shadow-modal-token);
+    color: #ffffff;
+    font-size: 0.6875rem;
+    font-weight: 700;
+    left: 50%;
+    line-height: 1.4;
+    max-width: 16rem;
+    opacity: 0;
+    padding: 0.4375rem 0.625rem;
+    pointer-events: none;
+    position: absolute;
+    text-align: center;
+    transform: translate(-50%, 0.25rem);
+    transition: opacity 140ms ease, transform 140ms ease, visibility 140ms ease;
+    visibility: hidden;
+    white-space: nowrap;
+    width: max-content;
+    z-index: 60;
+  }
+
+  .sahwa-tooltip:hover .sahwa-tooltip-content,
+  .sahwa-tooltip:focus-within .sahwa-tooltip-content {
+    opacity: 1;
+    transform: translate(-50%, 0);
+    visibility: visible;
+  }
+
   .sahwa-sort-header {
     align-items: center;
     background: transparent;
