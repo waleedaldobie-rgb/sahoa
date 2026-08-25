@@ -403,28 +403,46 @@ export const LoadingSpinner: React.FC<{ label?: string }> = ({ label = 'جاري
 };
 
 // =================== BADGE COMPONENT ===================
+export type BadgeVariant = 'slate' | 'amber' | 'emerald' | 'red' | 'blue';
+
 export interface BadgeProps {
-  variant?: 'slate' | 'amber' | 'emerald' | 'red';
+  variant?: BadgeVariant;
   children: React.ReactNode;
   className?: string;
 }
 
-export const Badge: React.FC<{ variant?: 'slate' | 'amber' | 'emerald' | 'red'; children: React.ReactNode; className?: string }> = ({
+export const getOrderStatusBadgeVariant = (status: string, cancellationWriteoffAmount = 0): BadgeVariant => {
+  if (status === 'cancelled') return Number(cancellationWriteoffAmount) > 0 ? 'blue' : 'red';
+  if (status === 'new') return 'blue';
+  if (status === 'processing') return 'amber';
+  if (status === 'ready') return 'emerald';
+  if (status === 'delivered') return 'slate';
+  return 'slate';
+};
+
+export const getInvoiceStatusBadgeVariant = (status: string): BadgeVariant => {
+  if (status === 'paid') return 'emerald';
+  if (status === 'partial') return 'amber';
+  if (status === 'unpaid') return 'red';
+  if (status === 'settled_by_cancellation') return 'blue';
+  return 'slate';
+};
+
+export const Badge: React.FC<BadgeProps> = ({
   variant = 'slate',
   children,
   className = ''
 }) => {
-  const variantMap = {
-    slate: 'bg-[#F3F4F6] text-[#374151] border-[#E5E7EB]',
-    amber: 'bg-[#FFFBEB] text-[#92400E] border-[#FDE68A]',
-    emerald: 'bg-[#ECFDF5] text-[#065F46] border-[#A7F3D0]',
-    red: 'bg-[#FEF2F2] text-[#991B1B] border-[#FECACA]'
+  const variantMap: Record<BadgeVariant, string> = {
+    slate: 'sahwa-badge--neutral',
+    amber: 'sahwa-badge--pending',
+    emerald: 'sahwa-badge--success',
+    red: 'sahwa-badge--danger',
+    blue: 'sahwa-badge--info'
   };
 
   return (
-    <span
-      className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-black border ${variantMap[variant]} ${className}`}
-    >
+    <span className={`sahwa-badge ${variantMap[variant]} ${className}`}>
       {children}
     </span>
   );

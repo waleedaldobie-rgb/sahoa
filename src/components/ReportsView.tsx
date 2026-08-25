@@ -3,7 +3,7 @@ import { AppData } from '../types';
 import { calculateReportProjection, formatReportStatus } from '../domain/reportMetrics';
 import { DataRevision } from '../state/appDataStore';
 import { getCachedDerivedValue } from '../services/derivedDataCache';
-import { Button, Badge, Card, EmptyState } from './ui';
+import { Button, Badge, Card, EmptyState, getOrderStatusBadgeVariant } from './ui';
 import {
   BarChart3,
   FileSpreadsheet,
@@ -513,7 +513,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ data, dataRevision, sh
                     <td className="p-3.5 text-slate-600 font-mono">{ord.orderDate}</td>
                     <td className="p-3.5 text-slate-600 font-mono">{ord.deliveryDate}</td>
                     <td className="p-3.5">
-                      <Badge variant={ord.status === 'delivered' ? 'emerald' : ord.status === 'ready' ? 'amber' : 'slate'}>
+                      <Badge variant={getOrderStatusBadgeVariant(ord.status, ord.cancellationWriteoffAmount)}>
                         {formatReportStatus(reportDetails.find((detail) => detail.order.id === ord.id)?.settlementStatus || 'none')}
                       </Badge>
                     </td>

@@ -3,7 +3,7 @@ import { AppData, Order } from '../types';
 import { formatReportStatus } from '../domain/reportMetrics';
 import { DataRevision } from '../state/appDataStore';
 import { getCachedDerivedValue } from '../services/derivedDataCache';
-import { Card, Badge, Button, EmptyState } from './ui';
+import { Card, Badge, Button, EmptyState, getOrderStatusBadgeVariant } from './ui';
 import {
   Scissors,
   Clock,
@@ -104,15 +104,19 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   }), [cacheKey, data, todayStr]);
 
   const getStatusBadge = (order: Order) => {
-    if (order.status === 'cancelled') {
-      return <Badge variant={Number(order.cancellationWriteoffAmount || 0) > 0 ? 'amber' : 'red'}>{formatReportStatus(Number(order.cancellationWriteoffAmount || 0) > 0 ? 'settled_by_cancellation' : 'cancelled')}</Badge>;
-    }
-    switch (order.status) {
-      case 'new': return <Badge variant="amber">جديد</Badge>;
-      case 'processing': return <Badge variant="slate">تحت التنفيذ</Badge>;
-      case 'ready': return <Badge variant="emerald">جاهز للتسليم</Badge>;
-      case 'delivered': return <Badge variant="slate">تم التسليم</Badge>;
-    }
+    const hasWriteoff = Number(order.cancellationWriteoffAmount || 0) > 0;
+    const label = hasWriteoff
+      ? formatReportStatus('settled_by_cancellation')
+      : order.status === 'cancelled'
+        ? formatReportStatus('cancelled')
+        : order.status === 'new'
+          ? 'جديد'
+          : order.status === 'processing'
+            ? 'تحت التنفيذ'
+            : order.status === 'ready'
+              ? 'جاهز للتسليم'
+              : 'تم التسليم';
+    return <Badge variant={getOrderStatusBadgeVariant(order.status, order.cancellationWriteoffAmount)}>{label}</Badge>;
   };
 
   const metrics = [

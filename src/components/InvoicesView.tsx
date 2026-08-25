@@ -1,7 +1,7 @@
 import React, { useRef, useState } from 'react';
 import { Invoice, Order, PaymentRecord, UserPreferences } from '../types';
 import { createSafeId } from '../domain/idGenerator';
-import { Card, Button, Input, Select, Modal, EmptyState, Badge, SortHeader, SortDirection } from './ui';
+import { Card, Button, Input, Select, Modal, EmptyState, Badge, SortHeader, SortDirection, getInvoiceStatusBadgeVariant } from './ui';
 import { PrintableInvoice } from './PrintableInvoice';
 export { PrintableInvoice };
 import {
@@ -121,16 +121,14 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
   };
 
   const getStatusBadge = (status: Invoice['paymentStatus']) => {
-    switch (status) {
-      case 'paid':
-        return <Badge variant="emerald">مدفوع بالكامل</Badge>;
-      case 'partial':
-        return <Badge variant="amber">دفعة جزئية</Badge>;
-      case 'unpaid':
-        return <Badge variant="red">غير مدفوع</Badge>;
-      case 'settled_by_cancellation':
-        return <Badge variant="slate">مُسوّى بالإلغاء</Badge>;
-    }
+    const label = status === 'paid'
+      ? 'مدفوع بالكامل'
+      : status === 'partial'
+        ? 'دفعة جزئية'
+        : status === 'unpaid'
+          ? 'غير مدفوع'
+          : 'مُسوّى بالإلغاء';
+    return <Badge variant={getInvoiceStatusBadgeVariant(status)}>{label}</Badge>;
   };
 
   const matchedOrderForInvoice = selectedInvoice

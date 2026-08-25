@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Order, Invoice, Customer, FabricItem, AccessoryItem, ThobeType, OrderStatus, CustomerMeasurements, CustomerStyleDetails, UserPreferences, MeasurementHistoryRecord, OrderEvent } from '../types';
 import { createSafeId } from '../domain/idGenerator';
 import { EMPTY_MEASUREMENTS, EMPTY_STYLE_DETAILS } from '../services/shared/measurementDefaults';
-import { Card, Button, Input, Select, Modal, EmptyState, Badge, SortHeader, SortDirection, Tooltip } from './ui';
+import { Card, Button, Input, Select, Modal, EmptyState, Badge, SortHeader, SortDirection, Tooltip, getOrderStatusBadgeVariant } from './ui';
 import { ConfirmModal } from './ConfirmModal';
 import { MeasurementsTableForm, draftKeyFor } from './MeasurementsTableForm';
 import { PrintableInvoice } from './PrintableInvoice';
@@ -696,21 +696,11 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
                       </div>
                     </td>
                     <td>
-                      <Badge
-                        variant={
-                          ord.status === 'delivered' || ord.status === 'ready'
-                            ? 'emerald'
-                            : ord.status === 'processing'
-                            ? 'amber'
-                            : ord.status === 'cancelled'
-                            ? 'red'
-                            : 'slate'
-                        }
-                      >
+                      <Badge variant={getOrderStatusBadgeVariant(ord.status)}>
                         {getStatusText(ord.status)}
                       </Badge>
                       {Number(ord.cancellationWriteoffAmount || 0) > 0 && (
-                        <div className="mt-1"><Badge variant="red">ملغى مع تسوية</Badge></div>
+                        <div className="mt-1"><Badge variant="blue">ملغى مع تسوية</Badge></div>
                       )}
                     </td>
                     <td className="text-center">
@@ -1141,9 +1131,12 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
                       <h3 id="order-status-heading" className="text-sm font-black text-[#111111]">مسار حالة الطلب</h3>
                       <p className="mt-1 text-[11px] font-bold text-[#6B7280]">اختر مرحلة لتحديث حالة الطلب وتسجيلها في سجل الأحداث.</p>
                     </div>
-                    <Badge variant={selectedOrder.status === 'delivered' ? 'emerald' : selectedOrder.status === 'ready' ? 'amber' : 'slate'}>
-                      {getStatusText(selectedOrder.status)}
-                    </Badge>
+                      <div className="flex flex-wrap items-center justify-end gap-1.5">
+                        <Badge variant={getOrderStatusBadgeVariant(selectedOrder.status)}>
+                          {getStatusText(selectedOrder.status)}
+                        </Badge>
+                        {Number(selectedOrder.cancellationWriteoffAmount || 0) > 0 && <Badge variant="blue">ملغى مع تسوية</Badge>}
+                      </div>
                   </div>
                   <OrderStatusStepper currentStatus={selectedOrder.status} onStatusSelect={(status) => handleQuickStatusChange(selectedOrder, status)} />
                 </section>
