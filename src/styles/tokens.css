@@ -40,6 +40,7 @@
   --radius-card: var(--radius-card-token);
   --radius-modal: var(--radius-modal-token);
   --shadow-card: var(--shadow-card-token);
+  --shadow-card-hover: var(--shadow-card-hover-token);
   --shadow-modal: var(--shadow-modal-token);
   --shadow-focus: var(--shadow-focus-token);
 }
@@ -79,8 +80,18 @@
     --radius-card-token: 0.875rem;
     --radius-modal-token: 1rem;
     --shadow-card-token: 0 0.5rem 1.5rem rgb(17 17 17 / 6%);
+    --shadow-card-hover-token: 0 0.75rem 1.75rem rgb(17 17 17 / 9%);
     --shadow-modal-token: 0 1.25rem 3rem rgb(17 17 17 / 16%);
     --shadow-focus-token: 0 0 0 3px rgb(176 138 74 / 20%);
+
+    /* Shared card/table density tokens. */
+    --space-card-header-x: 1.25rem;
+    --space-card-header-y: 1rem;
+    --space-card-body: 1.25rem;
+    --space-table-cell-x: 1rem;
+    --space-table-cell-y: 0.875rem;
+    --table-header-bg: var(--color-surface-soft-token);
+    --table-row-hover-bg: var(--brand-hover);
   }
 
   :focus-visible {
@@ -406,7 +417,9 @@
     }
   }
 
-  .sahwa-table {
+  /* One readable table language for both premium-table and sahwa-table markup. */
+  .sahwa-table,
+  .premium-table {
     width: 100%;
     border-collapse: separate;
     border-spacing: 0;
@@ -414,29 +427,82 @@
     text-align: right;
   }
 
-  .sahwa-table thead th {
-    background: var(--color-surface-soft-token);
+  .sahwa-table thead th,
+  .premium-table thead th {
+    background: var(--table-header-bg);
     border-bottom: 2px solid var(--color-border-token);
     color: var(--color-text-muted-token);
     font-size: 0.75rem;
     font-weight: 800;
-    padding: 0.75rem;
+    letter-spacing: 0;
+    padding: var(--space-table-cell-y) var(--space-table-cell-x);
     text-align: inherit;
     white-space: nowrap;
   }
 
-  .sahwa-table tbody td {
+  .sahwa-table tbody td,
+  .premium-table tbody td {
     border-bottom: 1px solid var(--color-border-token);
-    padding: 0.75rem;
+    color: var(--color-text-token);
+    font-size: 0.875rem;
+    font-weight: 600;
+    padding: var(--space-table-cell-y) var(--space-table-cell-x);
     vertical-align: middle;
   }
 
-  .sahwa-table tbody tr {
+  .sahwa-table tbody tr:last-child td,
+  .premium-table tbody tr:last-child td {
+    border-bottom: 0;
+  }
+
+  .sahwa-table tbody tr,
+  .premium-table tbody tr {
     transition: background-color 160ms ease;
   }
 
-  .sahwa-table tbody tr:hover {
-    background: var(--brand-hover);
+  .sahwa-table tbody tr:hover,
+  .premium-table tbody tr:hover,
+  .sahwa-table tbody tr:focus-within,
+  .premium-table tbody tr:focus-within {
+    background: var(--table-row-hover-bg);
+  }
+
+  /* Card spacing is owned by the shared primitive, not individual screens. */
+  .sahwa-card-header {
+    padding: var(--space-card-header-y) var(--space-card-header-x);
+  }
+
+  .sahwa-card-body {
+    padding: var(--space-card-body);
+  }
+
+  /* Outrank the legacy premium-table rules in index.css while keeping one visual language. */
+  .sahwa-card .premium-table thead th {
+    background: var(--table-header-bg);
+    border-bottom: 2px solid var(--color-border-token);
+    color: var(--color-text-muted-token);
+    font-size: 0.75rem;
+    font-weight: 800;
+    letter-spacing: 0;
+    padding: var(--space-table-cell-y) var(--space-table-cell-x);
+  }
+
+  .sahwa-card .premium-table tbody td {
+    border-bottom: 1px solid var(--color-border-token);
+    color: var(--color-text-token);
+    font-size: 0.875rem;
+    font-weight: 600;
+    padding: var(--space-table-cell-y) var(--space-table-cell-x);
+    vertical-align: middle;
+  }
+
+  .sahwa-card .premium-table tbody tr:last-child td {
+    border-bottom: 0;
+  }
+
+  .sahwa-card .premium-table tbody tr:hover,
+  .sahwa-card .premium-table tbody tr:focus-within {
+    background: var(--table-row-hover-bg);
   }
 
   .sahwa-modal {
@@ -486,7 +552,8 @@
   }
 
   .sahwa-card:hover {
-    box-shadow: var(--shadow-modal-token);
+    border-color: color-mix(in srgb, var(--color-border-token) 78%, var(--brand-black));
+    box-shadow: var(--shadow-card-hover-token);
   }
 
   .sahwa-card-header {

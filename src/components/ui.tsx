@@ -83,11 +83,11 @@ export const Card: React.FC<CardProps> = ({
 
   return (
     <div
-      className={`ui-card sahwa-card transition-all duration-300 ${accentBorderMap[accentBorder]} ${className}`}
+      className={`ui-card sahwa-card transition-[box-shadow,border-color] duration-200 ${accentBorderMap[accentBorder]} ${className}`}
       {...props}
     >
       {(title || action || headerIcon) && (
-        <div className="ui-card-header sahwa-card-header flex items-center justify-between gap-3 px-6 py-5">
+        <div className="ui-card-header sahwa-card-header flex items-center justify-between gap-3">
           <div className="flex items-center gap-3.5">
             {headerIcon && (
               <div className="sahwa-card-icon w-10 h-10 rounded-xl flex items-center justify-center shrink-0">
@@ -102,7 +102,7 @@ export const Card: React.FC<CardProps> = ({
           {action && <div className="flex items-center gap-2">{action}</div>}
         </div>
       )}
-      <div className="ui-card-body sahwa-card-body p-6">{children}</div>
+      <div className="ui-card-body sahwa-card-body">{children}</div>
     </div>
   );
 };
