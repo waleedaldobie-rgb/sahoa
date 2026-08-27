@@ -395,7 +395,7 @@ async function createFabric(pageRef) {
   await expect(pageRef.getByRole('dialog')).toBeVisible();
   await pageRef.getByLabel('اسم القماش *', { exact: true }).fill('قماش Windows Acceptance');
   await pageRef.getByLabel('اللون', { exact: true }).fill('كحلي');
-  await pageRef.getByLabel('المخزون (متر)', { exact: true }).fill('50');
+  await pageRef.getByLabel('المخزون الحالي (متر)', { exact: true }).fill('50');
   await pageRef.getByRole('button', { name: 'حفظ البيانات', exact: true }).click();
   await expect(pageRef.getByRole('row', { name: /قماش Windows Acceptance/ })).toBeVisible({ timeout: 20_000 });
   await waitForData(pageRef, (data) => data.fabrics.some((item) => item.name === 'قماش Windows Acceptance'), 'fabric data was not persisted');

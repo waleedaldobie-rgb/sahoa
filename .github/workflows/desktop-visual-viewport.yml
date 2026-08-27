@@ -47,7 +47,13 @@ jobs:
         shell: pwsh
         env:
           npm_config_python: ${{ env.pythonLocation }}\python.exe
-        run: npm ci
+        run: |
+          npm ci
+          npm install --no-save --no-package-lock @rollup/rollup-win32-x64-msvc@4.62.4 @playwright/test
+          npx electron --version
+          if (-not (Test-Path (Join-Path $env:GITHUB_WORKSPACE 'node_modules\electron\dist\electron.exe'))) {
+            throw 'Electron binary was not downloaded.'
+          }
 
       - name: Build renderer and Electron files
         shell: pwsh
@@ -56,7 +62,9 @@ jobs:
           ELECTRON_BUILD: 'true'
         run: |
           npm run build
+          if ($LASTEXITCODE -ne 0) { throw 'Renderer build failed.' }
           npm run build:electron
+          if ($LASTEXITCODE -ne 0) { throw 'Electron build failed.' }
 
       - name: Run desktop viewport visual check
         shell: pwsh
