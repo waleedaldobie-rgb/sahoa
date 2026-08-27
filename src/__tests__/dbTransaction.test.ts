@@ -146,7 +146,7 @@ describe('db.transaction - Atomic Operations & Rollback Tests', () => {
       id: 'ORD-CANCELLED-UPDATE', customerId: 'CUST-001', customerName: 'أحمد علي',
       fabricId: 'FAB-TEST-001', fabricName: 'قماش ياباني أبيض فاخر', garmentCount: 1, totalAmount: 300, paidAmount: 100
     });
-    await window.electronAPI.updateOrderStatus(order.id, 'cancelled');
+    await window.electronAPI.updateOrderStatus({ orderId: order.id, status: 'cancelled' });
     const beforeUpdate = await window.electronAPI.getData();
     expect(beforeUpdate.fabrics.find((fabric) => fabric.id === 'FAB-TEST-001')?.quantityMeters).toBe(50);
 
@@ -214,7 +214,7 @@ describe('db.transaction - Atomic Operations & Rollback Tests', () => {
     });
 
     // 2. Change status to 'cancelled' (should restore 7m -> stock 50m)
-    await window.electronAPI.updateOrderStatus(order.id, 'cancelled');
+    await window.electronAPI.updateOrderStatus({ orderId: order.id, status: 'cancelled' });
     let data = await window.electronAPI.getData();
     expect(data.fabrics[0].quantityMeters).toBe(50);
     expect(data.orders[0].status).toBe('cancelled');

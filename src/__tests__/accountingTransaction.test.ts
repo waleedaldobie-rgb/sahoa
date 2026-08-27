@@ -64,8 +64,20 @@ describe('inventory and accounting atomic flows', () => {
     expect(created.orderMaterialUsages).toHaveLength(2);
     expect(created.cashTransactions.filter((transaction) => transaction.sourceType === 'customer_payment')).toHaveLength(1);
 
-    await window.electronAPI.addPayment(order.id ? `INV-${order.orderNumber}` : '', 50, 'cash', 'دفعة اختبار', 'PAY-IDEMPOTENT');
-    await window.electronAPI.addPayment(`INV-${order.orderNumber}`, 50, 'cash', 'دفعة اختبار', 'PAY-IDEMPOTENT');
+    await window.electronAPI.addPayment({
+      invoiceId: order.id ? `INV-${order.orderNumber}` : '',
+      amount: 50,
+      method: 'cash',
+      note: 'دفعة اختبار',
+      paymentId: 'PAY-IDEMPOTENT',
+    });
+    await window.electronAPI.addPayment({
+      invoiceId: `INV-${order.orderNumber}`,
+      amount: 50,
+      method: 'cash',
+      note: 'دفعة اختبار',
+      paymentId: 'PAY-IDEMPOTENT',
+    });
     const afterPayment = await window.electronAPI.getData();
     expect(afterPayment.invoices[0].paidAmount).toBe(150);
     expect(afterPayment.cashTransactions.filter((transaction) => transaction.sourceId === 'PAY-IDEMPOTENT')).toHaveLength(1);
@@ -90,8 +102,20 @@ describe('inventory and accounting atomic flows', () => {
   });
 
   it('prevents negative stock and records manual adjustments with before/after balances', async () => {
-    await expect(window.electronAPI.adjustStock('fabric', 'FAB-A', -11, 'جرد ناقص', 'adjustment')).rejects.toThrow();
-    await window.electronAPI.adjustStock('fabric', 'FAB-A', -1, 'جرد فعلي', 'adjustment');
+    await expect(window.electronAPI.adjustStock({
+      itemType: 'fabric',
+      itemId: 'FAB-A',
+      quantity: -11,
+      reason: 'جرد ناقص',
+      direction: 'adjustment',
+    })).rejects.toThrow();
+    await window.electronAPI.adjustStock({
+      itemType: 'fabric',
+      itemId: 'FAB-A',
+      quantity: -1,
+      reason: 'جرد فعلي',
+      direction: 'adjustment',
+    });
     const data = await window.electronAPI.getData();
     const movement = data.stockMovements.find((entry) => entry.reason === 'جرد فعلي');
     expect(movement?.quantityBefore).toBe(10);
