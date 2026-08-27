@@ -49,9 +49,9 @@ describe('IDs/sequences and Notifications lifecycle', () => {
   });
 
   it('upserts WhatsApp notifications by source and preserves sent status', async () => {
-    const sent = await window.electronAPI.sendWhatsAppNotice('0500000000', 'عميل اختبار', '1001', 'جاهز');
+    const sent = await window.electronAPI.sendWhatsAppNotice({ phone: '0500000000', customerName: 'عميل اختبار', orderNumber: '1001', statusText: 'جاهز' });
     expect(sent).toBe(true);
-    const again = await window.electronAPI.sendWhatsAppNotice('0500000000', 'عميل اختبار', '1001', 'جاهز');
+    const again = await window.electronAPI.sendWhatsAppNotice({ phone: '0500000000', customerName: 'عميل اختبار', orderNumber: '1001', statusText: 'جاهز' });
     expect(again).toBe(true);
     const notifications = await window.electronAPI.notifications?.list(true);
     expect(notifications).toHaveLength(1);
@@ -64,7 +64,7 @@ describe('IDs/sequences and Notifications lifecycle', () => {
     const staleSnapshot = await window.electronAPI.getData();
     expect(staleSnapshot.notifications).toHaveLength(0);
 
-    await window.electronAPI.sendWhatsAppNotice('0500000000', 'عميل اختبار', '1001', 'جاهز');
+    await window.electronAPI.sendWhatsAppNotice({ phone: '0500000000', customerName: 'عميل اختبار', orderNumber: '1001', statusText: 'جاهز' });
     const before = await window.electronAPI.notifications?.list(true);
     expect(before?.[0]).toMatchObject({ status: 'sent', source: 'whatsapp' });
 
@@ -78,7 +78,7 @@ describe('IDs/sequences and Notifications lifecycle', () => {
   });
 
   it('marks all read and archives without deleting notifications', async () => {
-    await window.electronAPI.sendWhatsAppNotice('0500000000', 'عميل اختبار', '1001', 'جاهز');
+    await window.electronAPI.sendWhatsAppNotice({ phone: '0500000000', customerName: 'عميل اختبار', orderNumber: '1001', statusText: 'جاهز' });
     const before = await window.electronAPI.notifications?.list(true);
     expect(before).toHaveLength(1);
     expect((await window.electronAPI.notifications?.markAllRead())?.updated).toBe(1);
@@ -91,7 +91,7 @@ describe('IDs/sequences and Notifications lifecycle', () => {
 
   it('records WhatsApp failure and enforces bounded retry history', async () => {
     (globalThis as any).open = () => { throw new Error('browser unavailable'); };
-    expect(await window.electronAPI.sendWhatsAppNotice('0500000000', 'عميل اختبار', '1001', 'فشل')).toBe(false);
+    expect(await window.electronAPI.sendWhatsAppNotice({ phone: '0500000000', customerName: 'عميل اختبار', orderNumber: '1001', statusText: 'فشل' })).toBe(false);
     const failed = (await window.electronAPI.notifications?.list(true))?.[0];
     expect(failed?.status).toBe('failed');
     expect(failed?.lastError).toContain('browser unavailable');

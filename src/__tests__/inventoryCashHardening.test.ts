@@ -56,13 +56,29 @@ describe('Inventory/WAC returns and Cash whitelist hardening', () => {
     const beforeReturn = await window.electronAPI.getData();
     const original = beforeReturn.stockMovements.find((movement) => movement.referenceId === 'PUR-WAC-2');
     expect(original?.unitCost).toBe(20);
-    await window.electronAPI.returnPurchase?.('fabric', 'FAB-WAC', 5, 'إرجاع شراء جزئي', original?.id, 'PUR-WAC-2-RETURN', 'warehouse-user');
+    await window.electronAPI.returnPurchase?.({
+      itemType: 'fabric',
+      itemId: 'FAB-WAC',
+      quantity: 5,
+      reason: 'إرجاع شراء جزئي',
+      originalMovementId: original?.id,
+      purchaseId: 'PUR-WAC-2-RETURN',
+      actorId: 'warehouse-user',
+    });
     const afterReturn = await window.electronAPI.getData();
     const returned = afterReturn.stockMovements.find((movement) => movement.referenceType === 'purchase_return');
     expect(afterReturn.fabrics[0].quantityMeters).toBe(15);
     expect(afterReturn.fabrics[0].purchasePrice).toBe(13.3333);
     expect(returned).toMatchObject({ quantity: 5, unitCost: 20, totalCost: 100, sourceMovementId: original?.id, actorId: 'warehouse-user' });
-    await expect(window.electronAPI.returnPurchase?.('fabric', 'FAB-WAC', 99, 'إرجاع أكبر من الرصيد', original?.id, 'PUR-WAC-2-RETURN-INVALID', 'warehouse-user')).rejects.toThrow();
+    await expect(window.electronAPI.returnPurchase?.({
+      itemType: 'fabric',
+      itemId: 'FAB-WAC',
+      quantity: 99,
+      reason: 'إرجاع أكبر من الرصيد',
+      originalMovementId: original?.id,
+      purchaseId: 'PUR-WAC-2-RETURN-INVALID',
+      actorId: 'warehouse-user',
+    })).rejects.toThrow();
     expect((await window.electronAPI.getData()).fabrics[0].quantityMeters).toBe(15);
   });
 
@@ -78,7 +94,7 @@ describe('Inventory/WAC returns and Cash whitelist hardening', () => {
     const beforeCancel = await window.electronAPI.getData();
     const wacBeforeCancel = beforeCancel.fabrics[0].purchasePrice;
     const usageCost = beforeCancel.orderMaterialUsages.find((usage) => usage.orderId === order.id)?.unitCostAtUsage;
-    await window.electronAPI.updateOrderStatus(order.id, 'cancelled');
+    await window.electronAPI.updateOrderStatus({ orderId: order.id, status: 'cancelled' });
     const afterCancel = await window.electronAPI.getData();
     const returnMovement = afterCancel.stockMovements.find((movement) => movement.referenceType === 'order_cancel' && movement.referenceId === order.id);
     expect(afterCancel.fabrics[0].purchasePrice).toBe(wacBeforeCancel);
