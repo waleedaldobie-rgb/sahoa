@@ -4,9 +4,14 @@ import {
   cashAdjustmentArgsSchema,
   customerCreditApplyArgsSchema,
   customerCreditRefundArgsSchema,
+  idArgsSchema,
+  orderStatusArgsSchema,
+  preferencesSaveArgsSchema,
   restoreBackupArgsSchema,
+  settingsUpdateArgsSchema,
   stockAdjustArgsSchema,
   stockReturnPurchaseArgsSchema,
+  whatsappSendArgsSchema,
 } from '../services/shared/ipcSchemas';
 import { parseIpcInput } from '../electron/validation/parseIpc';
 
@@ -128,5 +133,52 @@ describe('IPC runtime schemas', () => {
       { invoiceId: '', amount: -1, method: 'cash', note: '' },
       'بيانات الدفعة',
     )).toThrow(/بيانات الدفعة غير صالح/);
+  });
+});
+
+
+describe('IPC runtime schemas for the second hardening batch', () => {
+  it('accepts supported order status and rejects unknown status', () => {
+    expect(orderStatusArgsSchema.safeParse({ orderId: 'ORD-1', status: 'ready' }).success).toBe(true);
+    expect(orderStatusArgsSchema.safeParse({ orderId: 'ORD-1', status: 'archived' }).success).toBe(false);
+    expect(idArgsSchema.safeParse({ id: 'ORD-1' }).success).toBe(true);
+    expect(idArgsSchema.safeParse({ id: '' }).success).toBe(false);
+  });
+
+  it('accepts WhatsApp input and rejects oversized or incomplete values', () => {
+    expect(whatsappSendArgsSchema.safeParse({
+      phone: '0500000000',
+      customerName: 'عميل اختبار',
+      orderNumber: '1001',
+      statusText: 'جاهز',
+    }).success).toBe(true);
+
+    expect(whatsappSendArgsSchema.safeParse({
+      phone: '0500000000',
+      customerName: '',
+      orderNumber: '1001',
+      statusText: 'جاهز',
+    }).success).toBe(false);
+
+    expect(whatsappSendArgsSchema.safeParse({
+      phone: '0500000000',
+      customerName: 'عميل اختبار',
+      orderNumber: '1001',
+      statusText: 'x'.repeat(201),
+    }).success).toBe(false);
+  });
+
+  it('accepts partial preferences and rejects unknown preference fields', () => {
+    expect(preferencesSaveArgsSchema.safeParse({ activeTab: 'orders' }).success).toBe(true);
+    expect(preferencesSaveArgsSchema.safeParse({ shopName: 'محل الاختبار', invoicePrintMode: 'summary' }).success).toBe(true);
+    expect(preferencesSaveArgsSchema.safeParse({ activeTab: 'unknown' }).success).toBe(false);
+    expect(preferencesSaveArgsSchema.safeParse({ activeTab: 'orders', unknown: true }).success).toBe(false);
+  });
+
+  it('accepts supported settings and rejects unbounded types', () => {
+    expect(settingsUpdateArgsSchema.safeParse({ key: 'autoBackupIntervalHours', value: 1 }).success).toBe(true);
+    expect(settingsUpdateArgsSchema.safeParse({ key: 'dataCleared', value: 'true' }).success).toBe(true);
+    expect(settingsUpdateArgsSchema.safeParse({ key: 'notASetting', value: 1 }).success).toBe(false);
+    expect(settingsUpdateArgsSchema.safeParse({ key: 'maxBackupFiles', value: Number.NaN }).success).toBe(false);
   });
 });

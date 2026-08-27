@@ -52,9 +52,15 @@ import {
   cashAdjustmentArgsSchema,
   customerCreditApplyArgsSchema,
   customerCreditRefundArgsSchema,
+  idArgsSchema,
+  orderIdArgsSchema,
+  orderStatusArgsSchema,
+  preferencesSaveArgsSchema,
   restoreBackupArgsSchema,
+  settingsUpdateArgsSchema,
   stockAdjustArgsSchema,
   stockReturnPurchaseArgsSchema,
+  whatsappSendArgsSchema,
 } from '../services/shared/ipcSchemas';
 import { parseIpcInput } from './validation/parseIpc';
 
@@ -186,7 +192,10 @@ export function registerIpcHandlers(dbManager: SahwaDatabaseManager) {
   safeIpcHandle(ipcMain, 'customers:list', async () => customerService.list());
   safeIpcHandle(ipcMain, 'customers:create', async (_, customer: Partial<Customer>) => customerService.create(customer));
   safeIpcHandle(ipcMain, 'customers:update', async (_, customer: Customer) => customerService.update(customer));
-  safeIpcHandle(ipcMain, 'customers:delete', async (_, customerId: string) => customerService.delete(customerId));
+  safeIpcHandle(ipcMain, 'customers:delete', async (_, customerId: unknown) => {
+    const input = parseIpcInput(idArgsSchema, { id: customerId }, 'معرّف العميل');
+    return customerService.delete(input.id);
+  });
   safeIpcHandle(ipcMain, 'customers:saveMeasurementHistory', async (_, customerId: string, note: string) => customerService.saveMeasurementHistory(customerId, note));
 
   // -------------------------------------------------------------
@@ -195,12 +204,20 @@ export function registerIpcHandlers(dbManager: SahwaDatabaseManager) {
   safeIpcHandle(ipcMain, 'fabrics:list', async () => fabricRepository.list());
   safeIpcHandle(ipcMain, 'fabrics:create', async (_, fabric: Partial<FabricItem>) => fabricRepository.insert(fabric));
   safeIpcHandle(ipcMain, 'fabrics:update', async (_, fabric: FabricItem) => { fabricRepository.update(fabric); return true; });
-  safeIpcHandle(ipcMain, 'fabrics:delete', async (_, fabricId: string) => { fabricRepository.delete(fabricId); return true; });
+  safeIpcHandle(ipcMain, 'fabrics:delete', async (_, fabricId: unknown) => {
+    const input = parseIpcInput(idArgsSchema, { id: fabricId }, 'معرّف القماش');
+    fabricRepository.delete(input.id);
+    return true;
+  });
 
   safeIpcHandle(ipcMain, 'accessories:list', async () => accessoryRepository.list());
   safeIpcHandle(ipcMain, 'accessories:create', async (_, accessory: Partial<AccessoryItem>) => accessoryRepository.insert(accessory));
   safeIpcHandle(ipcMain, 'accessories:update', async (_, accessory: AccessoryItem) => { accessoryRepository.update(accessory); return true; });
-  safeIpcHandle(ipcMain, 'accessories:delete', async (_, accessoryId: string) => { accessoryRepository.delete(accessoryId); return true; });
+  safeIpcHandle(ipcMain, 'accessories:delete', async (_, accessoryId: unknown) => {
+    const input = parseIpcInput(idArgsSchema, { id: accessoryId }, 'معرّف الإكسسوار');
+    accessoryRepository.delete(input.id);
+    return true;
+  });
 
   // -------------------------------------------------------------
   // INVENTORY MOVEMENTS, PURCHASES, EXPENSES & CASH LEDGER
@@ -301,12 +318,20 @@ export function registerIpcHandlers(dbManager: SahwaDatabaseManager) {
   safeIpcHandle(ipcMain, 'thobeTypes:list', async () => thobeTypeRepository.list());
   safeIpcHandle(ipcMain, 'thobeTypes:create', async (_, item: Partial<ThobeType>) => thobeTypeRepository.insert(item));
   safeIpcHandle(ipcMain, 'thobeTypes:update', async (_, item: ThobeType) => { thobeTypeRepository.update(item); return true; });
-  safeIpcHandle(ipcMain, 'thobeTypes:delete', async (_, id: string) => { thobeTypeRepository.delete(id); return true; });
+  safeIpcHandle(ipcMain, 'thobeTypes:delete', async (_, id: unknown) => {
+    const input = parseIpcInput(idArgsSchema, { id }, 'معرّف نوع الثوب');
+    thobeTypeRepository.delete(input.id);
+    return true;
+  });
 
   safeIpcHandle(ipcMain, 'colors:list', async () => colorRepository.list());
   safeIpcHandle(ipcMain, 'colors:create', async (_, item: Partial<ColorItem>) => colorRepository.insert(item));
   safeIpcHandle(ipcMain, 'colors:update', async (_, item: ColorItem) => { colorRepository.update(item); return true; });
-  safeIpcHandle(ipcMain, 'colors:delete', async (_, id: string) => { colorRepository.delete(id); return true; });
+  safeIpcHandle(ipcMain, 'colors:delete', async (_, id: unknown) => {
+    const input = parseIpcInput(idArgsSchema, { id }, 'معرّف اللون');
+    colorRepository.delete(input.id);
+    return true;
+  });
 
   // -------------------------------------------------------------
   // ORDERS & TRANSACTIONS IPC HANDLERS
@@ -401,15 +426,17 @@ export function registerIpcHandlers(dbManager: SahwaDatabaseManager) {
     return orderService.updateOrder(updatedOrder, settings.fabricConsumptionRatePerGarment || 3.5);
   });
 
-  safeIpcHandle(ipcMain, 'orders:delete', async (_, orderId: string) => {
-    return orderService.deleteOrder(orderId);
+  safeIpcHandle(ipcMain, 'orders:delete', async (_, orderId: unknown) => {
+    const input = parseIpcInput(idArgsSchema, { id: orderId }, 'معرّف الطلب');
+    return orderService.deleteOrder(input.id);
   });
 
   /**
    * TRANSACTION REQUIREMENT: Status Change to Cancelled -> Restore fabric
    */
-  safeIpcHandle(ipcMain, 'orders:updateStatus', async (_, orderId: string, status: string) => {
-    return orderStatusService.updateStatus(orderId, status);
+  safeIpcHandle(ipcMain, 'orders:updateStatus', async (_, orderId: unknown, status: unknown) => {
+    const input = parseIpcInput(orderStatusArgsSchema, { orderId, status }, 'تحديث حالة الطلب');
+    return orderStatusService.updateStatus(input.orderId, input.status);
   });
 
   // -------------------------------------------------------------
@@ -483,8 +510,9 @@ export function registerIpcHandlers(dbManager: SahwaDatabaseManager) {
       actorId: localActorId()
     });
   });
-  safeIpcHandle(ipcMain, 'customerCredits:getOperation', async (_, operationId: string) => {
-    return customerCreditService.getOperation(operationId);
+  safeIpcHandle(ipcMain, 'customerCredits:getOperation', async (_, operationId: unknown) => {
+    const input = parseIpcInput(idArgsSchema, { id: operationId }, 'معرّف عملية الرصيد');
+    return customerCreditService.getOperation(input.id);
   });
 
   // -------------------------------------------------------------
@@ -495,10 +523,16 @@ export function registerIpcHandlers(dbManager: SahwaDatabaseManager) {
     });
 
     safeIpcHandle(ipcMain, 'notifications:list', async (_, includeArchived = false) => notificationRepository.list(Boolean(includeArchived)));
-    safeIpcHandle(ipcMain, 'notifications:markRead', async (_, id: string) => notificationRepository.markRead(id));
+    safeIpcHandle(ipcMain, 'notifications:markRead', async (_, id: unknown) => {
+      const input = parseIpcInput(idArgsSchema, { id }, 'معرّف الإشعار');
+      return notificationRepository.markRead(input.id);
+    });
     safeIpcHandle(ipcMain, 'notifications:markAllRead', async () => ({ updated: notificationRepository.markAllRead() }));
     safeIpcHandle(ipcMain, 'notifications:clearAll', async () => ({ archived: notificationRepository.archiveAll() }));
-    safeIpcHandle(ipcMain, 'notifications:retry', async (_, id: string) => notificationRepository.retry(id));
+    safeIpcHandle(ipcMain, 'notifications:retry', async (_, id: unknown) => {
+      const input = parseIpcInput(idArgsSchema, { id }, 'معرّف الإشعار');
+      return notificationRepository.retry(input.id);
+    });
 
     safeIpcHandle(ipcMain, 'data:save', async (_, data: { notifications?: any[] }) => {
       if (!data || !Array.isArray(data.notifications)) return false;
@@ -509,8 +543,9 @@ export function registerIpcHandlers(dbManager: SahwaDatabaseManager) {
       return dbManager.getUserPreferences();
     });
 
-    safeIpcHandle(ipcMain, 'preferences:save', async (_, preferences: Record<string, unknown>) => {
-      return dbManager.updateUserPreferences(preferences);
+    safeIpcHandle(ipcMain, 'preferences:save', async (_, preferences: unknown) => {
+      const input = parseIpcInput(preferencesSaveArgsSchema, preferences, 'إعدادات المستخدم');
+      return dbManager.updateUserPreferences(input);
     });
 
     safeIpcHandle(ipcMain, 'system:backup', async () => {
@@ -541,26 +576,32 @@ export function registerIpcHandlers(dbManager: SahwaDatabaseManager) {
     return dbManager.getSettings();
   });
 
-  safeIpcHandle(ipcMain, 'settings:update', async (_, key: any, value: any) => {
-    dbManager.updateSetting(key, value);
+  safeIpcHandle(ipcMain, 'settings:update', async (_, key: unknown, value: unknown) => {
+    const input = parseIpcInput(settingsUpdateArgsSchema, { key, value }, 'تحديث الإعدادات');
+    dbManager.updateSetting(input.key, input.value);
     return true;
   });
 
-  safeIpcHandle(ipcMain, 'whatsapp:send', async (_, phone: string, customerName: string, orderNumber: string, statusText: string) => {
-    const prepared = whatsappService.prepareMessage(phone, customerName, orderNumber, statusText);
-    whatsappService.beginDelivery(phone, customerName, orderNumber, statusText, prepared);
+  safeIpcHandle(ipcMain, 'whatsapp:send', async (_, phone: unknown, customerName: unknown, orderNumber: unknown, statusText: unknown) => {
+    const input = parseIpcInput(
+      whatsappSendArgsSchema,
+      { phone, customerName, orderNumber, statusText },
+      'بيانات رسالة WhatsApp',
+    );
+    const prepared = whatsappService.prepareMessage(input.phone, input.customerName, input.orderNumber, input.statusText);
+    whatsappService.beginDelivery(input.phone, input.customerName, input.orderNumber, input.statusText, prepared);
     if (process.env.SAHWA_FORCE_WHATSAPP_FAILURE === '1') {
-      whatsappService.recordDeliveryResult(phone, customerName, orderNumber, statusText, prepared, 'failed', 'forced failure');
+      whatsappService.recordDeliveryResult(input.phone, input.customerName, input.orderNumber, input.statusText, prepared, 'failed', 'forced failure');
       return false;
     }
     try {
       const { shell } = require('electron');
       await shell.openExternal(prepared.url);
-      whatsappService.recordDeliveryResult(phone, customerName, orderNumber, statusText, prepared, 'opened');
+      whatsappService.recordDeliveryResult(input.phone, input.customerName, input.orderNumber, input.statusText, prepared, 'opened');
       return true;
     } catch (e: any) {
       console.error('Failed to open external WhatsApp URL:', e);
-      whatsappService.recordDeliveryResult(phone, customerName, orderNumber, statusText, prepared, 'failed', e?.message || String(e));
+      whatsappService.recordDeliveryResult(input.phone, input.customerName, input.orderNumber, input.statusText, prepared, 'failed', e?.message || String(e));
       return false;
     }
   });

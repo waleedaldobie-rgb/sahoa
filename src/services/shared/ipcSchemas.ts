@@ -36,6 +36,69 @@ export const inventoryDirectionSchema = z.enum([
   'adjustment_out',
 ]);
 
+export const orderStatusSchema = z.enum([
+  'new',
+  'processing',
+  'ready',
+  'delivered',
+  'cancelled',
+]);
+
+export const idArgsSchema = z.object({
+  id: ipcIdSchema,
+}).strict();
+
+export const orderIdArgsSchema = z.object({
+  orderId: ipcIdSchema,
+}).strict();
+
+export const orderStatusArgsSchema = z.object({
+  orderId: ipcIdSchema,
+  status: orderStatusSchema,
+}).strict();
+
+export const whatsappSendArgsSchema = z.object({
+  phone: z.string().trim().min(3).max(40),
+  customerName: ipcShortTextSchema,
+  orderNumber: ipcIdSchema,
+  statusText: ipcShortTextSchema,
+}).strict();
+
+export const preferencesSaveArgsSchema = z.object({
+  activeTab: z.enum([
+    'dashboard',
+    'customers',
+    'orders',
+    'invoices',
+    'inventory',
+    'reports',
+    'accounting',
+    'settings',
+  ]).optional(),
+  invoicePrintMode: z.enum(['detailed', 'summary']).optional(),
+  shopName: z.string().trim().max(200).optional(),
+  managerName: z.string().trim().max(200).optional(),
+  shopLogoUrl: z.string().trim().max(5_000_000).optional(),
+  shopPhone: z.string().trim().max(40).optional(),
+  vatNumber: z.string().trim().max(100).optional(),
+  shopAddress: z.string().trim().max(500).optional(),
+}).strict();
+
+export const settingsUpdateArgsSchema = z.object({
+  key: z.enum([
+    'fabricConsumptionRatePerGarment',
+    'autoBackupIntervalHours',
+    'maxBackupFiles',
+    'lastBackupTimestamp',
+    'schemaVersion',
+    'dataCleared',
+  ]),
+  value: z.union([
+    z.string().trim().max(500),
+    z.number().finite(),
+  ]),
+}).strict();
+
 export const manualCashSourceTypeSchema = z.enum([
   'opening_balance',
   'adjustment',
