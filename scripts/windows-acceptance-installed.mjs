@@ -962,7 +962,10 @@ async function offlineAcceptance() {
   pass('offline.local-modules', 'customers, measurements, orders, invoices, inventory, accounting, and reports loaded offline');
 
   await openTab(page, 'إدارة الطلبات', 'إدارة طلبات الخياطة');
-  const whatsappButton = page.getByRole('button', { name: `إرسال رسالة واتساب للطلب ${orderNumber}`, exact: true });
+  const orderRow = page.getByRole('row').filter({ hasText: String(orderNumber) }).last();
+  const actionsMenu = orderRow.locator('details.sahwa-actions-menu');
+  await actionsMenu.locator('summary').click();
+  const whatsappButton = actionsMenu.getByRole('button', { name: `إرسال رسالة واتساب للطلب ${orderNumber}`, exact: true });
   await expect(whatsappButton).toBeVisible();
   await whatsappButton.click();
   await waitForToast(page, /تعذر فتح واتساب/, 'danger');
