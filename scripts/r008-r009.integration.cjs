@@ -68,12 +68,12 @@ const asJson = (value) => JSON.stringify(value);
     };
 
     // R-008: active order rate change rebuilds usage, movement, stock, and cost.
-    await call('updateSetting', 'fabricConsumptionRatePerGarment', 3.5);
+    await call('updateSetting', { key: 'fabricConsumptionRatePerGarment', value: 3.5 });
     await createFabric('R008-FABRIC-ACTIVE', 30);
     const activeCreated = await createOrder('R008-ORDER-ACTIVE', 'R008-FABRIC-ACTIVE');
     const activeBefore = await getFabric('R008-FABRIC-ACTIVE');
     assert.equal(activeBefore.quantityMeters, 26.5);
-    await call('updateSetting', 'fabricConsumptionRatePerGarment', 4);
+    await call('updateSetting', { key: 'fabricConsumptionRatePerGarment', value: 4 });
     await call('updateOrder', await getOrder(activeCreated.id));
     const activeAfter = await getFabric('R008-FABRIC-ACTIVE');
     const activeOrder = await getOrder(activeCreated.id);
@@ -88,10 +88,10 @@ const asJson = (value) => JSON.stringify(value);
     assert.equal(activeMovements.filter((movement) => movement.direction === 'sale')[0].quantity, 4);
 
     // R-008: failed replacement sale rolls the whole update back.
-    await call('updateSetting', 'fabricConsumptionRatePerGarment', 3);
+    await call('updateSetting', { key: 'fabricConsumptionRatePerGarment', value: 3 });
     await createFabric('R008-FABRIC-ROLLBACK', 4);
     const rollbackCreated = await createOrder('R008-ORDER-ROLLBACK', 'R008-FABRIC-ROLLBACK');
-    await call('updateSetting', 'fabricConsumptionRatePerGarment', 5);
+    await call('updateSetting', { key: 'fabricConsumptionRatePerGarment', value: 5 });
     await expectRejected(async () => call('updateOrder', await getOrder(rollbackCreated.id)), /غير كافية|insufficient/i);
     const rollbackFabric = await getFabric('R008-FABRIC-ROLLBACK');
     const rollbackOrder = await getOrder(rollbackCreated.id);
@@ -101,17 +101,17 @@ const asJson = (value) => JSON.stringify(value);
     assert.equal(rollbackUsage[0].quantity, 3);
 
     // R-008: cancelled -> edit -> reactivate consumes only the new snapshot.
-    await call('updateSetting', 'fabricConsumptionRatePerGarment', 3);
+    await call('updateSetting', { key: 'fabricConsumptionRatePerGarment', value: 3 });
     await createFabric('R008-FABRIC-CANCEL', 30);
     const cancelledCreated = await createOrder('R008-ORDER-CANCEL', 'R008-FABRIC-CANCEL');
-    await call('updateOrderStatus', cancelledCreated.id, 'cancelled');
-    await call('updateSetting', 'fabricConsumptionRatePerGarment', 5);
+    await call('updateOrderStatus', { orderId: cancelledCreated.id, status: 'cancelled' });
+    await call('updateSetting', { key: 'fabricConsumptionRatePerGarment', value: 5 });
     await call('updateOrder', await getOrder(cancelledCreated.id));
     assert.equal((await getFabric('R008-FABRIC-CANCEL')).quantityMeters, 30);
     const cancelledUsage = await call('getOrderMaterialUsages', cancelledCreated.id);
     assert.equal(cancelledUsage[0].quantity, 5);
     assert.equal(cancelledUsage[0].sourceMovementId, undefined);
-    await call('updateOrderStatus', cancelledCreated.id, 'new');
+    await call('updateOrderStatus', { orderId: cancelledCreated.id, status: 'new' });
     const reactivatedFabric = await getFabric('R008-FABRIC-CANCEL');
     const reactivatedUsage = await call('getOrderMaterialUsages', cancelledCreated.id);
     assert.equal(reactivatedFabric.quantityMeters, 25);
@@ -124,7 +124,7 @@ const asJson = (value) => JSON.stringify(value);
     }
 
     // R-009: used Fabric and Accessory cannot be hard-deleted.
-    await call('updateSetting', 'fabricConsumptionRatePerGarment', 3.5);
+    await call('updateSetting', { key: 'fabricConsumptionRatePerGarment', value: 3.5 });
     await createFabric('R009-FABRIC-USED', 20);
     const usedFabricOrder = await createOrder('R009-ORDER-FABRIC', 'R009-FABRIC-USED');
     await expectRejected(() => call('deleteFabric', 'R009-FABRIC-USED'), /لا يمكن حذف (القماش|هذا الصنف)/);
@@ -141,7 +141,7 @@ const asJson = (value) => JSON.stringify(value);
 
     // R-009: inventory movement history alone blocks deletion.
     await createFabric('R009-FABRIC-MOVEMENT', 10);
-    await call('adjustStock', 'fabric', 'R009-FABRIC-MOVEMENT', 1, 'R009 movement history');
+    await call('adjustStock', { itemType: 'fabric', itemId: 'R009-FABRIC-MOVEMENT', quantity: 1, reason: 'R009 movement history' });
     await expectRejected(() => call('deleteFabric', 'R009-FABRIC-MOVEMENT'), /لا يمكن حذف (القماش|هذا الصنف)/);
     assert.ok(await getFabric('R009-FABRIC-MOVEMENT'));
 

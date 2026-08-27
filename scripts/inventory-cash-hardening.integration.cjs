@@ -44,13 +44,13 @@ async function main() {
   const original = db.prepare("SELECT * FROM inventory_movements WHERE reference_type = 'purchase' AND reference_id = ?").get('PUR-INV-CASH-1');
   assert.equal(original.unit_cost, 20);
 
-  await call('stock:returnPurchase', 'fabric', 'FAB-INV-CASH', 5, 'Production purchase return', original.id, 'PUR-INV-CASH-RETURN', 'warehouse-user');
+  await call('stock:returnPurchase', { itemType: 'fabric', itemId: 'FAB-INV-CASH', quantity: 5, reason: 'Production purchase return', originalMovementId: original.id, purchaseId: 'PUR-INV-CASH-RETURN', actorId: 'warehouse-user' });
   fabric = db.prepare('SELECT quantity_meters, purchase_price FROM fabrics WHERE id = ?').get('FAB-INV-CASH');
   assert.equal(fabric.quantity_meters, 15);
   assert.equal(fabric.purchase_price, 13.3333);
   const returned = db.prepare("SELECT * FROM inventory_movements WHERE reference_type = 'purchase_return'").get();
   assert.deepEqual({ unit_cost: returned.unit_cost, total_cost: returned.total_cost, source_movement_id: returned.source_movement_id, actor_id: returned.actor_id }, { unit_cost: 20, total_cost: 100, source_movement_id: original.id, actor_id: 'warehouse-user' });
-  await expectReject(call('stock:returnPurchase', 'fabric', 'FAB-INV-CASH', 99, 'Too much return', original.id, 'PUR-INV-CASH-RETURN-INVALID', 'warehouse-user'), /غير كافية|insufficient/);
+  await expectReject(call('stock:returnPurchase', { itemType: 'fabric', itemId: 'FAB-INV-CASH', quantity: 99, reason: 'Too much return', originalMovementId: original.id, purchaseId: 'PUR-INV-CASH-RETURN-INVALID', actorId: 'warehouse-user' }), /غير كافية|insufficient/);
 
   const order = await call('orders:create', {
     id: 'ORD-INV-CASH-CANCEL', customerId: customer.id, customerName: customer.name, customerPhone: customer.phone,
@@ -61,7 +61,7 @@ async function main() {
   const usage = db.prepare('SELECT quantity, unit_cost_at_usage FROM order_material_usages WHERE order_id = ?').get(order.id);
   await call('purchases:create', { id: 'PUR-INV-CASH-AFTER', supplier: 'Later Supplier', purchaseDate: '2026-08-20', paymentMethod: 'cash', lines: [{ itemType: 'fabric', itemId: 'FAB-INV-CASH', itemName: 'Inventory Hardening Fabric', quantity: 10, unit: 'متر', unitPrice: 30 }] });
   const wacBeforeCancel = db.prepare('SELECT purchase_price FROM fabrics WHERE id = ?').get('FAB-INV-CASH').purchase_price;
-  await call('orders:updateStatus', order.id, 'cancelled');
+  await call('orders:updateStatus', { orderId: order.id, status: 'cancelled' });
   fabric = db.prepare('SELECT quantity_meters, purchase_price FROM fabrics WHERE id = ?').get('FAB-INV-CASH');
   const cancelReturn = db.prepare("SELECT * FROM inventory_movements WHERE reference_type = 'order_cancel' AND reference_id = ?").get(order.id);
   assert.equal(cancelReturn.unit_cost, usage.unit_cost_at_usage);
