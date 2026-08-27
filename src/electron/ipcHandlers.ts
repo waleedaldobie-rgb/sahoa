@@ -47,6 +47,22 @@ import { ColorRepository } from './repositories/colorRepository';
 import { DatabaseIntegrityService } from './services/databaseIntegrityService';
 import { createSafeId } from '../domain/idGenerator';
 import { assertValidPaymentMethod } from '../domain/paymentRules';
+import {
+  addPaymentArgsSchema,
+  cashAdjustmentArgsSchema,
+  customerCreditApplyArgsSchema,
+  customerCreditRefundArgsSchema,
+  idArgsSchema,
+  orderIdArgsSchema,
+  orderStatusArgsSchema,
+  preferencesSaveArgsSchema,
+  restoreBackupArgsSchema,
+  settingsUpdateArgsSchema,
+  stockAdjustArgsSchema,
+  stockReturnPurchaseArgsSchema,
+  whatsappSendArgsSchema,
+} from '../services/shared/ipcSchemas';
+import { parseIpcInput } from './validation/parseIpc';
 
 const parseMeasurementsJson = (value?: string) => {
   try { return normalizeMeasurements(JSON.parse(value || '{}')); }
@@ -176,7 +192,10 @@ export function registerIpcHandlers(dbManager: SahwaDatabaseManager) {
   safeIpcHandle(ipcMain, 'customers:list', async () => customerService.list());
   safeIpcHandle(ipcMain, 'customers:create', async (_, customer: Partial<Customer>) => customerService.create(customer));
   safeIpcHandle(ipcMain, 'customers:update', async (_, customer: Customer) => customerService.update(customer));
-  safeIpcHandle(ipcMain, 'customers:delete', async (_, customerId: string) => customerService.delete(customerId));
+  safeIpcHandle(ipcMain, 'customers:delete', async (_, customerId: unknown) => {
+    const input = parseIpcInput(idArgsSchema, { id: customerId }, 'معرّف العميل');
+    return customerService.delete(input.id);
+  });
   safeIpcHandle(ipcMain, 'customers:saveMeasurementHistory', async (_, customerId: string, note: string) => customerService.saveMeasurementHistory(customerId, note));
 
   // -------------------------------------------------------------
@@ -185,12 +204,20 @@ export function registerIpcHandlers(dbManager: SahwaDatabaseManager) {
   safeIpcHandle(ipcMain, 'fabrics:list', async () => fabricRepository.list());
   safeIpcHandle(ipcMain, 'fabrics:create', async (_, fabric: Partial<FabricItem>) => fabricRepository.insert(fabric));
   safeIpcHandle(ipcMain, 'fabrics:update', async (_, fabric: FabricItem) => { fabricRepository.update(fabric); return true; });
-  safeIpcHandle(ipcMain, 'fabrics:delete', async (_, fabricId: string) => { fabricRepository.delete(fabricId); return true; });
+  safeIpcHandle(ipcMain, 'fabrics:delete', async (_, fabricId: unknown) => {
+    const input = parseIpcInput(idArgsSchema, { id: fabricId }, 'معرّف القماش');
+    fabricRepository.delete(input.id);
+    return true;
+  });
 
   safeIpcHandle(ipcMain, 'accessories:list', async () => accessoryRepository.list());
   safeIpcHandle(ipcMain, 'accessories:create', async (_, accessory: Partial<AccessoryItem>) => accessoryRepository.insert(accessory));
   safeIpcHandle(ipcMain, 'accessories:update', async (_, accessory: AccessoryItem) => { accessoryRepository.update(accessory); return true; });
-  safeIpcHandle(ipcMain, 'accessories:delete', async (_, accessoryId: string) => { accessoryRepository.delete(accessoryId); return true; });
+  safeIpcHandle(ipcMain, 'accessories:delete', async (_, accessoryId: unknown) => {
+    const input = parseIpcInput(idArgsSchema, { id: accessoryId }, 'معرّف الإكسسوار');
+    accessoryRepository.delete(input.id);
+    return true;
+  });
 
   // -------------------------------------------------------------
   // INVENTORY MOVEMENTS, PURCHASES, EXPENSES & CASH LEDGER
@@ -199,11 +226,21 @@ export function registerIpcHandlers(dbManager: SahwaDatabaseManager) {
     return inventoryService.listMovements(itemType, itemId);
   });
 
-  safeIpcHandle(ipcMain, 'stock:adjust', async (_, itemType: InventoryItemType, itemId: string, quantity: number, reason: string, direction: 'adjustment' | 'return' | 'adjustment_in' | 'adjustment_out' = 'adjustment', actorId = 'system', unitCost?: number) => {
-    return inventoryService.adjustStock(itemType, itemId, quantity, reason, direction, actorId, unitCost);
+  safeIpcHandle(ipcMain, 'stock:adjust', async (_, itemType: unknown, itemId: unknown, quantity: unknown, reason: unknown, direction: unknown = 'adjustment', actorId: unknown = 'system', unitCost?: unknown) => {
+    const input = parseIpcInput(
+      stockAdjustArgsSchema,
+      { itemType, itemId, quantity, reason, direction, actorId, unitCost },
+      'بيانات حركة المخزون',
+    );
+    return inventoryService.adjustStock(input.itemType, input.itemId, input.quantity, input.reason, input.direction, input.actorId, input.unitCost);
   });
-  safeIpcHandle(ipcMain, 'stock:returnPurchase', async (_, itemType: InventoryItemType, itemId: string, quantity: number, reason: string, originalMovementId?: string, purchaseId?: string, actorId = 'system') => {
-    return inventoryService.returnPurchase(itemType, itemId, quantity, reason, originalMovementId, purchaseId, actorId);
+  safeIpcHandle(ipcMain, 'stock:returnPurchase', async (_, itemType: unknown, itemId: unknown, quantity: unknown, reason: unknown, originalMovementId?: unknown, purchaseId?: unknown, actorId: unknown = 'system') => {
+    const input = parseIpcInput(
+      stockReturnPurchaseArgsSchema,
+      { itemType, itemId, quantity, reason, originalMovementId, purchaseId, actorId },
+      'بيانات إرجاع الشراء',
+    );
+    return inventoryService.returnPurchase(input.itemType, input.itemId, input.quantity, input.reason, input.originalMovementId, input.purchaseId, input.actorId);
   });
 
   safeIpcHandle(ipcMain, 'purchases:list', async () => {
@@ -231,26 +268,26 @@ export function registerIpcHandlers(dbManager: SahwaDatabaseManager) {
     return (cashRepository.list() as any[]).map(mapCashTransaction);
   });
 
-  safeIpcHandle(ipcMain, 'cash:createAdjustment', async (_, payload: any) => {
-    const amount = normalizePositiveAmount(payload.amount, 'مبلغ الحركة');
-    const paymentMethod = assertValidPaymentMethod(payload.paymentMethod ?? 'cash');
-    if (!payload.description?.trim()) throw new Error('وصف الحركة المالية مطلوب');
-    const id = payload.id || createSafeId('CASH');
+  safeIpcHandle(ipcMain, 'cash:createAdjustment', async (_, payload: unknown) => {
+    const input = parseIpcInput(cashAdjustmentArgsSchema, payload, 'بيانات حركة الصندوق');
+    const amount = normalizePositiveAmount(input.amount, 'مبلغ الحركة');
+    const paymentMethod = assertValidPaymentMethod(input.paymentMethod);
+    const id = input.id || createSafeId('CASH');
     const existing = cashRepository.findById(id) as any;
     if (existing) return mapCashTransaction(existing);
     const transaction: CashTransaction = {
       id,
-      direction: payload.direction === 'out' ? 'out' : 'in',
-      sourceType: assertValidManualCashSourceType(payload.sourceType || 'adjustment'),
-      sourceId: payload.sourceId,
-      referenceNumber: payload.referenceNumber,
+      direction: input.direction,
+      sourceType: assertValidManualCashSourceType(input.sourceType),
+      sourceId: input.sourceId,
+      referenceNumber: input.referenceNumber,
       amount: round2(amount),
       paymentMethod,
-      transactionDate: payload.transactionDate || new Date().toISOString().slice(0, 10),
-      description: payload.description.trim(),
-      notes: payload.notes,
-      actorId: payload.actorId || 'system',
-      reason: payload.reason?.trim() || payload.description.trim(),
+      transactionDate: input.transactionDate || new Date().toISOString().slice(0, 10),
+      description: input.description,
+      notes: input.notes,
+      actorId: input.actorId,
+      reason: input.reason?.trim() || input.description,
       createdAt: new Date().toISOString()
     };
     cashRepository.insert(transaction);
@@ -281,12 +318,20 @@ export function registerIpcHandlers(dbManager: SahwaDatabaseManager) {
   safeIpcHandle(ipcMain, 'thobeTypes:list', async () => thobeTypeRepository.list());
   safeIpcHandle(ipcMain, 'thobeTypes:create', async (_, item: Partial<ThobeType>) => thobeTypeRepository.insert(item));
   safeIpcHandle(ipcMain, 'thobeTypes:update', async (_, item: ThobeType) => { thobeTypeRepository.update(item); return true; });
-  safeIpcHandle(ipcMain, 'thobeTypes:delete', async (_, id: string) => { thobeTypeRepository.delete(id); return true; });
+  safeIpcHandle(ipcMain, 'thobeTypes:delete', async (_, id: unknown) => {
+    const input = parseIpcInput(idArgsSchema, { id }, 'معرّف نوع الثوب');
+    thobeTypeRepository.delete(input.id);
+    return true;
+  });
 
   safeIpcHandle(ipcMain, 'colors:list', async () => colorRepository.list());
   safeIpcHandle(ipcMain, 'colors:create', async (_, item: Partial<ColorItem>) => colorRepository.insert(item));
   safeIpcHandle(ipcMain, 'colors:update', async (_, item: ColorItem) => { colorRepository.update(item); return true; });
-  safeIpcHandle(ipcMain, 'colors:delete', async (_, id: string) => { colorRepository.delete(id); return true; });
+  safeIpcHandle(ipcMain, 'colors:delete', async (_, id: unknown) => {
+    const input = parseIpcInput(idArgsSchema, { id }, 'معرّف اللون');
+    colorRepository.delete(input.id);
+    return true;
+  });
 
   // -------------------------------------------------------------
   // ORDERS & TRANSACTIONS IPC HANDLERS
@@ -381,15 +426,17 @@ export function registerIpcHandlers(dbManager: SahwaDatabaseManager) {
     return orderService.updateOrder(updatedOrder, settings.fabricConsumptionRatePerGarment || 3.5);
   });
 
-  safeIpcHandle(ipcMain, 'orders:delete', async (_, orderId: string) => {
-    return orderService.deleteOrder(orderId);
+  safeIpcHandle(ipcMain, 'orders:delete', async (_, orderId: unknown) => {
+    const input = parseIpcInput(idArgsSchema, { id: orderId }, 'معرّف الطلب');
+    return orderService.deleteOrder(input.id);
   });
 
   /**
    * TRANSACTION REQUIREMENT: Status Change to Cancelled -> Restore fabric
    */
-  safeIpcHandle(ipcMain, 'orders:updateStatus', async (_, orderId: string, status: string) => {
-    return orderStatusService.updateStatus(orderId, status);
+  safeIpcHandle(ipcMain, 'orders:updateStatus', async (_, orderId: unknown, status: unknown) => {
+    const input = parseIpcInput(orderStatusArgsSchema, { orderId, status }, 'تحديث حالة الطلب');
+    return orderStatusService.updateStatus(input.orderId, input.status);
   });
 
   // -------------------------------------------------------------
@@ -419,8 +466,13 @@ export function registerIpcHandlers(dbManager: SahwaDatabaseManager) {
     }));
   });
 
-  safeIpcHandle(ipcMain, 'invoices:addPayment', async (_, invoiceId: string, amount: number, method: string, note: string, paymentId?: string) => {
-    return paymentService.addPayment(invoiceId, amount, method, note, paymentId);
+  safeIpcHandle(ipcMain, 'invoices:addPayment', async (_, invoiceId: unknown, amount: unknown, method: unknown, note: unknown, paymentId?: unknown) => {
+    const input = parseIpcInput(
+      addPaymentArgsSchema,
+      { invoiceId, amount, method, note, paymentId },
+      'بيانات الدفعة',
+    );
+    return paymentService.addPayment(input.invoiceId, input.amount, input.method, input.note, input.paymentId);
   });
 
   // -------------------------------------------------------------
@@ -436,28 +488,31 @@ export function registerIpcHandlers(dbManager: SahwaDatabaseManager) {
   safeIpcHandle(ipcMain, 'customerCredits:diagnostics', async () => {
     return customerCreditService.getDiagnostics();
   });
-  safeIpcHandle(ipcMain, 'customerCredits:apply', async (_, request: any) => {
+  safeIpcHandle(ipcMain, 'customerCredits:apply', async (_, request: unknown) => {
+    const input = parseIpcInput(customerCreditApplyArgsSchema, request, 'بيانات تطبيق رصيد العميل');
     return customerCreditService.applyCredit({
-      customerId: request.customerId,
-      targetInvoiceId: request.targetInvoiceId,
-      amount: request.amount,
-      idempotencyKey: request.idempotencyKey,
-      reason: request.reason,
+      customerId: input.customerId,
+      targetInvoiceId: input.targetInvoiceId,
+      amount: input.amount,
+      idempotencyKey: input.idempotencyKey,
+      reason: input.reason,
       actorId: localActorId()
     });
   });
-  safeIpcHandle(ipcMain, 'customerCredits:refund', async (_, request: any) => {
+  safeIpcHandle(ipcMain, 'customerCredits:refund', async (_, request: unknown) => {
+    const input = parseIpcInput(customerCreditRefundArgsSchema, request, 'بيانات استرداد رصيد العميل');
     return customerCreditService.refundCredit({
-      customerId: request.customerId,
-      amount: request.amount,
-      method: request.method,
-      idempotencyKey: request.idempotencyKey,
-      reason: request.reason,
+      customerId: input.customerId,
+      amount: input.amount,
+      method: input.method,
+      idempotencyKey: input.idempotencyKey,
+      reason: input.reason,
       actorId: localActorId()
     });
   });
-  safeIpcHandle(ipcMain, 'customerCredits:getOperation', async (_, operationId: string) => {
-    return customerCreditService.getOperation(operationId);
+  safeIpcHandle(ipcMain, 'customerCredits:getOperation', async (_, operationId: unknown) => {
+    const input = parseIpcInput(idArgsSchema, { id: operationId }, 'معرّف عملية الرصيد');
+    return customerCreditService.getOperation(input.id);
   });
 
   // -------------------------------------------------------------
@@ -468,10 +523,16 @@ export function registerIpcHandlers(dbManager: SahwaDatabaseManager) {
     });
 
     safeIpcHandle(ipcMain, 'notifications:list', async (_, includeArchived = false) => notificationRepository.list(Boolean(includeArchived)));
-    safeIpcHandle(ipcMain, 'notifications:markRead', async (_, id: string) => notificationRepository.markRead(id));
+    safeIpcHandle(ipcMain, 'notifications:markRead', async (_, id: unknown) => {
+      const input = parseIpcInput(idArgsSchema, { id }, 'معرّف الإشعار');
+      return notificationRepository.markRead(input.id);
+    });
     safeIpcHandle(ipcMain, 'notifications:markAllRead', async () => ({ updated: notificationRepository.markAllRead() }));
     safeIpcHandle(ipcMain, 'notifications:clearAll', async () => ({ archived: notificationRepository.archiveAll() }));
-    safeIpcHandle(ipcMain, 'notifications:retry', async (_, id: string) => notificationRepository.retry(id));
+    safeIpcHandle(ipcMain, 'notifications:retry', async (_, id: unknown) => {
+      const input = parseIpcInput(idArgsSchema, { id }, 'معرّف الإشعار');
+      return notificationRepository.retry(input.id);
+    });
 
     safeIpcHandle(ipcMain, 'data:save', async (_, data: { notifications?: any[] }) => {
       if (!data || !Array.isArray(data.notifications)) return false;
@@ -482,8 +543,9 @@ export function registerIpcHandlers(dbManager: SahwaDatabaseManager) {
       return dbManager.getUserPreferences();
     });
 
-    safeIpcHandle(ipcMain, 'preferences:save', async (_, preferences: Record<string, unknown>) => {
-      return dbManager.updateUserPreferences(preferences);
+    safeIpcHandle(ipcMain, 'preferences:save', async (_, preferences: unknown) => {
+      const input = parseIpcInput(preferencesSaveArgsSchema, preferences, 'إعدادات المستخدم');
+      return dbManager.updateUserPreferences(input);
     });
 
     safeIpcHandle(ipcMain, 'system:backup', async () => {
@@ -492,8 +554,9 @@ export function registerIpcHandlers(dbManager: SahwaDatabaseManager) {
       return JSON.stringify(dbManager.exportFullDataAsJson(), null, 2);
     });
 
-  safeIpcHandle(ipcMain, 'system:restore', async (_, jsonContent: string) => {
-    return dbManager.restoreFromJson(jsonContent);
+  safeIpcHandle(ipcMain, 'system:restore', async (_, jsonContent: unknown) => {
+    const input = parseIpcInput(restoreBackupArgsSchema, jsonContent, 'ملف النسخة الاحتياطية');
+    return dbManager.restoreFromJson(input);
   });
 
   safeIpcHandle(ipcMain, 'system:clearAllData', async () => {
@@ -513,26 +576,32 @@ export function registerIpcHandlers(dbManager: SahwaDatabaseManager) {
     return dbManager.getSettings();
   });
 
-  safeIpcHandle(ipcMain, 'settings:update', async (_, key: any, value: any) => {
-    dbManager.updateSetting(key, value);
+  safeIpcHandle(ipcMain, 'settings:update', async (_, key: unknown, value: unknown) => {
+    const input = parseIpcInput(settingsUpdateArgsSchema, { key, value }, 'تحديث الإعدادات');
+    dbManager.updateSetting(input.key, input.value);
     return true;
   });
 
-  safeIpcHandle(ipcMain, 'whatsapp:send', async (_, phone: string, customerName: string, orderNumber: string, statusText: string) => {
-    const prepared = whatsappService.prepareMessage(phone, customerName, orderNumber, statusText);
-    whatsappService.beginDelivery(phone, customerName, orderNumber, statusText, prepared);
+  safeIpcHandle(ipcMain, 'whatsapp:send', async (_, phone: unknown, customerName: unknown, orderNumber: unknown, statusText: unknown) => {
+    const input = parseIpcInput(
+      whatsappSendArgsSchema,
+      { phone, customerName, orderNumber, statusText },
+      'بيانات رسالة WhatsApp',
+    );
+    const prepared = whatsappService.prepareMessage(input.phone, input.customerName, input.orderNumber, input.statusText);
+    whatsappService.beginDelivery(input.phone, input.customerName, input.orderNumber, input.statusText, prepared);
     if (process.env.SAHWA_FORCE_WHATSAPP_FAILURE === '1') {
-      whatsappService.recordDeliveryResult(phone, customerName, orderNumber, statusText, prepared, 'failed', 'forced failure');
+      whatsappService.recordDeliveryResult(input.phone, input.customerName, input.orderNumber, input.statusText, prepared, 'failed', 'forced failure');
       return false;
     }
     try {
       const { shell } = require('electron');
       await shell.openExternal(prepared.url);
-      whatsappService.recordDeliveryResult(phone, customerName, orderNumber, statusText, prepared, 'opened');
+      whatsappService.recordDeliveryResult(input.phone, input.customerName, input.orderNumber, input.statusText, prepared, 'opened');
       return true;
     } catch (e: any) {
       console.error('Failed to open external WhatsApp URL:', e);
-      whatsappService.recordDeliveryResult(phone, customerName, orderNumber, statusText, prepared, 'failed', e?.message || String(e));
+      whatsappService.recordDeliveryResult(input.phone, input.customerName, input.orderNumber, input.statusText, prepared, 'failed', e?.message || String(e));
       return false;
     }
   });
