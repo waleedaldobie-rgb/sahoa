@@ -258,7 +258,7 @@ test.describe("Sahwa Tailoring packaged UI", () => {
       .fill(originalName);
     await addDialog.getByLabel("اللون", { exact: true }).fill("أبيض");
     await addDialog.getByLabel("سعر البيع (ر.س)", { exact: true }).fill("125");
-    await addDialog.getByLabel("المخزون (متر)", { exact: true }).fill("42");
+    await addDialog.getByLabel("المخزون الحالي (متر)", { exact: true }).fill("42");
     await addDialog
       .getByRole("button", { name: "حفظ البيانات", exact: true })
       .click();
@@ -275,7 +275,7 @@ test.describe("Sahwa Tailoring packaged UI", () => {
       .getByLabel("اسم القماش *", { exact: true })
       .fill(updatedName);
     await editDialog.getByLabel("سعر البيع (ر.س)", { exact: true }).fill("150");
-    await editDialog.getByLabel("المخزون (متر)", { exact: true }).fill("42");
+    await editDialog.getByLabel("المخزون الحالي (متر)", { exact: true }).fill("42");
     await editDialog
       .getByRole("button", { name: "حفظ البيانات", exact: true })
       .click();
@@ -297,7 +297,7 @@ test.describe("Sahwa Tailoring packaged UI", () => {
     const addDialog = page.getByRole("dialog");
     await addDialog.getByLabel("اسم القماش *", { exact: true }).fill(name);
     await addDialog.getByLabel("سعر البيع (ر.س)", { exact: true }).fill("90");
-    await addDialog.getByLabel("المخزون (متر)", { exact: true }).fill("18");
+    await addDialog.getByLabel("المخزون الحالي (متر)", { exact: true }).fill("18");
     await addDialog
       .getByRole("button", { name: "حفظ البيانات", exact: true })
       .click();
