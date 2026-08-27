@@ -335,7 +335,7 @@ test.describe("Sahwa Tailoring packaged UI", () => {
     await addDialog
       .getByLabel("اسم الصنف *", { exact: true })
       .fill(originalName);
-    await addDialog.getByLabel("الكمية", { exact: true }).fill("16");
+    await addDialog.getByLabel("الكمية الحالية", { exact: true }).fill("16");
     await addDialog.getByLabel("سعر البيع (ر.س)", { exact: true }).fill("12");
     await addDialog
       .getByRole("button", { name: "حفظ الإكسسوار", exact: true })
@@ -351,7 +351,7 @@ test.describe("Sahwa Tailoring packaged UI", () => {
     await editDialog
       .getByLabel("اسم الصنف *", { exact: true })
       .fill(updatedName);
-    await editDialog.getByLabel("الكمية", { exact: true }).fill("16");
+    await editDialog.getByLabel("الكمية الحالية", { exact: true }).fill("16");
     await editDialog.getByLabel("سعر البيع (ر.س)", { exact: true }).fill("15");
     await editDialog
       .getByRole("button", { name: "حفظ الإكسسوار", exact: true })
@@ -372,7 +372,7 @@ test.describe("Sahwa Tailoring packaged UI", () => {
       .click();
     const addDialog = page.getByRole("dialog");
     await addDialog.getByLabel("اسم الصنف *", { exact: true }).fill(name);
-    await addDialog.getByLabel("الكمية", { exact: true }).fill("7");
+    await addDialog.getByLabel("الكمية الحالية", { exact: true }).fill("7");
     await addDialog.getByLabel("سعر البيع (ر.س)", { exact: true }).fill("8");
     await addDialog
       .getByRole("button", { name: "حفظ الإكسسوار", exact: true })
