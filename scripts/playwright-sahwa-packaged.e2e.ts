@@ -93,10 +93,10 @@ test.describe("Sahwa Tailoring packaged UI", () => {
     await page
       .getByRole("button", { name: "المخزون والأصناف", exact: true })
       .click();
-    const tab = page.getByRole("button", { name: tabName, exact: true });
+    const tab = page.getByRole("tab", { name: tabName, exact: true });
     await expect(tab).toBeVisible({ timeout: 20_000 });
     await tab.click();
-    await expect(tab).toHaveAttribute("aria-pressed", "true");
+    await expect(tab).toHaveAttribute("aria-selected", "true");
   }
 
   async function openInventoryWorkspaceTab(
@@ -105,10 +105,10 @@ test.describe("Sahwa Tailoring packaged UI", () => {
     await page
       .getByRole("button", { name: "المخزون والأصناف", exact: true })
       .click();
-    const tab = page.getByRole("button", { name: tabName, exact: true });
+    const tab = page.getByRole("tab", { name: tabName, exact: true });
     await expect(tab).toBeVisible({ timeout: 20_000 });
     await tab.click();
-    await expect(tab).toHaveAttribute("aria-pressed", "true");
+    await expect(tab).toHaveAttribute("aria-selected", "true");
   }
 
   function inventoryRow(name: string) {
