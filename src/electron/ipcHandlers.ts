@@ -18,6 +18,14 @@ import {
   OrderEvent,
   InventoryItemType
 } from '../types';
+import {
+  normalizeAddPaymentRequest,
+  normalizeAdjustStockRequest,
+  normalizeReturnPurchaseRequest,
+  normalizeSettingsUpdateRequest,
+  normalizeUpdateOrderStatusRequest,
+  normalizeWhatsAppSendRequest,
+} from '../services/shared/ipcRequestAdapters';
 import { normalizeMeasurements, normalizeStyleDetails } from '../services/shared/measurementDefaults';
 import { normalizePositiveAmount } from '../domain/amountRules';
 import { round2 } from '../domain/inventoryRules';
@@ -226,20 +234,14 @@ export function registerIpcHandlers(dbManager: SahwaDatabaseManager) {
     return inventoryService.listMovements(itemType, itemId);
   });
 
-  safeIpcHandle(ipcMain, 'stock:adjust', async (_, itemType: unknown, itemId: unknown, quantity: unknown, reason: unknown, direction: unknown = 'adjustment', actorId: unknown = 'system', unitCost?: unknown) => {
-    const input = parseIpcInput(
-      stockAdjustArgsSchema,
-      { itemType, itemId, quantity, reason, direction, actorId, unitCost },
-      'بيانات حركة المخزون',
-    );
+  safeIpcHandle(ipcMain, 'stock:adjust', async (_, requestOrItemType: unknown, legacyItemId?: unknown, legacyQuantity?: unknown, legacyReason?: unknown, legacyDirection: unknown = 'adjustment', legacyActorId: unknown = 'system', legacyUnitCost?: unknown) => {
+    const request = normalizeAdjustStockRequest(requestOrItemType, legacyItemId, legacyQuantity, legacyReason, legacyDirection, legacyActorId, legacyUnitCost);
+    const input = parseIpcInput(stockAdjustArgsSchema, request, 'بيانات حركة المخزون');
     return inventoryService.adjustStock(input.itemType, input.itemId, input.quantity, input.reason, input.direction, input.actorId, input.unitCost);
   });
-  safeIpcHandle(ipcMain, 'stock:returnPurchase', async (_, itemType: unknown, itemId: unknown, quantity: unknown, reason: unknown, originalMovementId?: unknown, purchaseId?: unknown, actorId: unknown = 'system') => {
-    const input = parseIpcInput(
-      stockReturnPurchaseArgsSchema,
-      { itemType, itemId, quantity, reason, originalMovementId, purchaseId, actorId },
-      'بيانات إرجاع الشراء',
-    );
+  safeIpcHandle(ipcMain, 'stock:returnPurchase', async (_, requestOrItemType: unknown, legacyItemId?: unknown, legacyQuantity?: unknown, legacyReason?: unknown, legacyOriginalMovementId?: unknown, legacyPurchaseId?: unknown, legacyActorId: unknown = 'system') => {
+    const request = normalizeReturnPurchaseRequest(requestOrItemType, legacyItemId, legacyQuantity, legacyReason, legacyOriginalMovementId, legacyPurchaseId, legacyActorId);
+    const input = parseIpcInput(stockReturnPurchaseArgsSchema, request, 'بيانات إرجاع الشراء');
     return inventoryService.returnPurchase(input.itemType, input.itemId, input.quantity, input.reason, input.originalMovementId, input.purchaseId, input.actorId);
   });
 
@@ -434,8 +436,9 @@ export function registerIpcHandlers(dbManager: SahwaDatabaseManager) {
   /**
    * TRANSACTION REQUIREMENT: Status Change to Cancelled -> Restore fabric
    */
-  safeIpcHandle(ipcMain, 'orders:updateStatus', async (_, orderId: unknown, status: unknown) => {
-    const input = parseIpcInput(orderStatusArgsSchema, { orderId, status }, 'تحديث حالة الطلب');
+  safeIpcHandle(ipcMain, 'orders:updateStatus', async (_, requestOrOrderId: unknown, legacyStatus?: unknown) => {
+    const request = normalizeUpdateOrderStatusRequest(requestOrOrderId, legacyStatus);
+    const input = parseIpcInput(orderStatusArgsSchema, request, 'تحديث حالة الطلب');
     return orderStatusService.updateStatus(input.orderId, input.status);
   });
 
@@ -466,12 +469,9 @@ export function registerIpcHandlers(dbManager: SahwaDatabaseManager) {
     }));
   });
 
-  safeIpcHandle(ipcMain, 'invoices:addPayment', async (_, invoiceId: unknown, amount: unknown, method: unknown, note: unknown, paymentId?: unknown) => {
-    const input = parseIpcInput(
-      addPaymentArgsSchema,
-      { invoiceId, amount, method, note, paymentId },
-      'بيانات الدفعة',
-    );
+  safeIpcHandle(ipcMain, 'invoices:addPayment', async (_, requestOrInvoiceId: unknown, legacyAmount?: unknown, legacyMethod?: unknown, legacyNote?: unknown, legacyPaymentId?: unknown) => {
+    const request = normalizeAddPaymentRequest(requestOrInvoiceId, legacyAmount, legacyMethod, legacyNote, legacyPaymentId);
+    const input = parseIpcInput(addPaymentArgsSchema, request, 'بيانات الدفعة');
     return paymentService.addPayment(input.invoiceId, input.amount, input.method, input.note, input.paymentId);
   });
 
@@ -576,18 +576,16 @@ export function registerIpcHandlers(dbManager: SahwaDatabaseManager) {
     return dbManager.getSettings();
   });
 
-  safeIpcHandle(ipcMain, 'settings:update', async (_, key: unknown, value: unknown) => {
-    const input = parseIpcInput(settingsUpdateArgsSchema, { key, value }, 'تحديث الإعدادات');
+  safeIpcHandle(ipcMain, 'settings:update', async (_, requestOrKey: unknown, legacyValue?: unknown) => {
+    const request = normalizeSettingsUpdateRequest(requestOrKey, legacyValue);
+    const input = parseIpcInput(settingsUpdateArgsSchema, request, 'تحديث الإعدادات');
     dbManager.updateSetting(input.key, input.value);
     return true;
   });
 
-  safeIpcHandle(ipcMain, 'whatsapp:send', async (_, phone: unknown, customerName: unknown, orderNumber: unknown, statusText: unknown) => {
-    const input = parseIpcInput(
-      whatsappSendArgsSchema,
-      { phone, customerName, orderNumber, statusText },
-      'بيانات رسالة WhatsApp',
-    );
+  safeIpcHandle(ipcMain, 'whatsapp:send', async (_, requestOrPhone: unknown, legacyCustomerName?: unknown, legacyOrderNumber?: unknown, legacyStatusText?: unknown) => {
+    const request = normalizeWhatsAppSendRequest(requestOrPhone, legacyCustomerName, legacyOrderNumber, legacyStatusText);
+    const input = parseIpcInput(whatsappSendArgsSchema, request, 'بيانات رسالة WhatsApp');
     const prepared = whatsappService.prepareMessage(input.phone, input.customerName, input.orderNumber, input.statusText);
     whatsappService.beginDelivery(input.phone, input.customerName, input.orderNumber, input.statusText, prepared);
     if (process.env.SAHWA_FORCE_WHATSAPP_FAILURE === '1') {

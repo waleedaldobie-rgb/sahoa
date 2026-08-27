@@ -429,7 +429,7 @@ export default function App() {
   const handleUpdateOrderStatus = async (orderId: string, newStatus: OrderStatus) => {
     await executeCrud('جاري تحديث حالة الطلب...', async () => {
       if (window.electronAPI.updateOrderStatus) {
-        await window.electronAPI.updateOrderStatus(orderId, newStatus);
+        await window.electronAPI.updateOrderStatus({ orderId, status: newStatus });
         await loadAppData();
         showToast('تم تحديث حالة الطلب بنجاح', 'success');
       } else {
@@ -492,10 +492,21 @@ export default function App() {
       showToast(err, 'danger');
       return;
     }
+    if (payment.method === 'customer_credit') {
+      showToast('طريقة customer_credit لها مسار رصيد عميل مستقل', 'danger');
+      return;
+    }
+    const directPaymentMethod = payment.method;
 
     await executeCrud('جاري تسجيل الدفعة المالية...', async () => {
       if (window.electronAPI.addPayment) {
-        await window.electronAPI.addPayment(invoiceId, payment.amount, payment.method, payment.note || '', payment.id);
+        await window.electronAPI.addPayment({
+          invoiceId,
+          amount: payment.amount,
+          method: directPaymentMethod,
+          note: payment.note || '',
+          paymentId: payment.id,
+        });
         await refreshSlices(['orders', 'invoices', 'cashTransactions', 'orderEvents']);
         showToast('تم إضافة الدفعة بنجاح', 'success');
       } else {
@@ -673,7 +684,7 @@ await executeCrud('جاري حذف الإكسسوار...', async () => {
   const handleAdjustStock = async (itemType: InventoryItemType, itemId: string, quantity: number, reason: string, direction: 'adjustment' | 'return') => {
     await executeCrud('جاري تسجيل تسوية المخزون...', async () => {
       if (!window.electronAPI.adjustStock) throw new Error('وظيفة حركة المخزون غير متاحة في هذه النسخة');
-      await window.electronAPI.adjustStock(itemType, itemId, quantity, reason, direction);
+      await window.electronAPI.adjustStock({ itemType, itemId, quantity, reason, direction });
       await loadAppData();
     });
   };
@@ -763,7 +774,12 @@ await executeCrud('جاري حذف الإكسسوار...', async () => {
   // WhatsApp Sender
   const handleSendWhatsAppNotice = async (phone: string, name: string, orderNum: string, statusText: string) => {
     await executeCrud('جاري إرسال إشعار الواتساب...', async () => {
-      const opened = await window.electronAPI.sendWhatsAppNotice(phone, name, orderNum, statusText);
+      const opened = await window.electronAPI.sendWhatsAppNotice({
+        phone,
+        customerName: name,
+        orderNumber: orderNum,
+        statusText,
+      });
       if (opened === false) {
         throw new Error('تعذر فتح واتساب. تحقق من اتصال الإنترنت ثم حاول مرة أخرى.');
       }
