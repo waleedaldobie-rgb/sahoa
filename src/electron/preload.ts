@@ -98,6 +98,7 @@ export const electronBridge = {
   checkDatabaseIntegrity: () => ipcRenderer.invoke('system:integrityCheck'),
   exportExcelReport: (startDate?: string, endDate?: string) => ipcRenderer.invoke('reports:exportExcel', startDate, endDate),
   automationStorageInfo: () => ipcRenderer.invoke('automation:storageInfo'),
+  automationPrintToPDF: (options?: Record<string, unknown>) => ipcRenderer.invoke('automation:printToPDF', options),
   
   getSettings: () => ipcRenderer.invoke('settings:get'),
   updateSetting: (key: string, value: any) => ipcRenderer.invoke('settings:update', key, value),

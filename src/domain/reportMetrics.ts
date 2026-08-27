@@ -5,6 +5,7 @@ import {
   Invoice,
   Order,
   OrderEvent,
+  OrderMaterialUsage,
   PaymentSettlementStatus,
   PurchaseRecord,
   StockMovement
@@ -24,6 +25,10 @@ export interface ReportProjectionInput extends ReportDateRange {
   expenses?: ExpenseRecord[];
   stockMovements?: StockMovement[];
   orderEvents?: OrderEvent[];
+  // Actual recorded material consumption (fabric + accessories) per order.
+  // When present for an order, this is the authoritative material cost source
+  // (same figure on screen and in Excel) — see materialCostFor().
+  orderMaterialUsages?: OrderMaterialUsage[];
 }
 
 export interface ReportDetailRow {
@@ -59,6 +64,7 @@ export interface ReportProjection {
   grossProfit: number;
   netProfit: number;
   totalOrdersCount: number;
+  salesOrdersCount: number;
   cancelledOrdersCount: number;
   settledByCancellationCount: number;
   filteredCash: CashTransaction[];
@@ -83,7 +89,30 @@ const inRange = (value: string | undefined, range: ReportDateRange) => {
 const sum = (values: number[]) => round2(values.reduce((total, value) => total + amount(value), 0));
 
 const invoiceByOrder = (invoices: Invoice[]) => new Map(invoices.map((invoice) => [invoice.orderId, invoice]));
-const materialCostFor = (order: Order) => {
+
+// Builds orderId -> total recorded material cost from actual usage records
+// (fabric + accessories, at the cost recorded when the material left stock).
+// Uses .has() rather than a falsy check so a genuinely-recorded zero cost is
+// still treated as "known" and is not overwritten by the estimate fallback.
+const buildUsageCostByOrder = (usages: OrderMaterialUsage[]) => {
+  const map = new Map<string, number>();
+  for (const usage of usages) {
+    if (!usage.orderId) continue;
+    map.set(usage.orderId, (map.get(usage.orderId) ?? 0) + amount(usage.totalCost));
+  }
+  return map;
+};
+
+// Single source of truth for an order's material cost, shared by the on-screen
+// report (ReportsView) and the Excel export (generateExcelReport) so the two
+// can never diverge again:
+//   1) actual recorded material usage for the order, if any (most accurate —
+//      reflects real consumption and real cost at time of usage);
+//   2) a pre-computed materialCost already attached to the order, if any;
+//   3) an estimate from the order's fabric price and consumption, falling back
+//      to at least 1 unit (via garment count) when consumption is 0/missing.
+const materialCostFor = (order: Order, usageCostByOrder: Map<string, number>) => {
+  if (usageCostByOrder.has(order.id)) return round2(usageCostByOrder.get(order.id)!);
   if (typeof order.materialCost === 'number') return amount(order.materialCost);
   const buyPrice = amount(order.fabricBuyPriceAtOrder);
   const consumption = amount(order.fabricConsumptionMeters) > 0 ? amount(order.fabricConsumptionMeters) : Math.max(1, amount(order.garmentCount));
@@ -117,11 +146,13 @@ export const calculateReportProjection = (input: ReportProjectionInput): ReportP
     expenses = [],
     stockMovements = [],
     orderEvents = [],
+    orderMaterialUsages = [],
     startDate,
     endDate
   } = input;
   const range = { startDate, endDate };
   const byOrder = invoiceByOrder(invoices);
+  const usageCostByOrder = buildUsageCostByOrder(orderMaterialUsages);
   const details = orders
     .filter((order) => inRange(order.orderDate, range)
       || inRange(order.deliveryDate, range)
@@ -144,11 +175,12 @@ export const calculateReportProjection = (input: ReportProjectionInput): ReportP
         cashReceived,
         overpaymentAmount,
         cancellationWriteoffAmount,
-        materialCost: materialCostFor(order)
+        materialCost: materialCostFor(order, usageCostByOrder)
       } satisfies ReportDetailRow;
     });
 
-  const salesBooked = sum(details.filter((row) => row.includedInSales && inRange(row.order.orderDate, range)).map((row) => row.order.totalAmount));
+  const salesRows = details.filter((row) => row.includedInSales && inRange(row.order.orderDate, range));
+  const salesBooked = sum(salesRows.map((row) => row.order.totalAmount));
   const recognizedRows = details.filter((row) => row.includedInRecognizedRevenue && inRange(row.order.deliveryDate, range));
   const recognizedRevenue = sum(recognizedRows.map((row) => row.order.totalAmount));
   const recognizedMaterialCost = sum(recognizedRows.map((row) => row.materialCost));
@@ -200,6 +232,7 @@ export const calculateReportProjection = (input: ReportProjectionInput): ReportP
     grossProfit,
     netProfit,
     totalOrdersCount: details.length,
+    salesOrdersCount: salesRows.length,
     cancelledOrdersCount: details.filter((row) => row.order.status === 'cancelled').length,
     settledByCancellationCount: details.filter((row) => row.settlementStatus === 'settled_by_cancellation').length,
     filteredCash,

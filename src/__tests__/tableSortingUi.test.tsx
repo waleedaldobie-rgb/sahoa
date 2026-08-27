@@ -132,7 +132,7 @@ describe('Table sorting UI', () => {
     expect(rowTexts()[0]).toContain('#ORD-10');
   });
 
-  it('keeps all order row actions visible without a secondary menu', async () => {
+  it('keeps primary order actions visible and groups secondary actions accessibly', async () => {
     await render(
       <OrdersView
         orders={[{ id: 'ORD-1', orderNumber: 'ORD-1', customerName: 'عميل', customerPhone: '0500000001', deliveryDate: '2026-08-20', totalAmount: 100, paidAmount: 0, remainingAmount: 100, status: 'new' } as any]}
@@ -150,10 +150,10 @@ describe('Table sorting UI', () => {
     expect(Array.from(container.querySelectorAll('button')).find((button) => button.textContent?.trim() === 'عرض')).not.toBeUndefined();
     expect(container.querySelector('button[aria-label="إرسال رسالة واتساب للطلب ORD-1"]')).not.toBeNull();
     expect(container.querySelector('button[aria-label="طباعة الطلب ORD-1"]')).not.toBeNull();
-    expect(container.querySelector('details.sahwa-actions-menu')).toBeNull();
+    expect(container.querySelector('details.sahwa-actions-menu')).not.toBeNull();
   });
 
-  it('preserves long order values and visible row actions with accessible tooltips', async () => {
+  it('preserves long order values and accessible secondary actions with tooltips', async () => {
     const longName = 'عميل تجريبي باسم طويل جداً لاختبار عدم قص النصوص داخل جداول سطح المكتب';
     const longType = 'ثوب سعودي كلاسيك فاخر بتفاصيل يدوية وإضافات متعددة لاختبار عرض الخلية';
     await render(
@@ -178,7 +178,7 @@ describe('Table sorting UI', () => {
     expect(print).not.toBeNull();
     expect(whatsapp?.getAttribute('aria-describedby')).toBeTruthy();
     expect(print?.getAttribute('aria-describedby')).toBeTruthy();
-    expect(container.querySelector('details.sahwa-actions-menu')).toBeNull();
+    expect(container.querySelector('details.sahwa-actions-menu')).not.toBeNull();
   });
 
   it('sorts fabrics by stock quantity when the inventory header is clicked', async () => {

@@ -8,8 +8,9 @@ const visualStates = (process.env.DESKTOP_VISUAL_STATES || 'populated,loading,er
   .map((state) => state.trim())
   .filter(Boolean);
 const viewportCases = [
-  { name: '1360x800', width: 1360, height: 800 },
-  { name: '1600x950', width: 1600, height: 950 },
+  { name: '1280x800', width: 1280, height: 800 },
+  { name: '1440x900', width: 1440, height: 900 },
+  { name: '1440x1000', width: 1440, height: 1000 },
   { name: '1920x1080', width: 1920, height: 1080 }
 ];
 
@@ -148,11 +149,51 @@ async function preparePopulatedFixture() {
   return evaluate(`(async () => {
     const api = window.electronAPI;
     if (!api?.getData || !api?.createOrder) return { available: false, created: false, reason: 'Electron bridge fixture methods unavailable' };
-    const data = await api.getData();
-    const customer = data.customers?.[0];
-    if (!customer) return { available: false, created: false, reason: 'No customer fixture available' };
+    try {
+      const originalData = await api.getData();
+      window.__SAHWA_VISUAL_ORIGINAL_DATA__ = originalData;
+      let data = originalData;
+      let customer = data.customers?.find((item) => item.id === 'VISUAL-CUSTOMER-POLISH' || item.phone === '0501234567');
+    let customerCreated = false;
+    if (!customer) {
+      if (!api.createCustomer) return { available: false, created: false, reason: 'Customer fixture API unavailable' };
+      customer = await api.createCustomer({
+        id: 'VISUAL-CUSTOMER-POLISH',
+        name: 'عميل واجهة اختبار طويل الاسم',
+        phone: '0501234567',
+        createdAt: '2026-08-01T09:00:00.000Z',
+        measurements: data.customers?.[0]?.measurements,
+        styleDetails: data.customers?.[0]?.styleDetails,
+        measurementHistory: []
+      });
+      customerCreated = true;
+    }
+    let fabric = data.fabrics?.find((item) => item.id === 'VISUAL-FABRIC-LOW');
+    let accessory = data.accessories?.find((item) => item.id === 'VISUAL-ACCESSORY-OUT');
+    let catalogCreated = false;
+    if (!fabric && api.createFabric) {
+      fabric = await api.createFabric({ id: 'VISUAL-FABRIC-LOW', name: 'قماش اختبار الواجهة الطويل', color: 'كحلي داكن', colorHex: '#1e293b', purchasePrice: 42, sellingPrice: 125, quantityMeters: 4, minStockMeters: 8 });
+      catalogCreated = true;
+    }
+    if (!accessory && api.createAccessory) {
+      accessory = await api.createAccessory({ id: 'VISUAL-ACCESSORY-OUT', name: 'زر اختبار نفد المخزون', category: 'أزرار', quantity: 0, minStock: 3, unit: 'حبة', purchasePrice: 2.5, sellingPrice: 5 });
+      catalogCreated = true;
+    }
+    if (!fabric || !accessory) return { available: false, created: false, reason: 'Catalog fixture APIs unavailable' };
     const fixtureId = 'VISUAL-ORDER-P1-7';
     const cancelledFixtureId = 'VISUAL-ORDER-P1-8-CANCELLED';
+    if (api.createPurchase && !data.purchases?.some((item) => item.id === 'VISUAL-PURCHASE-POLISH')) {
+      await api.createPurchase({
+        id: 'VISUAL-PURCHASE-POLISH',
+        supplier: 'مورد اختبار الواجهة',
+        invoiceNumber: 'VISUAL-PUR-01',
+        purchaseDate: '2026-08-06',
+        paymentMethod: 'card',
+        notes: 'سجل شراء معزول للفحص البصري',
+        lines: [{ itemType: 'fabric', itemId: fabric.id, itemName: fabric.name, quantity: 50, unit: 'متر', unitPrice: 42 }]
+      });
+    }
+    data = await api.getData();
     const existing = data.orders?.find((order) => order.id === fixtureId);
     if (!existing) {
       await api.createOrder({
@@ -163,15 +204,15 @@ async function preparePopulatedFixture() {
         customerPhone: customer.phone,
         thobeTypeId: data.thobeTypes?.[0]?.id || 'THB-01',
         thobeTypeName: data.thobeTypes?.[0]?.name || 'ثوب سعودي كلاسيك',
-        fabricId: undefined,
-        fabricName: 'بدون قماش',
-        fabricColor: '',
+        fabricId: fabric.id,
+        fabricName: fabric.name,
+        fabricColor: fabric.color,
         garmentCount: 1,
         totalAmount: 300,
-        paidAmount: 0,
+        paidAmount: 150,
         initialPaymentMethod: 'cash',
-        orderDate: '2026-08-01',
-        deliveryDate: '2026-08-15',
+        orderDate: '2026-08-03',
+        deliveryDate: '2026-08-29',
         measurements: customer.measurements || {},
         styleDetails: customer.styleDetails || {},
         materialUsages: []
@@ -187,23 +228,66 @@ async function preparePopulatedFixture() {
         customerPhone: customer.phone,
         thobeTypeId: data.thobeTypes?.[0]?.id || 'THB-01',
         thobeTypeName: data.thobeTypes?.[0]?.name || 'ثوب سعودي كلاسيك',
-        fabricId: undefined,
-        fabricName: 'بدون قماش',
-        fabricColor: '',
+        fabricId: fabric.id,
+        fabricName: fabric.name,
+        fabricColor: fabric.color,
         garmentCount: 1,
         totalAmount: 420,
         paidAmount: 0,
-        initialPaymentMethod: 'cash',
-        orderDate: '2026-08-02',
-        deliveryDate: '2026-08-16',
+        initialPaymentMethod: 'transfer',
+        orderDate: '2026-08-05',
+        deliveryDate: '2026-08-20',
         measurements: customer.measurements || {},
         styleDetails: customer.styleDetails || {},
         materialUsages: []
       });
     }
+    data = await api.getData();
+    const purchaseCreated = Boolean(api.createPurchase && !data.purchases?.some((item) => item.id === 'VISUAL-PURCHASE-POLISH'));
+    if (purchaseCreated) {
+      await api.createPurchase({
+        id: 'VISUAL-PURCHASE-POLISH',
+        supplier: 'مورد اختبار الواجهة',
+        invoiceNumber: 'VISUAL-PUR-01',
+        purchaseDate: '2026-08-06',
+        paymentMethod: 'card',
+        notes: 'سجل شراء معزول للفحص البصري',
+        lines: [{ itemType: 'fabric', itemId: fabric.id, itemName: fabric.name, quantity: 6, unit: 'متر', unitPrice: 42 }]
+      });
+    }
+    data = await api.getData();
+    const expenseCreated = Boolean(api.createExpense && !data.expenses?.some((item) => item.id === 'VISUAL-EXPENSE-POLISH'));
+    if (expenseCreated) {
+      await api.createExpense({ id: 'VISUAL-EXPENSE-POLISH', category: 'تشغيل', amount: 175, expenseDate: '2026-08-07', paymentMethod: 'cash', description: 'مصروف اختبار الواجهة', notes: 'سجل معزول للفحص البصري' });
+    }
     const cancelledOrder = data.orders?.find((order) => order.id === cancelledFixtureId);
     if (cancelledOrder?.status !== 'cancelled') await api.updateOrderStatus(cancelledFixtureId, 'cancelled');
-    return { available: true, created: !existing, orderId: fixtureId, cancelledOrderId: cancelledFixtureId, cancelledOrderCreated: !existingCancelled };
+      return { available: true, created: !existing || customerCreated || catalogCreated, orderId: fixtureId, cancelledOrderId: cancelledFixtureId, cancelledOrderCreated: !existingCancelled, customerCreated, catalogCreated, purchaseCreated, expenseCreated };
+    } catch (error) {
+      return { available: false, created: false, reason: error?.message || String(error) };
+    }
+  })()`);
+}
+
+async function prepareLongPrintFixture(fixture) {
+  return evaluate(`(async () => {
+    const api = window.electronAPI;
+    const data = await api.getData();
+    const order = data.orders?.find((item) => item.id === ${JSON.stringify(fixture.orderId)});
+    if (!order || !api.updateOrder) return false;
+    const longNotes = 'ملاحظة اختبار طباعة طويلة للتأكد من التفاف النص وعدم قصه داخل الفاتورة.\\nيرجى مراجعة تفاصيل القماش والقياسات قبل التسليم، مع المحافظة على جميع التعليمات الفنية في صفحة الطباعة.\\nسطر إضافي لاختبار المحتوى متعدد الأسطر والأرقام الكبيرة 987654.32 ر.س.';
+    await api.updateOrder({ ...order, totalAmount: 987654.32, notes: longNotes, styleDetails: { ...(order.styleDetails || {}), tailorNotes: longNotes } });
+    return true;
+  })()`);
+}
+
+async function restoreVisualFixture() {
+  return evaluate(`(async () => {
+    const backup = window.__SAHWA_VISUAL_ORIGINAL_DATA__;
+    if (!backup) return false;
+    await window.electronAPI.saveData(backup);
+    delete window.__SAHWA_VISUAL_ORIGINAL_DATA__;
+    return true;
   })()`);
 }
 
@@ -254,6 +338,7 @@ async function snapshot(state, viewport, fixture) {
       hasErrorSignal,
       alerts,
       horizontalOverflow: document.documentElement.scrollWidth > window.innerWidth + 1,
+      hasPrintPreview: Boolean(document.querySelector('.invoice-screen-preview')),
       cardCount: document.querySelectorAll('.sahwa-card, .ui-card').length,
       tableCount: document.querySelectorAll('table').length,
       tableRows,
@@ -271,6 +356,7 @@ function statePassed(state, snapshotResult) {
   if (state === 'populated') return base && snapshotResult.hasReportHeading && snapshotResult.tableCount > 0 && snapshotResult.tableRows > 0;
   if (state === 'loading') return base && snapshotResult.hasLoadingSignal;
   if (state === 'error') return base && snapshotResult.hasCustomerHeading && snapshotResult.hasErrorSignal;
+  if (state === 'print') return base && snapshotResult.hasPrintPreview && snapshotResult.bodyText.includes('ملاحظة اختبار طباعة طويلة');
   return false;
 }
 
@@ -313,6 +399,20 @@ async function captureState(state, viewport, resizeMode, windowId, fixture) {
     if (!await waitForTestId('save-customer-measurements')) throw new Error('تعذر تحميل زر حفظ نموذج العميل في error state');
     if (!await clickTestId('save-customer-measurements')) throw new Error('تعذر تشغيل validation error في نموذج العميل');
     await sleep(350);
+  } else if (state === 'print') {
+    const clicked = await clickButtonByText('الفواتير والحسابات');
+    if (!clicked || !(await waitForText('الفواتير والحسابات المالية'))) throw new Error('تعذر فتح شاشة الفواتير في print state');
+    const previewClicked = await evaluate(`(() => {
+      const button = Array.from(document.querySelectorAll('button')).find((element) => element.innerText.trim() === 'معاينة');
+      if (!button) return false;
+      button.click();
+      return true;
+    })()`);
+    if (!previewClicked || !(await waitForTestId('invoice-preview-root', 10_000))) {
+      await waitForText('معاينة الفاتورة', 10_000);
+    }
+    await waitForText('ملاحظة اختبار طباعة طويلة', 10_000);
+    await sleep(350);
   }
 
   const snapshotResult = await snapshot(state, viewport, fixture);
@@ -321,6 +421,13 @@ async function captureState(state, viewport, resizeMode, windowId, fixture) {
   const prefix = `${state}-${viewport.name}`;
   fs.writeFileSync(path.join(outputDir, `${prefix}.png`), screenshot);
   fs.writeFileSync(path.join(outputDir, `${prefix}.json`), JSON.stringify(snapshotResult, null, 2));
+  let pdf;
+  if (state === 'print') {
+    const pdfData = await evaluate(`window.electronAPI.automationPrintToPDF({ printBackground: true, preferCSSPageSize: true })`);
+    if (typeof pdfData !== 'string' || pdfData.length < 100) throw new Error(`لم تُرجع Electron ملف PDF صالحًا للحجم ${viewport.name}`);
+    pdf = `${prefix}.pdf`;
+    fs.writeFileSync(path.join(outputDir, pdf), Buffer.from(pdfData, 'base64'));
+  }
 
   const passed = statePassed(state, snapshotResult);
   const result = {
@@ -338,7 +445,8 @@ async function captureState(state, viewport, resizeMode, windowId, fixture) {
     hasLoadingSignal: snapshotResult.hasLoadingSignal,
     hasErrorSignal: snapshotResult.hasErrorSignal,
     emptyStates: snapshotResult.emptyStates,
-    screenshot: `${prefix}.png`
+    screenshot: `${prefix}.png`,
+    ...(pdf ? { pdf } : {})
   };
   if (!passed) throw new Error(`فشل الفحص البصري لحالة ${state} وحجم ${viewport.name}: ${JSON.stringify(result)}`);
   return result;
@@ -349,8 +457,19 @@ await command('Page.enable');
 await waitForRoot();
 
 const fixture = await preparePopulatedFixture();
-if (!fixture.available) throw new Error(`تعذر تجهيز populated fixture: ${fixture.reason}`);
+if (!fixture.available) {
+  await restoreVisualFixture().catch(() => undefined);
+  throw new Error(`تعذر تجهيز populated fixture: ${fixture.reason}`);
+}
 await resetApp();
+if (visualStates.includes('print')) {
+  const printPrepared = await prepareLongPrintFixture(fixture);
+  if (!printPrepared) {
+    await restoreVisualFixture().catch(() => undefined);
+    throw new Error('تعذر تجهيز بيانات الطباعة الطويلة؛ يلزم توفر updateOrder في جسر Electron');
+  }
+  await resetApp();
+}
 
 let resizeMode = 'native-window';
 let windowId;
@@ -363,19 +482,23 @@ try {
 }
 
 const results = [];
-for (const state of visualStates) {
-  if (!['populated', 'loading', 'error'].includes(state)) throw new Error(`حالة بصرية غير مدعومة: ${state}`);
-  if (state === 'loading') {
-    for (const viewport of viewportCases) {
-      results.push(await captureState(state, viewport, resizeMode, windowId, fixture));
-    }
-    await resetApp();
-  } else {
-    for (const viewport of viewportCases) {
-      results.push(await captureState(state, viewport, resizeMode, windowId, fixture));
+try {
+  for (const state of visualStates) {
+    if (!['populated', 'loading', 'error', 'print'].includes(state)) throw new Error(`حالة بصرية غير مدعومة: ${state}`);
+    if (state === 'loading') {
+      for (const viewport of viewportCases) {
+        results.push(await captureState(state, viewport, resizeMode, windowId, fixture));
+      }
       await resetApp();
+    } else {
+      for (const viewport of viewportCases) {
+        results.push(await captureState(state, viewport, resizeMode, windowId, fixture));
+        await resetApp();
+      }
     }
   }
+} finally {
+  await restoreVisualFixture().catch(() => undefined);
 }
 
 if (resizeMode === 'emulated-viewport') await command('Emulation.clearDeviceMetricsOverride');

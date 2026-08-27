@@ -205,7 +205,8 @@ describe('Customer Credit UI', () => {
     todayButton.focus();
     expect(document.activeElement).toBe(todayButton);
     await act(async () => todayButton.click());
-    expect(todayButton.className).toContain('bg-white');
+    expect(todayButton.getAttribute('aria-pressed')).toBe('true');
+    expect(todayButton.className).toContain('sahwa-segmented-control__button');
   });
 
   it('keeps refunds separate from cash and invoice applied payment UI', async () => {

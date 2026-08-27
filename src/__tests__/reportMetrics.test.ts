@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { calculateReportProjection } from '../domain/reportMetrics';
-import { Invoice, Order } from '../types';
+import { Invoice, Order, OrderMaterialUsage } from '../types';
 
 const order = (overrides: Partial<Order> = {}) => ({
   id: 'ORD-REPORT-1',
@@ -153,5 +153,105 @@ describe('shared report projection', () => {
     const detailSales = result.details.filter((row) => row.includedInSales).reduce((sum, row) => sum + row.order.totalAmount, 0);
     expect(result.salesBooked).toBe(detailSales);
     expect(result.details.find((row) => row.order.id === 'CANCELLED')?.settlementStatus).toBe('settled_by_cancellation');
+  });
+
+  // BUG-012 regression: avgOrderValue (ReportsView) is salesBooked / salesOrdersCount.
+  // salesOrdersCount must count only non-cancelled orders included in sales — the
+  // same population salesBooked is summed over — so a cancelled order (already
+  // excluded from the numerator) can never dilute the denominator either.
+  it('keeps salesOrdersCount aligned with the non-cancelled orders behind salesBooked', () => {
+    const result = calculateReportProjection({
+      orders: [
+        order({ id: 'ORD-A', status: 'new', totalAmount: 100, orderDate: '2026-08-10' }),
+        order({ id: 'ORD-B', status: 'delivered', totalAmount: 300, orderDate: '2026-08-12', deliveryDate: '2026-08-13' }),
+        order({ id: 'ORD-C', status: 'cancelled', totalAmount: 500, orderDate: '2026-08-15', remainingAmount: 0, cancellationWriteoffAmount: 500 })
+      ],
+      invoices: [],
+      startDate: '2026-08-01',
+      endDate: '2026-08-31'
+    });
+    // 3 orders fall in the period, but only 2 are non-cancelled.
+    expect(result.totalOrdersCount).toBe(3);
+    expect(result.salesOrdersCount).toBe(2);
+    expect(result.salesBooked).toBe(400);
+
+    // Mirrors ReportsView's avgOrderValue formula exactly.
+    const avgOrderValue = result.salesOrdersCount > 0 ? Math.round(result.salesBooked / result.salesOrdersCount) : 0;
+    expect(avgOrderValue).toBe(200);
+    // Regression guard: using totalOrdersCount (the pre-fix denominator) instead
+    // of salesOrdersCount would silently dilute this to 133.
+    expect(avgOrderValue).not.toBe(Math.round(result.salesBooked / result.totalOrdersCount));
+  });
+
+  // BUG-013 regression: material cost must come from the same place whether
+  // the projection is built for the on-screen report or for the Excel export
+  // (generateExcelReport passes orderMaterialUsages the same way ReportsView
+  // does), so the two can never show different numbers again.
+  describe('material cost source of truth (BUG-013)', () => {
+    const usage = (overrides: Partial<OrderMaterialUsage> = {}): OrderMaterialUsage => ({
+      id: 'USAGE-1',
+      orderId: 'ORD-REPORT-1',
+      itemType: 'fabric',
+      itemName: 'قماش',
+      quantity: 3,
+      unit: 'meter',
+      unitCostAtUsage: 45.7,
+      totalCost: 137.1,
+      createdAt: '2026-08-11',
+      ...overrides
+    });
+
+    it('prefers actual recorded material usage over the consumption/price estimate', () => {
+      const result = calculateReportProjection({
+        orders: [order({ status: 'delivered', deliveryDate: '2026-08-12', totalAmount: 500, fabricConsumptionMeters: 0, garmentCount: 2, fabricBuyPriceAtOrder: 50 })],
+        invoices: [invoice()],
+        orderMaterialUsages: [usage()],
+        startDate: '2026-08-01',
+        endDate: '2026-08-31'
+      });
+      // Estimate fallback would have given 50 * max(1, 2) = 100; the recorded
+      // usage total (137.1) must win instead.
+      expect(result.details[0].materialCost).toBe(137.1);
+      expect(result.recognizedMaterialCost).toBe(137.1);
+    });
+
+    it('sums multiple usage rows (fabric + accessories) for the same order', () => {
+      const result = calculateReportProjection({
+        orders: [order({ status: 'delivered', deliveryDate: '2026-08-12' })],
+        invoices: [invoice()],
+        orderMaterialUsages: [
+          usage({ id: 'U-FABRIC', itemType: 'fabric', totalCost: 100 }),
+          usage({ id: 'U-BUTTON', itemType: 'accessory', itemName: 'أزرار', totalCost: 12.5 })
+        ],
+        startDate: '2026-08-01',
+        endDate: '2026-08-31'
+      });
+      expect(result.details[0].materialCost).toBe(112.5);
+    });
+
+    it('treats a recorded zero-cost usage as known, not as "no data" (no fallback re-triggered)', () => {
+      const result = calculateReportProjection({
+        orders: [order({ status: 'delivered', deliveryDate: '2026-08-12', fabricConsumptionMeters: 5, fabricBuyPriceAtOrder: 50 })],
+        invoices: [invoice()],
+        orderMaterialUsages: [usage({ totalCost: 0 })],
+        startDate: '2026-08-01',
+        endDate: '2026-08-31'
+      });
+      // A naive `sum || fallback` check would wrongly fall back to 5 * 50 = 250
+      // here because 0 is falsy in JS; the correct behavior is to trust the
+      // recorded (zero) usage cost.
+      expect(result.details[0].materialCost).toBe(0);
+    });
+
+    it('falls back to the consumption/price estimate when no usage records exist for the order', () => {
+      const result = calculateReportProjection({
+        orders: [order({ status: 'delivered', deliveryDate: '2026-08-12', fabricConsumptionMeters: 0, garmentCount: 3, fabricBuyPriceAtOrder: 40 })],
+        invoices: [invoice()],
+        orderMaterialUsages: [usage({ orderId: 'SOME-OTHER-ORDER' })],
+        startDate: '2026-08-01',
+        endDate: '2026-08-31'
+      });
+      expect(result.details[0].materialCost).toBe(120);
+    });
   });
 });

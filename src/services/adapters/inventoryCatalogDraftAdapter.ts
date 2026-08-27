@@ -30,7 +30,9 @@ export function createAccessoryInDraft(draft: AppData, accessory: Partial<Access
     category: accessory.category || '',
     quantity: accessory.quantity || 0,
     minStock: accessory.minStock || 0,
-    unit: accessory.unit || 'حبة'
+    unit: accessory.unit || 'حبة',
+    purchasePrice: accessory.purchasePrice || 0,
+    sellingPrice: accessory.sellingPrice || 0
   };
   draft.accessories = [newAccessory, ...draft.accessories];
   return newAccessory;

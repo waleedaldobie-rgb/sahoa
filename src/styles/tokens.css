@@ -117,6 +117,17 @@
     box-shadow: var(--shadow-focus-token);
   }
 
+  .sahwa-number,
+  .sahwa-phone,
+  .font-mono,
+  input[type='tel'],
+  input[type='number'],
+  input[type='date'] {
+    direction: ltr;
+    font-variant-numeric: tabular-nums;
+    unicode-bidi: isolate;
+  }
+
   @media (prefers-reduced-motion: reduce) {
     *,
     *::before,
@@ -356,6 +367,106 @@
     .customers-form-actions > * {
       min-width: 0;
     }
+  }
+
+  .sahwa-segmented-control {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.25rem;
+    padding: 0.25rem;
+    border: 1px solid var(--color-border-token);
+    border-radius: 0.75rem;
+    background: var(--color-surface-soft-token);
+  }
+
+  .sahwa-segmented-control__button {
+    min-height: 2.25rem;
+    padding: 0.5rem 0.85rem;
+    border-radius: 0.5rem;
+    color: var(--color-text-muted-token);
+    font-size: 0.75rem;
+    font-weight: 900;
+    white-space: nowrap;
+    transition: background-color 160ms ease, color 160ms ease, box-shadow 160ms ease;
+  }
+
+  .sahwa-segmented-control__button[aria-pressed="true"] {
+    color: #fff;
+    background: var(--brand-black);
+    box-shadow: 0 3px 8px rgba(17, 17, 17, 0.14);
+  }
+
+  .sahwa-segmented-control__button:hover:not(:disabled):not([aria-pressed="true"]) {
+    color: var(--color-text-token);
+    background: var(--color-surface-token);
+  }
+
+  .sahwa-segmented-control__button:disabled {
+    cursor: not-allowed;
+    opacity: 0.5;
+  }
+
+  .inventory-filter-card {
+    background: color-mix(in srgb, var(--color-surface-token) 96%, var(--brand-brass-soft));
+    border-color: var(--color-border-token);
+  }
+
+  .inventory-filter-meta {
+    color: var(--color-text-muted-token);
+    font-size: 0.75rem;
+    font-weight: 700;
+    line-height: 1.5;
+    margin-top: 0.5rem;
+  }
+
+  .order-detail-identity-card {
+    border-inline-start: 3px solid var(--brand-brass);
+  }
+
+  .sahwa-actions-menu {
+    position: relative;
+    display: inline-block;
+  }
+
+  .sahwa-actions-menu summary {
+    display: inline-flex;
+    min-height: 2.25rem;
+    align-items: center;
+    justify-content: center;
+    gap: 0.35rem;
+    padding: 0.5rem 0.75rem;
+    border-radius: 0.625rem;
+    color: var(--color-text-muted-token);
+    cursor: pointer;
+    font-size: 0.75rem;
+    font-weight: 900;
+    list-style: none;
+    white-space: nowrap;
+  }
+
+  .sahwa-actions-menu summary::-webkit-details-marker {
+    display: none;
+  }
+
+  .sahwa-actions-menu summary:hover {
+    color: var(--color-text-token);
+    background: var(--color-surface-soft-token);
+  }
+
+  .sahwa-actions-menu[open] summary {
+    color: var(--color-text-token);
+    background: var(--color-surface-soft-token);
+  }
+
+  .order-row-secondary-actions {
+    display: inline-flex;
+    flex-basis: 100%;
+    justify-content: center;
+    gap: 0.35rem;
+    margin-top: 0.15rem;
+    padding-top: 0.35rem;
+    border-top: 1px dashed var(--color-border-token);
   }
 
   .sahwa-status-stepper {
