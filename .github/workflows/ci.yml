@@ -36,6 +36,12 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Static guard for legacy IPC callers
+        run: npm run check:legacy-ipc
+
+      - name: Test legacy IPC static guard
+        run: npm run test:legacy-ipc
+
       - name: TypeScript and lint quality gate
         run: npm run quality
 
