@@ -47,6 +47,16 @@ import { ColorRepository } from './repositories/colorRepository';
 import { DatabaseIntegrityService } from './services/databaseIntegrityService';
 import { createSafeId } from '../domain/idGenerator';
 import { assertValidPaymentMethod } from '../domain/paymentRules';
+import {
+  addPaymentArgsSchema,
+  cashAdjustmentArgsSchema,
+  customerCreditApplyArgsSchema,
+  customerCreditRefundArgsSchema,
+  restoreBackupArgsSchema,
+  stockAdjustArgsSchema,
+  stockReturnPurchaseArgsSchema,
+} from '../services/shared/ipcSchemas';
+import { parseIpcInput } from './validation/parseIpc';
 
 const parseMeasurementsJson = (value?: string) => {
   try { return normalizeMeasurements(JSON.parse(value || '{}')); }
@@ -199,11 +209,21 @@ export function registerIpcHandlers(dbManager: SahwaDatabaseManager) {
     return inventoryService.listMovements(itemType, itemId);
   });
 
-  safeIpcHandle(ipcMain, 'stock:adjust', async (_, itemType: InventoryItemType, itemId: string, quantity: number, reason: string, direction: 'adjustment' | 'return' | 'adjustment_in' | 'adjustment_out' = 'adjustment', actorId = 'system', unitCost?: number) => {
-    return inventoryService.adjustStock(itemType, itemId, quantity, reason, direction, actorId, unitCost);
+  safeIpcHandle(ipcMain, 'stock:adjust', async (_, itemType: unknown, itemId: unknown, quantity: unknown, reason: unknown, direction: unknown = 'adjustment', actorId: unknown = 'system', unitCost?: unknown) => {
+    const input = parseIpcInput(
+      stockAdjustArgsSchema,
+      { itemType, itemId, quantity, reason, direction, actorId, unitCost },
+      'بيانات حركة المخزون',
+    );
+    return inventoryService.adjustStock(input.itemType, input.itemId, input.quantity, input.reason, input.direction, input.actorId, input.unitCost);
   });
-  safeIpcHandle(ipcMain, 'stock:returnPurchase', async (_, itemType: InventoryItemType, itemId: string, quantity: number, reason: string, originalMovementId?: string, purchaseId?: string, actorId = 'system') => {
-    return inventoryService.returnPurchase(itemType, itemId, quantity, reason, originalMovementId, purchaseId, actorId);
+  safeIpcHandle(ipcMain, 'stock:returnPurchase', async (_, itemType: unknown, itemId: unknown, quantity: unknown, reason: unknown, originalMovementId?: unknown, purchaseId?: unknown, actorId: unknown = 'system') => {
+    const input = parseIpcInput(
+      stockReturnPurchaseArgsSchema,
+      { itemType, itemId, quantity, reason, originalMovementId, purchaseId, actorId },
+      'بيانات إرجاع الشراء',
+    );
+    return inventoryService.returnPurchase(input.itemType, input.itemId, input.quantity, input.reason, input.originalMovementId, input.purchaseId, input.actorId);
   });
 
   safeIpcHandle(ipcMain, 'purchases:list', async () => {
@@ -231,26 +251,26 @@ export function registerIpcHandlers(dbManager: SahwaDatabaseManager) {
     return (cashRepository.list() as any[]).map(mapCashTransaction);
   });
 
-  safeIpcHandle(ipcMain, 'cash:createAdjustment', async (_, payload: any) => {
-    const amount = normalizePositiveAmount(payload.amount, 'مبلغ الحركة');
-    const paymentMethod = assertValidPaymentMethod(payload.paymentMethod ?? 'cash');
-    if (!payload.description?.trim()) throw new Error('وصف الحركة المالية مطلوب');
-    const id = payload.id || createSafeId('CASH');
+  safeIpcHandle(ipcMain, 'cash:createAdjustment', async (_, payload: unknown) => {
+    const input = parseIpcInput(cashAdjustmentArgsSchema, payload, 'بيانات حركة الصندوق');
+    const amount = normalizePositiveAmount(input.amount, 'مبلغ الحركة');
+    const paymentMethod = assertValidPaymentMethod(input.paymentMethod);
+    const id = input.id || createSafeId('CASH');
     const existing = cashRepository.findById(id) as any;
     if (existing) return mapCashTransaction(existing);
     const transaction: CashTransaction = {
       id,
-      direction: payload.direction === 'out' ? 'out' : 'in',
-      sourceType: assertValidManualCashSourceType(payload.sourceType || 'adjustment'),
-      sourceId: payload.sourceId,
-      referenceNumber: payload.referenceNumber,
+      direction: input.direction,
+      sourceType: assertValidManualCashSourceType(input.sourceType),
+      sourceId: input.sourceId,
+      referenceNumber: input.referenceNumber,
       amount: round2(amount),
       paymentMethod,
-      transactionDate: payload.transactionDate || new Date().toISOString().slice(0, 10),
-      description: payload.description.trim(),
-      notes: payload.notes,
-      actorId: payload.actorId || 'system',
-      reason: payload.reason?.trim() || payload.description.trim(),
+      transactionDate: input.transactionDate || new Date().toISOString().slice(0, 10),
+      description: input.description,
+      notes: input.notes,
+      actorId: input.actorId,
+      reason: input.reason?.trim() || input.description,
       createdAt: new Date().toISOString()
     };
     cashRepository.insert(transaction);
@@ -419,8 +439,13 @@ export function registerIpcHandlers(dbManager: SahwaDatabaseManager) {
     }));
   });
 
-  safeIpcHandle(ipcMain, 'invoices:addPayment', async (_, invoiceId: string, amount: number, method: string, note: string, paymentId?: string) => {
-    return paymentService.addPayment(invoiceId, amount, method, note, paymentId);
+  safeIpcHandle(ipcMain, 'invoices:addPayment', async (_, invoiceId: unknown, amount: unknown, method: unknown, note: unknown, paymentId?: unknown) => {
+    const input = parseIpcInput(
+      addPaymentArgsSchema,
+      { invoiceId, amount, method, note, paymentId },
+      'بيانات الدفعة',
+    );
+    return paymentService.addPayment(input.invoiceId, input.amount, input.method, input.note, input.paymentId);
   });
 
   // -------------------------------------------------------------
@@ -436,23 +461,25 @@ export function registerIpcHandlers(dbManager: SahwaDatabaseManager) {
   safeIpcHandle(ipcMain, 'customerCredits:diagnostics', async () => {
     return customerCreditService.getDiagnostics();
   });
-  safeIpcHandle(ipcMain, 'customerCredits:apply', async (_, request: any) => {
+  safeIpcHandle(ipcMain, 'customerCredits:apply', async (_, request: unknown) => {
+    const input = parseIpcInput(customerCreditApplyArgsSchema, request, 'بيانات تطبيق رصيد العميل');
     return customerCreditService.applyCredit({
-      customerId: request.customerId,
-      targetInvoiceId: request.targetInvoiceId,
-      amount: request.amount,
-      idempotencyKey: request.idempotencyKey,
-      reason: request.reason,
+      customerId: input.customerId,
+      targetInvoiceId: input.targetInvoiceId,
+      amount: input.amount,
+      idempotencyKey: input.idempotencyKey,
+      reason: input.reason,
       actorId: localActorId()
     });
   });
-  safeIpcHandle(ipcMain, 'customerCredits:refund', async (_, request: any) => {
+  safeIpcHandle(ipcMain, 'customerCredits:refund', async (_, request: unknown) => {
+    const input = parseIpcInput(customerCreditRefundArgsSchema, request, 'بيانات استرداد رصيد العميل');
     return customerCreditService.refundCredit({
-      customerId: request.customerId,
-      amount: request.amount,
-      method: request.method,
-      idempotencyKey: request.idempotencyKey,
-      reason: request.reason,
+      customerId: input.customerId,
+      amount: input.amount,
+      method: input.method,
+      idempotencyKey: input.idempotencyKey,
+      reason: input.reason,
       actorId: localActorId()
     });
   });
@@ -492,8 +519,9 @@ export function registerIpcHandlers(dbManager: SahwaDatabaseManager) {
       return JSON.stringify(dbManager.exportFullDataAsJson(), null, 2);
     });
 
-  safeIpcHandle(ipcMain, 'system:restore', async (_, jsonContent: string) => {
-    return dbManager.restoreFromJson(jsonContent);
+  safeIpcHandle(ipcMain, 'system:restore', async (_, jsonContent: unknown) => {
+    const input = parseIpcInput(restoreBackupArgsSchema, jsonContent, 'ملف النسخة الاحتياطية');
+    return dbManager.restoreFromJson(input);
   });
 
   safeIpcHandle(ipcMain, 'system:clearAllData', async () => {
