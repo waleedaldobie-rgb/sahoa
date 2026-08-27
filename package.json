@@ -21,6 +21,8 @@
     "dist:windows": "npm run build:electron:renderer && npm run build:electron && electron-builder --config electron-builder.json --win",
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit",
+    "check:legacy-ipc": "node scripts/check-legacy-ipc.mjs",
+    "test:legacy-ipc": "node scripts/check-legacy-ipc.test.mjs",
     "typecheck:domain": "tsc -p tsconfig.domain.json --pretty false",
     "typecheck:adapters": "tsc -p tsconfig.adapters.json --pretty false",
     "quality:domain": "npm run typecheck:domain",
