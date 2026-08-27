@@ -97,7 +97,7 @@ async function main() {
   registerIpcHandlers(manager);
 
   await record('overpayment creates created credit without extra revenue cash classification', async () => {
-    assert.equal(await call('invoices:addPayment', 'INV-SOURCE', 120, 'cash', 'integration overpayment', 'PAY-CC-1'), true);
+    assert.equal(await call('invoices:addPayment', { invoiceId: 'INV-SOURCE', amount: 120, method: 'cash', note: 'integration overpayment', paymentId: 'PAY-CC-1' }), true);
     const summary = await call('customerCredits:summary', customer.id);
     assert.equal(summary.availableBalance, 20);
     const created = db.prepare("SELECT * FROM customer_credits WHERE payment_id = 'PAY-CC-1'").get();
@@ -163,7 +163,7 @@ async function main() {
 
   await record('concurrent apply cannot spend the same remaining balance twice', async () => {
     insertOrderAndInvoice(db, { orderId: 'ORD-SOURCE-2', invoiceId: 'INV-SOURCE-2', orderNumber: 'ORD-CC-007', customerId: customer.id, customerName: customer.name, customerPhone: customer.phone });
-    assert.equal(await call('invoices:addPayment', 'INV-SOURCE-2', 108, 'cash', 'second overpayment', 'PAY-CC-2'), true);
+    assert.equal(await call('invoices:addPayment', { invoiceId: 'INV-SOURCE-2', amount: 108, method: 'cash', note: 'second overpayment', paymentId: 'PAY-CC-2' }), true);
     insertOrderAndInvoice(db, { orderId: 'ORD-CONCURRENT', invoiceId: 'INV-CONCURRENT', orderNumber: 'ORD-CC-008', customerId: customer.id, customerName: customer.name, customerPhone: customer.phone, total: 6 });
     const outcomes = await Promise.allSettled([
       call('customerCredits:apply', { customerId: customer.id, targetInvoiceId: 'INV-CONCURRENT', amount: 6, idempotencyKey: 'CONCURRENT-1', reason: 'race 1' }),

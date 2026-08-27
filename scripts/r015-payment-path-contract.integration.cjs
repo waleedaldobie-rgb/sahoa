@@ -69,7 +69,7 @@ const normalizeCash = (rows, orderId) => rows
     });
     const subsequentInvoice = (await call('getInvoices')).find((invoice) => invoice.orderId === subsequent.id);
     assert.ok(subsequentInvoice, 'subsequent payment invoice is required');
-    await call('addPayment', subsequentInvoice.id, 30, 'cash', 'R015 contract payment', 'R015-SUBSEQUENT-PAYMENT');
+    await call('addPayment', { invoiceId: subsequentInvoice.id, amount: 30, method: 'cash', note: 'R015 contract payment', paymentId: 'R015-SUBSEQUENT-PAYMENT' });
 
     const orders = await call('getOrders');
     const invoices = await call('getInvoices');

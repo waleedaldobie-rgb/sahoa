@@ -39,7 +39,7 @@ const { registerIpcHandlers } = require('../dist-electron/ipcHandlers.js');
       fabricId: 'R011-FABRIC', fabricName: 'R011-FABRIC', fabricColor: 'أبيض', garmentCount: 1,
       totalAmount: 100, paidAmount: 0
     });
-    await call('updateOrderStatus', created.id, 'cancelled');
+    await call('updateOrderStatus', { orderId: created.id, status: 'cancelled' });
 
     const beforeOrders = await call('getOrders');
     const beforeInvoices = await call('getInvoices');
@@ -51,7 +51,7 @@ const { registerIpcHandlers } = require('../dist-electron/ipcHandlers.js');
 
     let rejected = false;
     try {
-      await call('addPayment', invoice.id, 25, 'cash', 'R011 cancelled payment', 'R011-PAYMENT');
+      await call('addPayment', { invoiceId: invoice.id, amount: 25, method: 'cash', note: 'R011 cancelled payment', paymentId: 'R011-PAYMENT' });
     } catch (error) {
       rejected = true;
       assert.match(String(error?.message || error), /ملغى|ملغاة|cancelled|cancel/i);

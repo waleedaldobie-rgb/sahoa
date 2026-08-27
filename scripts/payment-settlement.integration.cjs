@@ -68,7 +68,7 @@ const { registerIpcHandlers } = require('../dist-electron/ipcHandlers.js');
       totalAmount: 300, paidAmount: 100, cashReceived: 100, initialPaymentMethod: 'cash'
     });
     const cashBeforeCancellation = await call('getCashTransactions');
-    await call('updateOrderStatus', cancelledOrder.id, 'cancelled');
+    await call('updateOrderStatus', { orderId: cancelledOrder.id, status: 'cancelled' });
 
     const cancelledInvoice = (await call('getInvoices')).find((invoice) => invoice.orderId === cancelledOrder.id);
     const cancelledOrderRow = (await call('getOrders')).find((order) => order.id === cancelledOrder.id);
@@ -85,7 +85,7 @@ const { registerIpcHandlers } = require('../dist-electron/ipcHandlers.js');
     assert.equal(cashAfterCancellation.filter((row) => row.orderId === cancelledOrder.id && row.direction === 'out').length, 0);
 
     const cancellationSnapshot = { order: cancelledOrderRow, invoice: cancelledInvoice, cash: cashAfterCancellation };
-    await call('updateOrderStatus', cancelledOrder.id, 'cancelled');
+    await call('updateOrderStatus', { orderId: cancelledOrder.id, status: 'cancelled' });
     const afterIdempotentCancel = {
       order: (await call('getOrders')).find((order) => order.id === cancelledOrder.id),
       invoice: (await call('getInvoices')).find((invoice) => invoice.orderId === cancelledOrder.id),
@@ -95,7 +95,7 @@ const { registerIpcHandlers } = require('../dist-electron/ipcHandlers.js');
 
     let paymentRejected = false;
     try {
-      await call('addPayment', cancelledInvoice.id, 10, 'cash', 'cancelled payment must reject', 'PAY-CONTRACT-CANCELLED-PAY');
+      await call('addPayment', { invoiceId: cancelledInvoice.id, amount: 10, method: 'cash', note: 'cancelled payment must reject', paymentId: 'PAY-CONTRACT-CANCELLED-PAY' });
     } catch (error) {
       paymentRejected = true;
       assert.match(String(error?.message || error), /ملغى|ملغاة|cancel/i);
@@ -119,7 +119,7 @@ const { registerIpcHandlers } = require('../dist-electron/ipcHandlers.js');
       fabricId: 'PAY-CONTRACT-FABRIC', fabricName: 'PAY-CONTRACT-FABRIC', fabricColor: 'أبيض', garmentCount: 1,
       totalAmount: 50, paidAmount: 50, cashReceived: 50, initialPaymentMethod: 'cash'
     });
-    await call('updateOrderStatus', fullyPaidOrder.id, 'cancelled');
+    await call('updateOrderStatus', { orderId: fullyPaidOrder.id, status: 'cancelled' });
     const fullyPaidInvoice = (await call('getInvoices')).find((invoice) => invoice.orderId === fullyPaidOrder.id);
     assert.equal(fullyPaidInvoice.paymentStatus, 'paid');
     assert.equal(fullyPaidInvoice.cancellationWriteoffAmount, 0);

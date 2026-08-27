@@ -91,7 +91,7 @@ const issueCodes = (report) => report.issues.map((issue) => issue.code);
       orderDate: '2026-08-01', deliveryDate: '2026-08-25', status: 'new', totalAmount: 200, paidAmount: 0,
       initialPaymentMethod: 'cash', measurements: {}, styleDetails: {}
     });
-    await call('addPayment', 'INV-AUDIT-OLD-1', 50, 'cash', 'تحصيل داخل الفترة', 'AUDIT-OLD-PAY');
+    await call('addPayment', { invoiceId: 'INV-AUDIT-OLD-1', amount: 50, method: 'cash', note: 'تحصيل داخل الفترة', paymentId: 'AUDIT-OLD-PAY' });
     const reportBuffer = await manager.generateExcelReport('2026-08-20', '2026-08-20');
     const workbook = XLSX.read(reportBuffer, { type: 'buffer' });
     const summaryRows = XLSX.utils.sheet_to_json(workbook.Sheets['ملخص المحاسبة']);

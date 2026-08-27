@@ -167,7 +167,7 @@ async function main() {
   createNotification(sourceDb);
   registerIpcHandlers(sourceManager);
 
-  assert.equal(await call('invoices:addPayment', 'INV-RESTORE-SOURCE', 120, 'cash', 'v1.3 restore overpayment', 'PAY-RESTORE-1'), true);
+  assert.equal(await call('invoices:addPayment', { invoiceId: 'INV-RESTORE-SOURCE', amount: 120, method: 'cash', note: 'v1.3 restore overpayment', paymentId: 'PAY-RESTORE-1' }), true);
   const applyResult = await call('customerCredits:apply', {
     customerId: customer.id,
     targetInvoiceId: 'INV-RESTORE-TARGET',

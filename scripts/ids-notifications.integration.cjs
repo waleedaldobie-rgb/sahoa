@@ -56,8 +56,8 @@ async function main() {
   assert.equal(db.prepare('SELECT COUNT(DISTINCT id) AS n FROM orders').get().n, 2);
 
   process.env.SAHWA_FORCE_WHATSAPP_FAILURE = '1';
-  assert.equal(await call('whatsapp:send', customer.phone, customer.name, first.orderNumber, 'جاهز'), false);
-  assert.equal(await call('whatsapp:send', customer.phone, customer.name, first.orderNumber, 'جاهز'), false);
+  assert.equal(await call('whatsapp:send', { phone: customer.phone, customerName: customer.name, orderNumber: first.orderNumber, statusText: 'جاهز' }), false);
+  assert.equal(await call('whatsapp:send', { phone: customer.phone, customerName: customer.name, orderNumber: first.orderNumber, statusText: 'جاهز' }), false);
   let notifications = await call('notifications:list', true);
   assert.equal(notifications.length, 1);
   assert.equal(notifications[0].status, 'failed');

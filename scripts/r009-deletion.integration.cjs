@@ -51,7 +51,7 @@ const { registerIpcHandlers } = require('../dist-electron/ipcHandlers.js');
     assert.ok(await accessory('R009-ACCESSORY-USED'));
 
     await createFabric('R009-FABRIC-MOVEMENT', 10);
-    await call('adjustStock', 'fabric', 'R009-FABRIC-MOVEMENT', 1, 'R009 movement history');
+    await call('adjustStock', { itemType: 'fabric', itemId: 'R009-FABRIC-MOVEMENT', quantity: 1, reason: 'R009 movement history' });
     await expectRejected(() => call('deleteFabric', 'R009-FABRIC-MOVEMENT'), /لا يمكن حذف (القماش|هذا الصنف)/);
     assert.ok(await fabric('R009-FABRIC-MOVEMENT'));
 
