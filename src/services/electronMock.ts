@@ -1,4 +1,4 @@
-import { AppData, UserPreferences, Customer, CustomerMeasurements, CustomerStyleDetails, Order, Invoice, FabricItem, AccessoryItem, ThobeType, ColorItem, NotificationItem,   PaymentRecord, StockMovement, PurchaseRecord, PurchaseLine, ExpenseRecord, CashTransaction, OrderMaterialUsage, OrderEvent, MeasurementHistoryRecord, CustomerCreditRecord, CustomerCreditApplyRequest, CustomerCreditHistoryFilters, CustomerCreditOperationResult, CustomerCreditRefundRequest, CustomerCreditSummary, InventoryItemType } from '../types';
+import { AppData, UserPreferences, Customer, CustomerMeasurements, CustomerStyleDetails, Order, Invoice, FabricItem, AccessoryItem, ThobeType, ColorItem, NotificationItem,   PaymentRecord, StockMovement, PurchaseRecord, PurchaseLine, ExpenseRecord, CashTransaction, OrderMaterialUsage, OrderEvent, MeasurementHistoryRecord, CustomerCreditRecord, CustomerCreditApplyRequest, CustomerCreditHistoryFilters, CustomerCreditOperationResult, CustomerCreditRefundRequest, CustomerCreditSummary, InventoryItemType, AddPaymentRequest, AdjustStockRequest, ReturnPurchaseRequest, UpdateOrderStatusRequest, WhatsAppSendRequest, SettingsUpdateRequest } from '../types';
 import { checkAndSyncStockAlerts } from '../utils/stockAlerts';
 import { calculateStockBalance, round2 } from './shared/inventoryRules';
 import { assertSafeInitialOrderStatus } from '../domain/orderRules';
@@ -642,8 +642,12 @@ export function initElectronMock() {
       return (data.stockMovements || []).filter((movement) => (!itemType || movement.itemType === itemType) && (!itemId || movement.itemId === itemId));
     },
 
-    async adjustStock(itemType: InventoryItemType, itemId: string, quantity: number, reason: string, direction: 'adjustment' | 'return' | 'adjustment_in' | 'adjustment_out' = 'adjustment', actorId = 'system', unitCost?: number): Promise<StockMovement> {
-      if (isRealElectron && existing?.adjustStock) return existing.adjustStock(itemType, itemId, quantity, reason, direction, actorId, unitCost);
+    async adjustStock(requestOrItemType: AdjustStockRequest | InventoryItemType, legacyItemId?: string, legacyQuantity?: number, legacyReason?: string, legacyDirection: AdjustStockRequest['direction'] = 'adjustment', legacyActorId = 'system', legacyUnitCost?: number): Promise<StockMovement> {
+      const request: AdjustStockRequest = typeof requestOrItemType === 'string'
+        ? { itemType: requestOrItemType, itemId: legacyItemId!, quantity: legacyQuantity!, reason: legacyReason!, direction: legacyDirection, actorId: legacyActorId, unitCost: legacyUnitCost }
+        : requestOrItemType;
+      if (isRealElectron && existing?.adjustStock) return existing.adjustStock(request);
+      const { itemType, itemId, quantity, reason, direction, actorId = 'system', unitCost } = request;
       let movement!: StockMovement;
       await db.transaction((draft) => {
         if (!reason?.trim()) throw new Error('سبب التسوية مطلوب');
@@ -658,8 +662,12 @@ export function initElectronMock() {
       return movement;
     },
 
-    async returnPurchase(itemType: InventoryItemType, itemId: string, quantity: number, reason: string, originalMovementId?: string, purchaseId?: string, actorId = 'system'): Promise<StockMovement> {
-      if (isRealElectron && existing?.returnPurchase) return existing.returnPurchase(itemType, itemId, quantity, reason, originalMovementId, purchaseId, actorId);
+    async returnPurchase(requestOrItemType: ReturnPurchaseRequest | InventoryItemType, legacyItemId?: string, legacyQuantity?: number, legacyReason?: string, legacyOriginalMovementId?: string, legacyPurchaseId?: string, legacyActorId = 'system'): Promise<StockMovement> {
+      const request: ReturnPurchaseRequest = typeof requestOrItemType === 'string'
+        ? { itemType: requestOrItemType, itemId: legacyItemId!, quantity: legacyQuantity!, reason: legacyReason!, originalMovementId: legacyOriginalMovementId, purchaseId: legacyPurchaseId, actorId: legacyActorId }
+        : requestOrItemType;
+      if (isRealElectron && existing?.returnPurchase) return existing.returnPurchase(request);
+      const { itemType, itemId, quantity, reason, originalMovementId, purchaseId, actorId = 'system' } = request;
       let movement!: StockMovement;
       await db.transaction((draft) => {
         movement = returnPurchaseInDraft(draft, itemType, itemId, quantity, reason, originalMovementId, purchaseId, actorId);
@@ -873,8 +881,12 @@ export function initElectronMock() {
       return true;
     },
 
-    async updateOrderStatus(id: string, status: string): Promise<boolean> {
-      if (isRealElectron && existing?.updateOrderStatus) return existing.updateOrderStatus(id, status);
+    async updateOrderStatus(requestOrId: UpdateOrderStatusRequest | string, legacyStatus?: string): Promise<boolean> {
+      const request: UpdateOrderStatusRequest = typeof requestOrId === 'string'
+        ? { orderId: requestOrId, status: legacyStatus as UpdateOrderStatusRequest['status'] }
+        : requestOrId;
+      if (isRealElectron && existing?.updateOrderStatus) return existing.updateOrderStatus(request);
+      const { orderId: id, status } = request;
       await db.transaction((draft) => {
         const order = draft.orders.find((item) => item.id === id);
         if (!order) throw new Error('الطلب غير موجود في قاعدة البيانات');
@@ -924,10 +936,13 @@ export function initElectronMock() {
       return data.invoices;
     },
 
-    async addPayment(invoiceId: string, amount: number, method: string, note: string, paymentId?: string): Promise<boolean> {
-      if (isRealElectron && existing?.addPayment) return existing.addPayment(invoiceId, amount, method, note, paymentId);
+    async addPayment(requestOrInvoiceId: AddPaymentRequest | string, legacyAmount?: number, legacyMethod?: string, legacyNote = '', legacyPaymentId?: string): Promise<boolean> {
+      const request: AddPaymentRequest = typeof requestOrInvoiceId === 'string'
+        ? { invoiceId: requestOrInvoiceId, amount: legacyAmount!, method: legacyMethod as AddPaymentRequest['method'], note: legacyNote, paymentId: legacyPaymentId }
+        : requestOrInvoiceId;
+      if (isRealElectron && existing?.addPayment) return existing.addPayment(request);
       await db.transaction((draft) => {
-        applyPaymentToDraft(draft, invoiceId, amount, method, note, paymentId);
+        applyPaymentToDraft(draft, request.invoiceId, request.amount, request.method, request.note, request.paymentId);
       });
       return true;
     },
@@ -1040,11 +1055,14 @@ export function initElectronMock() {
       return { fabricConsumptionRatePerGarment: 3.5 };
     },
 
-    async updateSetting(key: string, value: any): Promise<boolean> {
-      if (isRealElectron && existing?.updateSetting) return existing.updateSetting(key, value);
+    async updateSetting(requestOrKey: SettingsUpdateRequest | string, legacyValue?: string | number): Promise<boolean> {
+      const request: SettingsUpdateRequest = typeof requestOrKey === 'string'
+        ? { key: requestOrKey as SettingsUpdateRequest['key'], value: legacyValue! }
+        : requestOrKey;
+      if (isRealElectron && existing?.updateSetting) return existing.updateSetting(request);
       try {
         const settings = await window.electronAPI.getSettings();
-        settings[key] = value;
+        settings[request.key] = request.value;
         localStorage.setItem('sahwa_settings_v1', JSON.stringify(settings));
         return true;
       } catch (e) {
@@ -1052,7 +1070,11 @@ export function initElectronMock() {
       }
     },
 
-    async sendWhatsAppNotice(phone: string, customerName: string, orderNumber: string, statusText: string): Promise<boolean> {
+    async sendWhatsAppNotice(requestOrPhone: WhatsAppSendRequest | string, legacyCustomerName?: string, legacyOrderNumber?: string, legacyStatusText?: string): Promise<boolean> {
+      const request: WhatsAppSendRequest = typeof requestOrPhone === 'string'
+        ? { phone: requestOrPhone, customerName: legacyCustomerName!, orderNumber: legacyOrderNumber!, statusText: legacyStatusText! }
+        : requestOrPhone;
+      const { phone, customerName, orderNumber, statusText } = request;
       const cleanPhone = phone.replace(/\D/g, '');
       const internationalPhone = cleanPhone.startsWith('05') ? '966' + cleanPhone.substring(1) : cleanPhone;
       const message = `مرحباً بك أ/ ${customerName}، نفيدك بنتيجة متابعة طلبك رقم (#${orderNumber}) لدى صهوة للخياطة. حالياً: ${statusText}. يسعدنا تواصلكم دائماً!`;
