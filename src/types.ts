@@ -574,6 +574,7 @@ declare global {
         appPath: string;
         isPackaged: boolean;
       }>;
+      automationPrintToPDF?: (options?: Record<string, unknown>) => Promise<string>;
       getSettings?: () => Promise<any>;
       updateSetting?: (key: string, value: any) => Promise<boolean>;
     };

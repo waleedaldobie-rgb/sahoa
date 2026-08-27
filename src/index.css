@@ -2187,6 +2187,23 @@ input:focus, select:focus, textarea:focus {
     break-inside: auto !important;
     page-break-inside: auto !important;
   }
+
+  /* The preview lives inside a fixed modal; anchor it to page origin during PDF export. */
+  .modal-print-host {
+    position: absolute !important;
+    inset: 0 !important;
+    display: block !important;
+    width: 100% !important;
+    height: auto !important;
+    padding: 0 !important;
+  }
+
+  .modal-print-host .invoice-screen-preview {
+    position: absolute !important;
+    top: 0 !important;
+    left: 0 !important;
+    margin: 0 !important;
+  }
 }
 
 /* ============================================================================

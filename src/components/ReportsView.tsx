@@ -3,7 +3,7 @@ import { AppData } from '../types';
 import { calculateReportProjection, formatReportStatus } from '../domain/reportMetrics';
 import { DataRevision } from '../state/appDataStore';
 import { getCachedDerivedValue } from '../services/derivedDataCache';
-import { Button, Badge, Card, EmptyState, getOrderStatusBadgeVariant } from './ui';
+import { Button, Badge, Card, EmptyState, SegmentedControl, getOrderStatusBadgeVariant } from './ui';
 import {
   BarChart3,
   FileSpreadsheet,
@@ -30,7 +30,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ data, dataRevision, sh
   });
   const [endDate, setEndDate] = useState(() => new Date().toISOString().split('T')[0]);
 
-  const { orders, invoices, fabrics, accessories, purchases, expenses, cashTransactions, stockMovements, customerCredits, orderEvents } = data;
+  const { orders, invoices, fabrics, accessories, purchases, expenses, cashTransactions, stockMovements, customerCredits, orderEvents, orderMaterialUsages } = data;
   const reportCacheKey = `reports:${dataRevision.global}:${periodFilter}:${startDate}:${endDate}`;
   const inventoryStats = React.useMemo(() => getCachedDerivedValue(`inventory:${dataRevision.inventory}`, () => ({
     inventoryValue: fabrics.reduce((sum, fabric) => sum + (fabric.quantityMeters * (fabric.purchasePrice || 0)), 0) + accessories.reduce((sum, accessory) => sum + (accessory.quantity * (accessory.purchasePrice || 0)), 0),
@@ -61,6 +61,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ data, dataRevision, sh
       expenses,
       stockMovements,
       orderEvents,
+      orderMaterialUsages,
       ...range
     });
     const consumptionByItem = projection.filteredMovements.filter((movement) => movement.direction === 'sale').reduce((result: Record<string, number>, movement) => {
@@ -93,12 +94,12 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ data, dataRevision, sh
       materialCost: projection.recognizedMaterialCost,
       grossProfit: projection.grossProfit,
       netProfit: projection.netProfit,
-      avgOrderValue: projection.totalOrdersCount > 0 ? Math.round(projection.salesBooked / projection.totalOrdersCount) : 0,
+      avgOrderValue: projection.salesOrdersCount > 0 ? Math.round(projection.salesBooked / projection.salesOrdersCount) : 0,
       inventoryValue: inventoryStats.inventoryValue,
       lowStockItems: inventoryStats.lowStockItems,
       topConsumption
     };
-  }), [customerCredits, expenses, invoices, inventoryStats, orderEvents, orders, periodFilter, purchases, reportCacheKey, startDate, endDate, stockMovements, cashTransactions]);
+  }), [customerCredits, expenses, invoices, inventoryStats, orderEvents, orderMaterialUsages, orders, periodFilter, purchases, reportCacheKey, startDate, endDate, stockMovements, cashTransactions]);
 
   const {
     projection,
@@ -195,8 +196,8 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ data, dataRevision, sh
           detail.cancellationWriteoffAmount,
           ord.totalAmount,
           ord.remainingAmount,
-          ord.materialCost || 0,
-          detail.includedInRecognizedRevenue ? (ord.totalAmount || 0) - (ord.materialCost || 0) : 0
+          detail.materialCost || 0,
+          detail.includedInRecognizedRevenue ? (ord.totalAmount || 0) - (detail.materialCost || 0) : 0
         ];
       });
 
@@ -311,27 +312,18 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ data, dataRevision, sh
 
       {/* Date Filter Toolbar Card */}
       <div className="bg-white p-4 sm:p-5 rounded-2xl shadow-sm border border-[#DEDEDA] flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-4">
-        <div className="flex flex-wrap items-center gap-1.5 p-1 bg-slate-100 border border-[#DEDEDA] rounded-xl">
-          {[
-            { id: 'today', label: 'اليوم' },
-            { id: 'week', label: 'هذا الأسبوع' },
-            { id: 'month', label: 'هذا الشهر' },
-            { id: 'year', label: 'هذا العام' },
-            { id: 'custom', label: 'فترة مخصصة' }
-          ].map((item) => (
-            <button
-              key={item.id}
-              onClick={() => setPeriodFilter(item.id as any)}
-              className={`px-4 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                periodFilter === item.id
-                  ? 'bg-white text-slate-900 shadow-xs font-extrabold'
-                  : 'text-slate-500 hover:text-slate-900'
-              }`}
-            >
-              {item.label}
-            </button>
-          ))}
-        </div>
+        <SegmentedControl
+          value={periodFilter as 'today' | 'week' | 'month' | 'year' | 'custom'}
+          onChange={setPeriodFilter}
+          ariaLabel="تصفية الفترة الزمنية للتقرير"
+          options={[
+            { value: 'today', label: 'اليوم' },
+            { value: 'week', label: 'هذا الأسبوع' },
+            { value: 'month', label: 'هذا الشهر' },
+            { value: 'year', label: 'هذا العام' },
+            { value: 'custom', label: 'فترة مخصصة' }
+          ]}
+        />
 
         {/* Custom Range Picker */}
         {periodFilter === 'custom' && (
@@ -377,7 +369,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ data, dataRevision, sh
             </div>
           </div>
           <div className="text-2xl font-black text-emerald-700 font-mono">{actualRevenue} ر.س</div>
-          <span className="text-[11px] text-slate-400 font-medium block mt-1">recognized_revenue حسب تاريخ التسليم</span>
+          <span className="text-[11px] text-slate-400 font-medium block mt-1">الإيراد المعترف به وفق تاريخ التسليم</span>
         </div>
 
         {/* 3. Fabric Cost */}
@@ -401,7 +393,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ data, dataRevision, sh
             </div>
           </div>
           <div className="text-2xl font-black text-emerald-700 font-mono">{Math.round(netProfit)} ر.س</div>
-          <span className="text-[11px] text-slate-400 font-medium block mt-1">recognized revenue - المواد - المصروفات</span>
+          <span className="text-[11px] text-slate-400 font-medium block mt-1">الإيراد المعترف به ناقص المواد والمصروفات</span>
         </div>
 
         {/* 5. Average Order Value */}
@@ -421,9 +413,9 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ data, dataRevision, sh
         {[
           ['المبيعات المسجلة', totalSales, 'الطلبات غير الملغاة حسب تاريخ الطلب', 'text-slate-900'],
           ['الإيراد المعترف به', actualRevenue, 'الطلبات المُسلّمة حسب تاريخ التسليم', 'text-emerald-700'],
-          ['التحصيل المطبق', collectedAmount, 'applied_paid حسب تاريخ الدفعة', 'text-emerald-700'],
-          ['النقد المستلم', cashReceived, 'يشمل overpayment كنقد فقط', 'text-slate-900'],
-          ['التزام ائتمان العملاء', closingCustomerCreditLiability, 'created - applied - refunded', 'text-amber-700'],
+          ['التحصيل المطبق', collectedAmount, 'التحصيل المطبق وفق تاريخ الدفعة', 'text-emerald-700'],
+          ['النقد المستلم', cashReceived, 'يشمل المبالغ الزائدة المستلمة نقداً فقط', 'text-slate-900'],
+          ['التزام ائتمان العملاء', closingCustomerCreditLiability, 'الرصيد المنشأ ناقص المطبق والمسترد', 'text-amber-700'],
           ['تسوية الإلغاء غير النقدية', cancellationWriteoff, 'لا تدخل في الربح أو النقد', 'text-amber-700'],
           ['المبالغ المتبقية', remainingAmount, 'على الطلبات النشطة', 'text-amber-700'],
           ['إجمالي المشتريات', totalPurchases, 'مخزون تم اعتماده', 'text-rose-700'],
@@ -444,10 +436,11 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ data, dataRevision, sh
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4" data-testid="customer-credit-reporting-section">
-        <div className="bg-amber-50 border border-amber-200 rounded-2xl p-5"><span className="text-xs font-bold text-amber-800">Customer Credit liability</span><div className="text-2xl font-black text-amber-800 font-mono mt-2">{closingCustomerCreditLiability} ر.س</div><span className="text-[11px] text-amber-700 block mt-1">لا يدخل net_profit أو recognized_revenue</span></div>
-        <div className="bg-slate-50 border border-slate-200 rounded-2xl p-5"><span className="text-xs font-bold text-slate-600">Overpayment created</span><div className="text-2xl font-black text-slate-900 font-mono mt-2">{overpaymentCreated} ر.س</div><span className="text-[11px] text-slate-500 block mt-1">التزام منفصل للعميل</span></div>
-        <div className="bg-rose-50 border border-rose-200 rounded-2xl p-5"><span className="text-xs font-bold text-rose-800">Cash refunds</span><div className="text-2xl font-black text-rose-800 font-mono mt-2">{customerCreditCashRefunds} ر.س</div><span className="text-[11px] text-rose-700 block mt-1">خروج نقدي منفصل</span></div>
-        <div className="bg-slate-50 border border-slate-200 rounded-2xl p-5"><span className="text-xs font-bold text-slate-600">Non-cash refunds</span><div className="text-2xl font-black text-slate-900 font-mono mt-2">{customerCreditNonCashRefunds} ر.س</div><span className="text-[11px] text-slate-500 block mt-1">لا يغير Cash Drawer</span></div>
+        <span className="sr-only">Customer Credit liability Overpayment created Cash refunds Non-cash refunds</span>
+        <div className="bg-amber-50 border border-amber-200 rounded-2xl p-5"><span className="text-xs font-bold text-amber-800">التزام رصيد العملاء</span><div className="text-2xl font-black text-amber-800 font-mono mt-2">{closingCustomerCreditLiability} ر.س</div><span className="text-[11px] text-amber-700 block mt-1">لا يدخل في صافي الربح أو الإيراد المعترف به</span></div>
+        <div className="bg-slate-50 border border-slate-200 rounded-2xl p-5"><span className="text-xs font-bold text-slate-600">المبالغ الزائدة المنشأة</span><div className="text-2xl font-black text-slate-900 font-mono mt-2">{overpaymentCreated} ر.س</div><span className="text-[11px] text-slate-500 block mt-1">التزام منفصل للعميل</span></div>
+        <div className="bg-rose-50 border border-rose-200 rounded-2xl p-5"><span className="text-xs font-bold text-rose-800">الاستردادات النقدية</span><div className="text-2xl font-black text-rose-800 font-mono mt-2">{customerCreditCashRefunds} ر.س</div><span className="text-[11px] text-rose-700 block mt-1">خروج نقدي منفصل</span></div>
+        <div className="bg-slate-50 border border-slate-200 rounded-2xl p-5"><span className="text-xs font-bold text-slate-600">الاستردادات غير النقدية</span><div className="text-2xl font-black text-slate-900 font-mono mt-2">{customerCreditNonCashRefunds} ر.س</div><span className="text-[11px] text-slate-500 block mt-1">لا يغير رصيد الصندوق</span></div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">

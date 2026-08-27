@@ -40,6 +40,7 @@ export const Button: React.FC<ButtonProps> = ({
 
   return (
     <button
+      type="button"
       className={`${baseClasses} ${sizeClasses[size]} ${variantClasses[variant]} ${className}`}
       disabled={disabled || isLoading}
       {...props}
@@ -113,6 +114,40 @@ export const SortHeader: React.FC<SortHeaderProps> = ({
     </button>
   );
 };
+
+// =================== SEGMENTED CONTROL COMPONENT ===================
+export interface SegmentedControlOption<T extends string = string> {
+  value: T;
+  label: string;
+  disabled?: boolean;
+}
+
+export interface SegmentedControlProps<T extends string = string> {
+  value: T;
+  options: Array<SegmentedControlOption<T>>;
+  onChange: (value: T) => void;
+  ariaLabel: string;
+  className?: string;
+}
+
+export function SegmentedControl<T extends string = string>({ value, options, onChange, ariaLabel, className = '' }: SegmentedControlProps<T>) {
+  return (
+    <div className={`sahwa-segmented-control ${className}`} role="group" aria-label={ariaLabel}>
+      {options.map((option) => (
+        <button
+          key={option.value}
+          type="button"
+          aria-pressed={value === option.value}
+          disabled={option.disabled}
+          onClick={() => onChange(option.value)}
+          className="sahwa-segmented-control__button"
+        >
+          {option.label}
+        </button>
+      ))}
+    </div>
+  );
+}
 
 // =================== CARD COMPONENT ===================
 export interface CardProps extends React.HTMLAttributes<HTMLDivElement> {

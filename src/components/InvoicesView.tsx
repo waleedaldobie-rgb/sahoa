@@ -1,7 +1,7 @@
 import React, { useRef, useState } from 'react';
 import { Invoice, Order, PaymentRecord, UserPreferences } from '../types';
 import { createSafeId } from '../domain/idGenerator';
-import { Card, Button, Input, Select, Modal, EmptyState, Badge, SortHeader, SortDirection, getInvoiceStatusBadgeVariant } from './ui';
+import { Card, Button, Input, Select, Modal, EmptyState, Badge, SortHeader, SortDirection, SegmentedControl, getInvoiceStatusBadgeVariant } from './ui';
 import { PrintableInvoice } from './PrintableInvoice';
 export { PrintableInvoice };
 import {
@@ -34,6 +34,7 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
   showToast
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
+  const [paymentStatusFilter, setPaymentStatusFilter] = useState<'all' | Invoice['paymentStatus']>('all');
   const [invoiceSort, setInvoiceSort] = useState<{ key: 'invoiceNumber' | 'customerName' | 'orderDate' | 'totalAmount' | 'remainingAmount' | 'paymentStatus'; direction: SortDirection }>({ key: 'invoiceNumber', direction: 'asc' });
   const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null);
   const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
@@ -48,11 +49,16 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
 
   const displayInvoiceNumber = (invoice: Invoice) => invoice.visibleInvoiceNumber ? `INV-${invoice.visibleInvoiceNumber}` : invoice.invoiceNumber;
   const filteredInvoices = invoices.filter(
-    (inv) =>
-      (inv.invoiceNumber || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
-      displayInvoiceNumber(inv).toLowerCase().includes(searchTerm.toLowerCase()) ||
-      inv.customerName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      inv.customerPhone.includes(searchTerm)
+    (inv) => {
+      const query = searchTerm.trim().toLowerCase();
+      const matchesSearch = !query ||
+        (inv.invoiceNumber || '').toLowerCase().includes(query) ||
+        displayInvoiceNumber(inv).toLowerCase().includes(query) ||
+        inv.customerName.toLowerCase().includes(query) ||
+        inv.customerPhone.includes(query);
+      const matchesStatus = paymentStatusFilter === 'all' || inv.paymentStatus === paymentStatusFilter;
+      return matchesSearch && matchesStatus;
+    }
   );
   const toggleInvoiceSort = (key: typeof invoiceSort.key) => {
     setInvoiceSort((current) => current.key === key ? { key, direction: current.direction === 'asc' ? 'desc' : 'asc' } : { key, direction: 'asc' });
@@ -136,9 +142,9 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
     : null;
 
   return (
-    <div className="view-wrapper animate-in fade-in duration-300">
+    <div className="view-wrapper animate-in fade-in duration-300" dir="rtl">
       {/* Printable Area */}
-      {selectedInvoice && (
+      {selectedInvoice && !isPreviewModalOpen && (
         <div className="hidden-on-screen">
           <PrintableInvoice
             invoice={selectedInvoice}
@@ -159,15 +165,32 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
 
       {/* Filters Bar */}
       <Card className="p-4 bg-[#F9FAFB]/50 border-dashed">
-        <div className="relative max-w-lg">
-          <Input
-            placeholder="بحث برقم الفاتورة، اسم العميل، أو الجوال..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            icon={<Search className="w-5 h-5" />}
-            className="h-11 border-dashed"
+        <div className="flex flex-col xl:flex-row xl:items-end justify-between gap-4">
+          <div className="relative w-full xl:max-w-lg">
+            <Input
+              label="البحث في الفواتير"
+              placeholder="برقم الفاتورة، اسم العميل، أو الجوال..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              icon={<Search className="w-5 h-5" aria-hidden="true" />}
+              className="h-11 border-dashed"
+              aria-label="البحث في الفواتير برقم الفاتورة أو اسم العميل أو الجوال"
+            />
+          </div>
+          <SegmentedControl
+            value={paymentStatusFilter}
+            onChange={setPaymentStatusFilter}
+            ariaLabel="تصفية حالة الدفع"
+            options={[
+              { value: 'all', label: 'الكل' },
+              { value: 'unpaid', label: 'غير مدفوع' },
+              { value: 'partial', label: 'دفعة جزئية' },
+              { value: 'paid', label: 'مدفوع' },
+              { value: 'settled_by_cancellation', label: 'مسوّى بالإلغاء' }
+            ]}
           />
         </div>
+        <p className="mt-2 text-xs font-bold text-[var(--color-text-muted-token)]" aria-live="polite">عرض {filteredInvoices.length} من أصل {invoices.length} فاتورة</p>
       </Card>
 
       {/* Invoices Table */}
@@ -176,9 +199,9 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
           <EmptyState
             compact
             icon={<Receipt className="w-8 h-8" />}
-            title={searchTerm.trim() ? 'لا توجد فواتير مطابقة لبحثك' : 'لا توجد فواتير بعد'}
-            description={searchTerm.trim() ? 'جرّب رقم فاتورة أو اسم عميل مختلفًا، أو امسح البحث.' : 'ستظهر الفواتير هنا تلقائيًا عند تسجيل طلبات جديدة للعملاء.'}
-            action={searchTerm.trim() ? <Button size="sm" variant="secondary" onClick={() => setSearchTerm('')}>مسح البحث</Button> : onNavigateTab ? <Button size="sm" variant="primary" onClick={() => onNavigateTab('orders')} icon={<Receipt className="w-4 h-4" />}>الانتقال إلى الطلبات</Button> : undefined}
+            title={searchTerm.trim() || paymentStatusFilter !== 'all' ? 'لا توجد فواتير مطابقة' : 'لا توجد فواتير بعد'}
+            description={searchTerm.trim() || paymentStatusFilter !== 'all' ? 'غيّر البحث أو حالة الدفع لعرض فواتير أخرى.' : 'ستظهر الفواتير هنا تلقائيًا عند تسجيل طلبات جديدة للعملاء.'}
+            action={searchTerm.trim() || paymentStatusFilter !== 'all' ? <Button size="sm" variant="secondary" onClick={() => { setSearchTerm(''); setPaymentStatusFilter('all'); }}>مسح البحث والفلاتر</Button> : onNavigateTab ? <Button size="sm" variant="primary" onClick={() => onNavigateTab('orders')} icon={<Receipt className="w-4 h-4" />}>الانتقال إلى الطلبات</Button> : undefined}
           />
         ) : (
           <div className="overflow-x-auto">
@@ -271,14 +294,15 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
           }
         >
           <div className="space-y-6">
-            <div className="p-5 bg-[#111111] text-white rounded-2xl shadow-lg">
+            <div className="p-5 bg-[#111111] text-white rounded-2xl shadow-lg" aria-live="polite">
               <div className="flex justify-between items-center mb-4 pb-4 border-b border-white/10">
-                 <span className="text-xs font-bold opacity-60">العميل:</span>
-                 <span className="text-sm font-black">{selectedInvoice.customerName}</span>
+                <span className="text-xs font-bold opacity-60">العميل:</span>
+                <span className="text-sm font-black truncate max-w-[70%]" title={selectedInvoice.customerName}>{selectedInvoice.customerName}</span>
               </div>
-              <div className="flex justify-between items-center">
-                 <span className="text-xs font-bold opacity-60">المبلغ المتبقي:</span>
-                 <span className="text-2xl font-black font-mono text-amber-400">{selectedInvoice.remainingAmount} ر.س</span>
+              <div className="grid grid-cols-3 gap-3 text-center">
+                <div><span className="block text-[10px] font-bold opacity-60">الإجمالي</span><strong className="mt-1 block font-mono text-sm">{selectedInvoice.totalAmount} ر.س</strong></div>
+                <div><span className="block text-[10px] font-bold opacity-60">المدفوع سابقاً</span><strong className="mt-1 block font-mono text-sm text-emerald-300">{selectedInvoice.paidAmount} ر.س</strong></div>
+                <div><span className="block text-[10px] font-bold opacity-60">المتبقي بعد الدفعة</span><strong className="mt-1 block font-mono text-sm text-amber-300">{Math.max(0, selectedInvoice.remainingAmount - paymentAmount)} ر.س</strong></div>
               </div>
             </div>
 
@@ -289,7 +313,9 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
                 value={paymentAmount}
                 onChange={(e) => setPaymentAmount(Number(e.target.value))}
                 icon={<DollarSign className="w-4 h-4" />}
+                aria-describedby="payment-amount-hint"
               />
+              <p id="payment-amount-hint" className="text-xs font-bold text-[var(--color-text-muted-token)]">الحد الأقصى للتحصيل: {selectedInvoice.remainingAmount} ر.س</p>
 
               <Select
                 label="طريقة الدفع *"

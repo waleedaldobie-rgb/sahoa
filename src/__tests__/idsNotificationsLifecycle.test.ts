@@ -60,6 +60,23 @@ describe('IDs/sequences and Notifications lifecycle', () => {
     expect(notifications?.[0].sourceId).toBe('0500000000|1001|جاهز');
   });
 
+  it('does not let a stale save overwrite a newer WhatsApp notification', async () => {
+    const staleSnapshot = await window.electronAPI.getData();
+    expect(staleSnapshot.notifications).toHaveLength(0);
+
+    await window.electronAPI.sendWhatsAppNotice('0500000000', 'عميل اختبار', '1001', 'جاهز');
+    const before = await window.electronAPI.notifications?.list(true);
+    expect(before?.[0]).toMatchObject({ status: 'sent', source: 'whatsapp' });
+
+    // Simulate a normal save triggered by another feature while this renderer
+    // still holds the pre-WhatsApp notification snapshot.
+    await window.electronAPI.saveData(staleSnapshot);
+
+    const after = await window.electronAPI.notifications?.list(true);
+    expect(after).toHaveLength(1);
+    expect(after?.[0]).toMatchObject({ status: 'sent', source: 'whatsapp' });
+  });
+
   it('marks all read and archives without deleting notifications', async () => {
     await window.electronAPI.sendWhatsAppNotice('0500000000', 'عميل اختبار', '1001', 'جاهز');
     const before = await window.electronAPI.notifications?.list(true);

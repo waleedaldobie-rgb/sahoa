@@ -29,6 +29,18 @@ function registerAutomationDiagnostics(databaseDir: string, backupDir: string): 
     appPath: app.getAppPath(),
     isPackaged: app.isPackaged
   }));
+
+  ipcMain.handle('automation:printToPDF', async (event, options: Electron.PrintToPDFOptions = {}) => {
+    const window = BrowserWindow.fromWebContents(event.sender) || mainWindow;
+    if (!window) throw new Error('نافذة الطباعة غير متاحة');
+    const pdf = await window.webContents.printToPDF({
+      ...options,
+      printBackground: true,
+      preferCSSPageSize: true,
+      margins: { marginType: 'none' }
+    });
+    return Buffer.from(pdf).toString('base64');
+  });
 }
 
 function createWindow() {

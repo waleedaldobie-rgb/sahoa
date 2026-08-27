@@ -247,32 +247,13 @@ export class SahwaDatabaseManager {
     return true;
   }
 
+  /**
+   * Compatibility facade for the legacy data:save path. Only stock-alert IDs are
+   * synchronized; server-owned notifications (e.g. WhatsApp) are never overwritten
+   * from renderer state.
+   */
   public replaceNotifications(notifications: NotificationItem[]): boolean {
-    const db = this.getRawDb();
-    const save = db.transaction((items: NotificationItem[]) => {
-      const repository = new NotificationRepository(db);
-      for (const notification of items) {
-        repository.upsert({
-          id: notification.id,
-          type: notification.type,
-          title: notification.title,
-          message: notification.message,
-          date: notification.date,
-          read: notification.read,
-          customerPhone: notification.customerPhone || null,
-          orderId: notification.orderId || null,
-          status: notification.status || 'sent',
-          source: notification.source || 'renderer',
-          sourceId: notification.sourceId || notification.id,
-          readAt: notification.readAt || null,
-          archivedAt: notification.archivedAt || null,
-          retryCount: notification.retryCount || 0,
-          lastError: notification.lastError || null,
-          retryHistory: notification.retryHistory || []
-        });
-      }
-    });
-    save(notifications);
+    new NotificationRepository(this.getRawDb()).syncStockAlerts(notifications);
     return true;
   }
 
@@ -925,16 +906,12 @@ export class SahwaDatabaseManager {
   public async generateExcelReport(startDate?: string, endDate?: string): Promise<Buffer> {
     const XLSX = await import('xlsx');
     const data = this.exportFullDataAsJson() as any;
-    const materialCostByOrder = new Map<string, number>();
-    for (const usage of data.orderMaterialUsages || []) {
-      materialCostByOrder.set(usage.orderId, (materialCostByOrder.get(usage.orderId) || 0) + Number(usage.totalCost || 0));
-    }
-    const orders = (data.orders || []).map((order: any) => ({
-      ...order,
-      materialCost: materialCostByOrder.get(order.id) || (Number(order.fabricConsumptionMeters || 0) * Number(order.fabricBuyPriceAtOrder || 0))
-    }));
+    // Material cost is computed once inside calculateReportProjection (see
+    // materialCostFor in reportMetrics.ts), from the same orderMaterialUsages
+    // records used by the on-screen report, so Excel and the screen can never
+    // diverge. Do not pre-compute or inject order.materialCost here.
     const projection = calculateReportProjection({
-      orders,
+      orders: data.orders || [],
       invoices: data.invoices || [],
       cashTransactions: data.cashTransactions || [],
       customerCredits: data.customerCredits || [],
@@ -942,6 +919,7 @@ export class SahwaDatabaseManager {
       expenses: data.expenses || [],
       stockMovements: data.stockMovements || [],
       orderEvents: data.orderEvents || [],
+      orderMaterialUsages: data.orderMaterialUsages || [],
       startDate,
       endDate
     });
@@ -971,8 +949,8 @@ export class SahwaDatabaseManager {
       'cancellation writeoff (ر.س)': detail.cancellationWriteoffAmount,
       'الإجمالي (ر.س)': detail.order.totalAmount,
       'المتبقي (ر.س)': detail.order.remainingAmount,
-      'تكلفة المواد (ر.س)': detail.order.materialCost || 0,
-      'الربح المعترف به (ر.س)': detail.includedInRecognizedRevenue ? Number(detail.order.totalAmount || 0) - Number(detail.order.materialCost || 0) : 0
+      'تكلفة المواد (ر.س)': detail.materialCost || 0,
+      'الربح المعترف به (ر.س)': detail.includedInRecognizedRevenue ? Number(detail.order.totalAmount || 0) - Number(detail.materialCost || 0) : 0
       };
     });
     const summaryRows = [

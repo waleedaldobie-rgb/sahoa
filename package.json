@@ -15,7 +15,10 @@
     "perf:v130": "npm run build:electron && electron --no-sandbox scripts/performance-v130.integration.cjs",
     "electron:dev": "npm run build:electron && concurrently -k \"npm run dev\" \"wait-on http://localhost:3000 && cross-env NODE_ENV=development electron .\"",
     "test:visual:desktop": "node scripts/desktop-visual-viewport-check.mjs",
-    "dist": "npm run build:electron:renderer && npm run build:electron && electron-builder --win",
+    "test:print:desktop": "cross-env DESKTOP_VISUAL_STATES=print node scripts/desktop-visual-viewport-check.mjs",
+    "test:p2:boundaries": "vitest run src/__tests__/p2BoundaryValues.test.ts",
+    "dist": "npm run build:electron:renderer && npm run build:electron && electron-builder --config electron-builder.json --win",
+    "dist:windows": "npm run build:electron:renderer && npm run build:electron && electron-builder --config electron-builder.json --win",
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit",
     "typecheck:domain": "tsc -p tsconfig.domain.json --pretty false",
@@ -69,43 +72,5 @@
     "vite": "^6.2.3",
     "vitest": "^4.1.10",
     "wait-on": "^8.0.1"
-  },
-  "build": {
-    "appId": "com.sahwa.tailoring",
-    "productName": "صهوة للخياطة",
-    "executableName": "sahwa-tailoring",
-    "directories": {
-      "output": "release",
-      "buildResources": "build"
-    },
-    "files": [
-      "dist/**/*",
-      "dist-electron/**/*",
-      "!dist-electron/**/*.map",
-      "!dist/**/*.map",
-      "build/icon.ico",
-      "package.json",
-      "!src/**/*",
-      "!data/**/*"
-    ],
-    "asarUnpack": [
-      "node_modules/better-sqlite3/**/*"
-    ],
-    "npmRebuild": true,
-    "win": {
-      "target": [
-        "nsis"
-      ],
-      "icon": "build/icon.ico",
-      "signAndEditExecutable": true
-    },
-    "nsis": {
-      "include": "build/installer.nsh",
-      "oneClick": false,
-      "allowToChangeInstallationDirectory": true,
-      "createDesktopShortcut": true,
-      "createStartMenuShortcut": true,
-      "shortcutName": "صهوة للخياطة"
-    }
   }
 }

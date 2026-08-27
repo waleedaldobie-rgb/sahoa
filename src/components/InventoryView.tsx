@@ -1,10 +1,11 @@
 import React, { useState } from 'react';
 import { FabricItem, AccessoryItem, ThobeType, ColorItem, StockMovement, InventoryItemType } from '../types';
 import { createSafeId } from '../domain/idGenerator';
-import { Card, Button, Input, Select, Modal, Badge, EmptyState, SortHeader, SortDirection } from './ui';
+import { Card, Button, Input, Select, Modal, Badge, EmptyState, SortHeader, SortDirection, SegmentedControl } from './ui';
 import { ConfirmModal } from './ConfirmModal';
 import {
   Package,
+  Search,
   Layers,
   Plus,
   Palette,
@@ -51,6 +52,8 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
   showToast
 }) => {
   const [activeTab, setActiveTab] = useState<'fabrics' | 'accessories' | 'models' | 'movements'>('fabrics');
+  const [inventorySearch, setInventorySearch] = useState('');
+  const [inventoryStatusFilter, setInventoryStatusFilter] = useState<'all' | 'available' | 'low' | 'out'>('all');
   const [fabricSort, setFabricSort] = useState<{ key: 'name' | 'color' | 'sellingPrice' | 'quantityMeters'; direction: SortDirection }>({ key: 'name', direction: 'asc' });
   const [accessorySort, setAccessorySort] = useState<{ key: 'name' | 'category' | 'quantity'; direction: SortDirection }>({ key: 'name', direction: 'asc' });
   const [movementSort, setMovementSort] = useState<{ key: 'createdAt' | 'itemName' | 'quantity' | 'quantityAfter'; direction: SortDirection }>({ key: 'createdAt', direction: 'desc' });
@@ -82,6 +85,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
     quantity: 10,
     minStock: 5,
     unit: 'حبة',
+    purchasePrice: 0,
     sellingPrice: 0
   });
 
@@ -124,7 +128,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
   };
 
   const handleOpenAddAccessory = () => {
-    setAccessoryForm({ id: '', name: '', category: 'أزرار', quantity: 50, minStock: 10, unit: 'حبة', sellingPrice: 0 });
+    setAccessoryForm({ id: '', name: '', category: 'أزرار', quantity: 50, minStock: 10, unit: 'حبة', purchasePrice: 0, sellingPrice: 0 });
     setIsAccessoryModalOpen(true);
   };
 
@@ -219,8 +223,25 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
     return movementSort.direction === 'asc' ? comparison : -comparison;
   });
 
+  const normalizedInventorySearch = inventorySearch.trim().toLocaleLowerCase('ar');
+  const matchesInventoryStatus = (quantity: number, minimum: number) => {
+    if (inventoryStatusFilter === 'out') return quantity <= 0;
+    if (inventoryStatusFilter === 'low') return quantity > 0 && quantity <= minimum;
+    if (inventoryStatusFilter === 'available') return quantity > minimum;
+    return true;
+  };
+  const hasActiveInventoryFilters = Boolean(inventorySearch.trim()) || inventoryStatusFilter !== 'all';
+  const visibleFabrics = sortedFabrics.filter((fabric) => {
+    const matchesSearch = !normalizedInventorySearch || `${fabric.name} ${fabric.color}`.toLocaleLowerCase('ar').includes(normalizedInventorySearch);
+    return matchesSearch && matchesInventoryStatus(fabric.quantityMeters, fabric.minStockMeters);
+  });
+  const visibleAccessories = sortedAccessories.filter((accessory) => {
+    const matchesSearch = !normalizedInventorySearch || `${accessory.name} ${accessory.category}`.toLocaleLowerCase('ar').includes(normalizedInventorySearch);
+    return matchesSearch && matchesInventoryStatus(accessory.quantity, accessory.minStock);
+  });
+
   return (
-    <div className="view-wrapper animate-in fade-in duration-300">
+    <div className="view-wrapper animate-in fade-in duration-300" dir="rtl">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
         <div className="page-header">
           <h2 className="page-title flex items-center gap-3">
@@ -243,18 +264,19 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
         </div>
       </div>
 
-      <div className="flex items-center gap-1 p-1 bg-[#F3F4F6] rounded-xl w-fit">
+          <div className="flex items-center gap-1 p-1 bg-[#F3F4F6] rounded-xl w-fit" role="tablist" aria-label="أقسام المخزون">
         {[
           { id: 'fabrics', label: 'الأقمشة', icon: <Layers className="w-4 h-4" /> },
           { id: 'accessories', label: 'الإكسسوارات', icon: <Package className="w-4 h-4" /> },
           { id: 'models', label: 'الموديلات والألوان', icon: <Scissors className="w-4 h-4" /> },
           { id: 'movements', label: 'حركة المخزون', icon: <Database className="w-4 h-4" /> }
         ].map((tab) => (
-          <button
+            <button
             type="button"
+            role="tab"
             key={tab.id}
             onClick={() => setActiveTab(tab.id as any)}
-            aria-pressed={activeTab === tab.id}
+            aria-selected={activeTab === tab.id}
             aria-current={activeTab === tab.id ? 'page' : undefined}
             className={`px-6 py-2.5 rounded-lg text-xs font-black transition-all duration-200 flex items-center gap-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#b08a4a] focus-visible:ring-offset-2 ${
               activeTab === tab.id ? 'bg-white text-[#111111] shadow-sm' : 'text-[#6B7280] hover:text-[#111111]'
@@ -266,6 +288,37 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
         ))}
       </div>
 
+      {(activeTab === 'fabrics' || activeTab === 'accessories') && (
+        <Card className="inventory-filter-card">
+          <div className="flex flex-col xl:flex-row xl:items-end justify-between gap-4">
+            <div className="w-full xl:max-w-xl">
+              <Input
+                label="بحث في المخزون"
+                placeholder={activeTab === 'fabrics' ? 'ابحث باسم القماش أو اللون...' : 'ابحث باسم الإكسسوار أو الفئة...'}
+                value={inventorySearch}
+                onChange={(event) => setInventorySearch(event.target.value)}
+                icon={<Search className="w-4 h-4" aria-hidden="true" />}
+                aria-label="البحث في المخزون"
+              />
+            </div>
+            <SegmentedControl
+              value={inventoryStatusFilter}
+              onChange={setInventoryStatusFilter}
+              ariaLabel="تصفية حالة المخزون"
+              options={[
+                { value: 'all', label: 'الكل' },
+                { value: 'available', label: 'متوفر' },
+                { value: 'low', label: 'منخفض' },
+                { value: 'out', label: 'نفد' }
+              ]}
+            />
+          </div>
+          <p className="inventory-filter-meta" aria-live="polite">
+            {activeTab === 'fabrics' ? `عرض ${visibleFabrics.length} من أصل ${fabrics.length} قماش` : `عرض ${visibleAccessories.length} من أصل ${accessories.length} إكسسوار`}
+          </p>
+        </Card>
+      )}
+
       {activeTab === 'fabrics' && (
         <Card className="p-0 overflow-hidden">
           <div className="overflow-x-auto">
@@ -275,29 +328,32 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
                   <th aria-sort={fabricSort.key === 'name' ? fabricSort.direction === 'asc' ? 'ascending' : 'descending' : 'none'}><SortHeader label="اسم القماش" active={fabricSort.key === 'name'} direction={fabricSort.direction} onClick={() => toggleFabricSort('name')} /></th>
                   <th aria-sort={fabricSort.key === 'color' ? fabricSort.direction === 'asc' ? 'ascending' : 'descending' : 'none'}><SortHeader label="اللون" active={fabricSort.key === 'color'} direction={fabricSort.direction} onClick={() => toggleFabricSort('color')} /></th>
                   <th className="text-center" aria-sort={fabricSort.key === 'sellingPrice' ? fabricSort.direction === 'asc' ? 'ascending' : 'descending' : 'none'}><SortHeader label="سعر البيع" active={fabricSort.key === 'sellingPrice'} direction={fabricSort.direction} onClick={() => toggleFabricSort('sellingPrice')} align="center" /></th>
+                  <th className="text-center">سعر الشراء</th>
                   <th className="text-center" aria-sort={fabricSort.key === 'quantityMeters' ? fabricSort.direction === 'asc' ? 'ascending' : 'descending' : 'none'}><SortHeader label="المخزون" active={fabricSort.key === 'quantityMeters'} direction={fabricSort.direction} onClick={() => toggleFabricSort('quantityMeters')} align="center" /></th>
                   <th>الحالة</th>
                   <th className="text-center">إجراءات</th>
                 </tr>
               </thead>
                 <tbody>
-                {fabrics.length === 0 ? (
-                  <tr><td colSpan={6}><EmptyState compact icon={<Layers className="w-7 h-7" />} title="لا توجد أقمشة بعد" description="أضف أول قماش لتبدأ متابعة الأسعار والكميات وحالة المخزون." action={<Button size="sm" variant="primary" onClick={handleOpenAddFabric} icon={<Plus className="w-4 h-4" />}>إضافة قماش</Button>} className="my-4" /></td></tr>
-                ) : sortedFabrics.map((fab) => {
-                  const isLowStock = fab.quantityMeters <= fab.minStockMeters;
+                {visibleFabrics.length === 0 ? (
+                  <tr><td colSpan={7}><EmptyState compact icon={<Layers className="w-7 h-7" />} title={fabrics.length === 0 ? 'لا توجد أقمشة بعد' : 'لا توجد أقمشة مطابقة'} description={fabrics.length === 0 ? 'أضف أول قماش لتبدأ متابعة الأسعار والكميات وحالة المخزون.' : 'غيّر البحث أو حالة المخزون لعرض أصناف أخرى.'} action={fabrics.length === 0 ? <Button size="sm" variant="primary" onClick={handleOpenAddFabric} icon={<Plus className="w-4 h-4" />}>إضافة قماش</Button> : hasActiveInventoryFilters ? <Button size="sm" variant="secondary" onClick={() => { setInventorySearch(''); setInventoryStatusFilter('all'); }}>مسح البحث والفلاتر</Button> : undefined} className="my-4" /></td></tr>
+                ) : visibleFabrics.map((fab) => {
+                  const isOutOfStock = fab.quantityMeters <= 0;
+                  const isLowStock = !isOutOfStock && fab.quantityMeters <= fab.minStockMeters;
                   return (
                     <tr key={fab.id}>
                       <td title={fab.name} className="font-black text-[#111111]">{fab.name}</td>
                       <td title={fab.color} className="font-bold text-[#4B5563]">{fab.color}</td>
                       <td className="text-center font-black text-emerald-600 font-mono">{fab.sellingPrice} ر.س</td>
+                      <td className="text-center font-black text-[var(--color-text-muted-token)] font-mono">{fab.purchasePrice} ر.س</td>
                       <td className="text-center font-black font-mono">
                         <span className={isLowStock ? 'text-rose-600' : 'text-[#111111]'}>{fab.quantityMeters} متر</span>
                       </td>
-                      <td>
-                        <Badge variant={isLowStock ? 'amber' : 'emerald'}>
-                          {isLowStock ? 'مخزون منخفض' : 'متوفر'}
-                        </Badge>
-                      </td>
+                        <td>
+                          <Badge variant={isOutOfStock ? 'red' : isLowStock ? 'amber' : 'emerald'}>
+                            {isOutOfStock ? 'نفد المخزون' : isLowStock ? 'مخزون منخفض' : 'متوفر'}
+                          </Badge>
+                        </td>
                       <td className="text-center">
                         <div className="flex items-center justify-center gap-2">
                           <Button variant="secondary" size="sm" onClick={() => handleOpenEditFabric(fab)}>تعديل</Button>
@@ -322,27 +378,30 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
                   <th aria-sort={accessorySort.key === 'name' ? accessorySort.direction === 'asc' ? 'ascending' : 'descending' : 'none'}><SortHeader label="اسم الإكسسوار" active={accessorySort.key === 'name'} direction={accessorySort.direction} onClick={() => toggleAccessorySort('name')} /></th>
                   <th aria-sort={accessorySort.key === 'category' ? accessorySort.direction === 'asc' ? 'ascending' : 'descending' : 'none'}><SortHeader label="الفئة" active={accessorySort.key === 'category'} direction={accessorySort.direction} onClick={() => toggleAccessorySort('category')} /></th>
                   <th className="text-center" aria-sort={accessorySort.key === 'quantity' ? accessorySort.direction === 'asc' ? 'ascending' : 'descending' : 'none'}><SortHeader label="الكمية" active={accessorySort.key === 'quantity'} direction={accessorySort.direction} onClick={() => toggleAccessorySort('quantity')} align="center" /></th>
+                  <th className="text-center">سعر الشراء</th>
                   <th>الحالة</th>
                   <th className="text-center">إجراءات</th>
                 </tr>
               </thead>
                 <tbody>
-                {accessories.length === 0 ? (
-                  <tr><td colSpan={5}><EmptyState compact icon={<Package className="w-7 h-7" />} title="لا توجد إكسسوارات بعد" description="أضف أول إكسسوار لتسجيل الكميات والحد الأدنى للمخزون." action={<Button size="sm" variant="primary" onClick={handleOpenAddAccessory} icon={<Plus className="w-4 h-4" />}>إضافة إكسسوار</Button>} className="my-4" /></td></tr>
-                ) : sortedAccessories.map((acc) => {
-                  const isLowStock = acc.quantity <= acc.minStock;
+                {visibleAccessories.length === 0 ? (
+                  <tr><td colSpan={6}><EmptyState compact icon={<Package className="w-7 h-7" />} title={accessories.length === 0 ? 'لا توجد إكسسوارات بعد' : 'لا توجد إكسسوارات مطابقة'} description={accessories.length === 0 ? 'أضف أول إكسسوار لتسجيل الكميات والحد الأدنى للمخزون.' : 'غيّر البحث أو حالة المخزون لعرض أصناف أخرى.'} action={accessories.length === 0 ? <Button size="sm" variant="primary" onClick={handleOpenAddAccessory} icon={<Plus className="w-4 h-4" />}>إضافة إكسسوار</Button> : hasActiveInventoryFilters ? <Button size="sm" variant="secondary" onClick={() => { setInventorySearch(''); setInventoryStatusFilter('all'); }}>مسح البحث والفلاتر</Button> : undefined} className="my-4" /></td></tr>
+                ) : visibleAccessories.map((acc) => {
+                  const isOutOfStock = acc.quantity <= 0;
+                  const isLowStock = !isOutOfStock && acc.quantity <= acc.minStock;
                   return (
                     <tr key={acc.id}>
                       <td title={acc.name} className="font-black text-[#111111]">{acc.name}</td>
                       <td title={acc.category} className="font-bold text-[#4B5563]">{acc.category}</td>
                       <td className="text-center font-black font-mono">
-                        <span className={isLowStock ? 'text-rose-600' : 'text-[#111111]'}>{acc.quantity} {acc.unit}</span>
+                        <span className={isOutOfStock || isLowStock ? 'text-rose-600' : 'text-[#111111]'}>{acc.quantity} {acc.unit}</span>
                       </td>
+                      <td className="text-center font-black text-[var(--color-text-muted-token)] font-mono">{typeof acc.purchasePrice === 'number' ? `${acc.purchasePrice} ر.س` : '—'}</td>
                       <td>
-                        <Badge variant={isLowStock ? 'amber' : 'emerald'}>
-                          {isLowStock ? 'كمية منخفضة' : 'متوفر'}
-                        </Badge>
-                      </td>
+                          <Badge variant={isOutOfStock ? 'red' : isLowStock ? 'amber' : 'emerald'}>
+                            {isOutOfStock ? 'نفد المخزون' : isLowStock ? 'كمية منخفضة' : 'متوفر'}
+                          </Badge>
+                        </td>
                       <td className="text-center">
                         <div className="flex items-center justify-center gap-2">
                           <Button variant="secondary" size="sm" onClick={() => handleOpenEditAccessory(acc)}>تعديل</Button>
@@ -448,10 +507,12 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
       <Modal isOpen={isFabricModalOpen} onClose={() => setIsFabricModalOpen(false)} title={fabricForm.id ? 'تعديل قماش' : 'إضافة قماش جديد'}>
         <div className="space-y-4">
           <Input label="اسم القماش *" value={fabricForm.name} onChange={e => setFabricForm({...fabricForm, name: e.target.value})} />
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <Input label="اللون" value={fabricForm.color} onChange={e => setFabricForm({...fabricForm, color: e.target.value})} />
+            <Input label="سعر الشراء (ر.س)" type="number" min="0" step="0.01" value={fabricForm.purchasePrice} onChange={e => setFabricForm({...fabricForm, purchasePrice: Number(e.target.value)})} />
             <Input label="سعر البيع (ر.س)" type="number" min="0" step="0.01" value={fabricForm.sellingPrice} onChange={e => setFabricForm({...fabricForm, sellingPrice: Number(e.target.value)})} />
-            <Input label="المخزون (متر)" type="number" value={fabricForm.quantityMeters} onChange={e => setFabricForm({...fabricForm, quantityMeters: Number(e.target.value)})} />
+            <Input label="المخزون الحالي (متر)" type="number" min="0" value={fabricForm.quantityMeters} onChange={e => setFabricForm({...fabricForm, quantityMeters: Number(e.target.value)})} />
+            <Input label="حد التنبيه (متر)" type="number" min="0" value={fabricForm.minStockMeters} onChange={e => setFabricForm({...fabricForm, minStockMeters: Number(e.target.value)})} />
           </div>
           <div className="flex items-center justify-end gap-3 mt-4 pt-4 border-t border-[#F3F4F6]"><Button variant="ghost" onClick={() => setIsFabricModalOpen(false)}>إلغاء</Button><Button variant="primary" onClick={handleSaveFabricSubmit}>حفظ البيانات</Button></div>
         </div>
@@ -466,9 +527,14 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
               <option value="خيوط">خيوط</option>
               <option value="إكسسوارات أخرى">إكسسوارات أخرى</option>
             </Select>
-            <Input label="الكمية" type="number" value={accessoryForm.quantity} onChange={e => setAccessoryForm({...accessoryForm, quantity: Number(e.target.value)})} />
+            <Input label="الوحدة" value={accessoryForm.unit} onChange={e => setAccessoryForm({...accessoryForm, unit: e.target.value})} />
+            <Input label="الكمية الحالية" type="number" min="0" value={accessoryForm.quantity} onChange={e => setAccessoryForm({...accessoryForm, quantity: Number(e.target.value)})} />
+            <Input label="حد التنبيه" type="number" min="0" value={accessoryForm.minStock} onChange={e => setAccessoryForm({...accessoryForm, minStock: Number(e.target.value)})} />
           </div>
-          <Input label="سعر البيع (ر.س)" type="number" min="0" step="0.01" value={accessoryForm.sellingPrice || 0} onChange={e => setAccessoryForm({...accessoryForm, sellingPrice: Number(e.target.value)})} />
+          <div className="grid grid-cols-2 gap-4">
+            <Input label="سعر الشراء (ر.س)" type="number" min="0" step="0.01" value={accessoryForm.purchasePrice || 0} onChange={e => setAccessoryForm({...accessoryForm, purchasePrice: Number(e.target.value)})} />
+            <Input label="سعر البيع (ر.س)" type="number" min="0" step="0.01" value={accessoryForm.sellingPrice || 0} onChange={e => setAccessoryForm({...accessoryForm, sellingPrice: Number(e.target.value)})} />
+          </div>
           <div className="flex items-center justify-end gap-3 mt-4 pt-4 border-t border-[#F3F4F6]"><Button variant="ghost" onClick={() => setIsAccessoryModalOpen(false)}>إلغاء</Button><Button variant="primary" onClick={handleSaveAccessorySubmit}>حفظ الإكسسوار</Button></div>
         </div>
       </Modal>

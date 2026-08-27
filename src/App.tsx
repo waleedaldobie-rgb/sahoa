@@ -775,15 +775,30 @@ await executeCrud('جاري حذف الإكسسوار...', async () => {
   const handleMarkAllNotificationsRead = async () => {
     if (!data) return;
     await executeCrud('جاري تحديث التنبيهات...', async () => {
-      const updated = data.notifications.map((n) => ({ ...n, read: true }));
-      await persistData({ ...data, notifications: updated });
+      if (window.electronAPI.notifications?.markAllRead) {
+        // يستخدم UPDATE مباشر في قاعدة البيانات (لا يعتمد على نسخة data القديمة في الواجهة)
+        // فلا يُرجع حقول مثل status/retryCount لقيم قديمة قد تكون تغيّرت في الخلفية.
+        await window.electronAPI.notifications.markAllRead();
+        await refreshSlices(['notifications']);
+      } else {
+        // احتياط فقط لبيئة لا تحتوي على IPC المخصص
+        const updated = data.notifications.map((n) => ({ ...n, read: true }));
+        await persistData({ ...data, notifications: updated });
+      }
     });
   };
 
   const handleClearNotifications = async () => {
     if (!data) return;
     await executeCrud('جاري مسح التنبيهات...', async () => {
-      await persistData({ ...data, notifications: [] });
+      if (window.electronAPI.notifications?.clearAll) {
+        // يؤرشف كل الإشعارات في قاعدة البيانات فعليًا (بدل إرسال مصفوفة فارغة
+        // إلى replaceNotifications، التي تعمل الآن بمنطق upsert فلا تحذف/تؤرشف شيء).
+        await window.electronAPI.notifications.clearAll();
+        await refreshSlices(['notifications']);
+      } else {
+        await persistData({ ...data, notifications: [] });
+      }
     });
   };
 
@@ -815,7 +830,7 @@ await executeCrud('جاري حذف الإكسسوار...', async () => {
   }
 
   return (
-    <div className="h-screen overflow-hidden bg-[var(--ui-ivory)] text-slate-900 flex flex-row dir-rtl font-['Tajawal']">
+    <div dir="rtl" className="h-screen overflow-hidden bg-[var(--ui-ivory)] text-slate-900 flex flex-row dir-rtl font-['Tajawal']">
       {/* Toast Notification Banner */}
       <Toast toast={toast} onClose={handleCloseToast} />
 
@@ -831,6 +846,7 @@ await executeCrud('جاري حذف الإكسسوار...', async () => {
       {/* Main Content Area */}
       <main
         className="flex-1 flex flex-col min-w-0 overflow-y-auto h-full"
+        aria-busy={isDashboardRefreshing}
         style={{ backgroundImage: ornamentPatternSoft, backgroundSize: '96px 96px' }}
       >
         <Header

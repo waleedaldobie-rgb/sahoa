@@ -384,6 +384,49 @@ export function initElectronMock() {
         const { updatedData } = checkAndSyncStockAlerts(data);
         const sanitized = sanitizeAppData(updatedData);
         assertMockBusinessIntegrity(sanitized);
+
+        // Keep renderer-owned stock alerts synchronized, but never let a stale
+        // renderer snapshot overwrite server-owned notification lifecycle fields
+        // (WhatsApp status/retry/read state). This mirrors the production IPC
+        // contract where data:save synchronizes only stock-alert notifications.
+        const currentRaw = localStorage.getItem(STORAGE_KEY);
+        if (currentRaw) {
+          const current = sanitizeAppData(JSON.parse(currentRaw) as AppData);
+          const stockIds = new Set(
+            sanitized.notifications
+              .filter((n) => n.type === 'stock' && (n.id.startsWith('NOTIF-FAB-') || n.id.startsWith('NOTIF-ACC-')))
+              .map((n) => n.id)
+          );
+          const currentNonStock = current.notifications.filter((n) => n.type !== 'stock');
+          const incomingNonStock = sanitized.notifications.filter((n) => n.type !== 'stock');
+          const currentStockById = new Map(current.notifications.filter((n) => n.type === 'stock').map((n) => [n.id, n]));
+          const nextStock = sanitized.notifications
+            .filter((n) => n.type === 'stock' && (n.id.startsWith('NOTIF-FAB-') || n.id.startsWith('NOTIF-ACC-')))
+            .map((n) => {
+              const existing = currentStockById.get(n.id);
+              return existing ? { ...existing, title: n.title, message: n.message, date: n.date, read: n.read, archivedAt: undefined } : n;
+            });
+
+          // Merge server-owned/non-stock notifications by identity and timestamp.
+          // This keeps a newly-created or newer WhatsApp result, while a stale
+          // renderer snapshot cannot remove or roll back the current lifecycle.
+          const mergedNonStock = [...currentNonStock];
+          const notificationKey = (notification: NotificationItem) => `${notification.source || 'renderer'}|${notification.sourceId || notification.id}`;
+          for (const incoming of incomingNonStock) {
+            const incomingKey = notificationKey(incoming);
+            const existingIndex = mergedNonStock.findIndex((currentItem) => notificationKey(currentItem) === incomingKey);
+            if (existingIndex < 0) {
+              mergedNonStock.push(incoming);
+              continue;
+            }
+            const existing = mergedNonStock[existingIndex];
+            const incomingTime = Date.parse(incoming.updatedAt || incoming.createdAt || '') || 0;
+            const existingTime = Date.parse(existing.updatedAt || existing.createdAt || '') || 0;
+            if (incomingTime >= existingTime) mergedNonStock[existingIndex] = incoming;
+          }
+          sanitized.notifications = [...nextStock, ...mergedNonStock];
+        }
+
         localStorage.setItem(STORAGE_KEY, JSON.stringify(sanitized));
         return true;
       } catch (e) {

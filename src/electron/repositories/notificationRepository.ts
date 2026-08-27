@@ -120,6 +120,74 @@ export class NotificationRepository {
     return this.findById(id)!;
   }
 
+  /**
+   * Synchronize only stock-alert notifications. This intentionally never overwrites
+   * server-owned delivery/audit fields (status, retryCount, retry history, source,
+   * etc.) on existing notifications. It also only deletes notifications whose IDs
+   * belong to the stock-alert namespace, so a stale renderer snapshot cannot erase
+   * WhatsApp/server notifications.
+   */
+  syncStockAlerts(notifications: NotificationItem[]): { upserted: number; removed: number } {
+    const stockItems = notifications.filter((notification) =>
+      notification.type === 'stock'
+      && (notification.id.startsWith('NOTIF-FAB-') || notification.id.startsWith('NOTIF-ACC-'))
+    );
+    const desiredIds = new Set(stockItems.map((notification) => notification.id));
+    const sync = this.db.transaction(() => {
+      let upserted = 0;
+      let removed = 0;
+      const existingStock = this.db.prepare(`
+        SELECT id FROM notifications
+        WHERE type = 'stock' AND (id LIKE 'NOTIF-FAB-%' OR id LIKE 'NOTIF-ACC-%')
+      `).all() as Array<{ id: string }>;
+
+      for (const notification of stockItems) {
+        const existing = this.findRawById(notification.id);
+        if (existing) {
+          const now = new Date().toISOString();
+          this.db.prepare(`
+            UPDATE notifications
+            SET type = 'stock', title = ?, message = ?, date = ?, read = ?,
+                read_at = CASE WHEN ? = 0 THEN NULL ELSE read_at END,
+                archived_at = NULL, updated_at = ?
+            WHERE id = ?
+          `).run(
+            notification.title,
+            notification.message,
+            notification.date,
+            notification.read ? 1 : 0,
+            notification.read ? 1 : 0,
+            now,
+            notification.id
+          );
+        } else {
+          this.upsert({
+            id: notification.id,
+            type: 'stock',
+            title: notification.title,
+            message: notification.message,
+            date: notification.date,
+            read: notification.read,
+            source: 'stock-alert',
+            sourceId: notification.id,
+            status: 'sent',
+            retryCount: 0,
+            retryHistory: []
+          });
+        }
+        upserted++;
+      }
+
+      for (const row of existingStock) {
+        if (!desiredIds.has(row.id)) {
+          removed += Number(this.db.prepare('DELETE FROM notifications WHERE id = ?').run(row.id).changes || 0);
+        }
+      }
+      return { upserted, removed };
+    });
+    return sync();
+  }
+
   insert(row: { id: string; type: string; title: string; message: string; date: string; read: boolean; customerPhone?: string; orderId?: string | null }): void {
     this.upsert({ ...row, source: 'legacy', status: 'sent', sourceId: row.id });
   }

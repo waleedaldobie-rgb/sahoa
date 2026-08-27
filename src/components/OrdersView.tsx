@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Order, Invoice, Customer, FabricItem, AccessoryItem, ThobeType, OrderStatus, CustomerMeasurements, CustomerStyleDetails, UserPreferences, MeasurementHistoryRecord, OrderEvent } from '../types';
 import { createSafeId } from '../domain/idGenerator';
 import { EMPTY_MEASUREMENTS, EMPTY_STYLE_DETAILS } from '../services/shared/measurementDefaults';
-import { Card, Button, Input, Select, Modal, EmptyState, Badge, SortHeader, SortDirection, Tooltip, getOrderStatusBadgeVariant } from './ui';
+import { Card, Button, Input, Select, Modal, EmptyState, Badge, SortHeader, SortDirection, SegmentedControl, Tooltip, getOrderStatusBadgeVariant } from './ui';
 import { ConfirmModal } from './ConfirmModal';
 import { MeasurementsTableForm, draftKeyFor } from './MeasurementsTableForm';
 import { PrintableInvoice } from './PrintableInvoice';
@@ -28,7 +28,8 @@ import {
   Clock3,
   CircleDollarSign,
   Warehouse,
-  Send
+  Send,
+  MoreHorizontal
 } from 'lucide-react';
 
 const ORDER_STATUS_STEPS: Array<{ id: OrderStatus; label: string; description: string; icon: React.ReactNode }> = [
@@ -129,6 +130,7 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
     setMeasurementDraft(selectedOrder);
   }, [selectedOrder?.id]);
 
+
   // Print Mode State
   const [printableOrder, setPrintableOrder] = useState<Order | null>(null);
 
@@ -168,6 +170,7 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
   };
 
   // Filtered Orders
+  const hasActiveOrderFilters = Boolean(searchTerm.trim()) || statusFilter !== 'all';
   const filteredOrders = orders.filter((ord) => {
     const matchesSearch =
       ord.customerName.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -544,7 +547,7 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
   };
 
   return (
-    <div className="view-wrapper">
+    <div className="view-wrapper" dir="rtl">
       {/* Printable Area */}
       {printableOrder && (() => {
         const sourceInvoice = invoices.find((invoice) => invoice.orderId === printableOrder.id);
@@ -611,28 +614,20 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
             </Button>
           </div>
 
-          <div className="flex items-center gap-1.5 p-1 bg-white border border-[#E5E7EB] rounded-xl overflow-x-auto w-full lg:w-auto" role="group" aria-label="تصفية حالة الطلب">
-            {[
-              { id: 'all', label: 'الكل' },
-              { id: 'new', label: 'جديد' },
-              { id: 'processing', label: 'تحت التنفيذ' },
-              { id: 'ready', label: 'جاهز' },
-              { id: 'delivered', label: 'مُسلم' },
-              { id: 'cancelled', label: 'ملغى' }
-            ].map((st) => (
-              <button
-                key={st.id}
-                onClick={() => setStatusFilter(st.id)}
-                className={`px-5 py-2 rounded-lg text-xs font-black transition-all duration-200 whitespace-nowrap ${
-                  statusFilter === st.id
-                    ? 'bg-[#111111] text-white shadow-md'
-                    : 'text-[#6B7280] hover:bg-[#F3F4F6] hover:text-[#111111]'
-                }`}
-              >
-                {st.label}
-              </button>
-            ))}
-          </div>
+          <SegmentedControl
+            value={statusFilter as 'all' | OrderStatus}
+            onChange={setStatusFilter}
+            ariaLabel="تصفية حالة الطلب"
+            className="w-full lg:w-auto"
+            options={[
+              { value: 'all', label: 'الكل' },
+              { value: 'new', label: 'جديد' },
+              { value: 'processing', label: 'تحت التنفيذ' },
+              { value: 'ready', label: 'جاهز' },
+              { value: 'delivered', label: 'مُسلم' },
+              { value: 'cancelled', label: 'ملغى' }
+            ]}
+          />
         </div>
         <div className="orders-filter-meta" aria-live="polite">عرض {filteredOrders.length} من أصل {orders.length} طلب</div>
       </Card>
@@ -643,13 +638,9 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
           <EmptyState
             compact
             icon={<Scissors className="w-8 h-8" />}
-            title="لا توجد طلبات مطابقة"
-            description="يمكنك تغيير خيارات البحث أو إضافة طلب جديد للبدء."
-            action={
-              <Button variant="primary" size="md" onClick={handleOpenNewOrder} icon={<Plus className="w-4 h-4" />}>
-                إضافة طلب جديد
-              </Button>
-            }
+            title={hasActiveOrderFilters ? 'لا توجد طلبات مطابقة' : 'لا توجد طلبات بعد'}
+            description={hasActiveOrderFilters ? 'غيّر البحث أو حالة الطلب لعرض نتائج أخرى.' : 'أضف أول طلب للبدء بمتابعة التنفيذ والتسليم.'}
+            action={hasActiveOrderFilters ? <Button variant="secondary" size="md" onClick={() => { setSearchTerm(''); setStatusFilter('all'); }}>مسح البحث والفلاتر</Button> : <Button variant="primary" size="md" onClick={handleOpenNewOrder} icon={<Plus className="w-4 h-4" />}>إضافة طلب جديد</Button>}
           />
         ) : (
           <div className="overflow-x-auto">
@@ -727,24 +718,36 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
                             {getNextStatusAction(ord.status)?.label}
                           </Button>
                         )}
-                        <Tooltip content="إرسال رسالة واتساب بالحالة الحالية">
-                          <Button
-                            variant="secondary"
-                            size="sm"
-                            onClick={() => handleQuickWhatsApp(ord)}
-                            icon={<MessageCircle className="w-3.5 h-3.5" />}
-                            aria-label={`إرسال رسالة واتساب للطلب ${ord.orderNumber}`}
-                          />
-                        </Tooltip>
-                        <Tooltip content={`طباعة الطلب ${ord.orderNumber}`}>
-                          <Button
-                            variant="secondary"
-                            size="sm"
-                            onClick={() => handlePrintOrderSheet(ord)}
-                            icon={<Printer className="w-3.5 h-3.5" />}
-                            aria-label={`طباعة الطلب ${ord.orderNumber}`}
-                          />
-                        </Tooltip>
+                        <details className="sahwa-actions-menu">
+                          <summary aria-label={`إجراءات إضافية للطلب ${ord.orderNumber}`}>
+                            <MoreHorizontal className="h-4 w-4" aria-hidden="true" />
+                            المزيد
+                          </summary>
+                          <div className="order-row-secondary-actions" role="group" aria-label={`إجراءات إضافية للطلب ${ord.orderNumber}`}>
+                            <Tooltip content="إرسال رسالة واتساب بالحالة الحالية">
+                              <Button
+                                variant="secondary"
+                                size="sm"
+                                onClick={() => handleQuickWhatsApp(ord)}
+                                icon={<MessageCircle className="w-3.5 h-3.5" />}
+                                aria-label={`إرسال رسالة واتساب للطلب ${ord.orderNumber}`}
+                              >
+                                واتساب
+                              </Button>
+                            </Tooltip>
+                            <Tooltip content={`طباعة الطلب ${ord.orderNumber}`}>
+                              <Button
+                                variant="secondary"
+                                size="sm"
+                                onClick={() => handlePrintOrderSheet(ord)}
+                                icon={<Printer className="w-3.5 h-3.5" />}
+                                aria-label={`طباعة الطلب ${ord.orderNumber}`}
+                              >
+                                طباعة
+                              </Button>
+                            </Tooltip>
+                          </div>
+                        </details>
                       </div>
                     </td>
                   </tr>
@@ -1014,8 +1017,9 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
                   </span>
                 </div>
                 <div className="w-1/2">
-                   <Input 
-                    placeholder="ملاحظات إضافية للطلب..." 
+                   <Input
+                    label="ملاحظات الطلب"
+                    placeholder="تفاصيل إضافية اختيارية..."
                     value={notes} 
                     onChange={(e) => setNotes(e.target.value)}
                     className="h-11 border-dashed"
@@ -1098,6 +1102,8 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
             {/* Tabs */}
             <div className="flex items-center gap-1 p-1 bg-[#F3F4F6] rounded-xl w-fit">
               <button
+                type="button"
+                aria-pressed={detailTab === 'info'}
                 onClick={() => setDetailTab('info')}
                 className={`px-6 py-2 rounded-lg text-xs font-black transition-all ${
                   detailTab === 'info' ? 'bg-white text-[#111111] shadow-sm' : 'text-[#6B7280] hover:text-[#111111]'
@@ -1106,6 +1112,8 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
                 بيانات الطلب
               </button>
               <button
+                type="button"
+                aria-pressed={detailTab === 'measurements'}
                 onClick={() => setDetailTab('measurements')}
                 className={`px-6 py-2 rounded-lg text-xs font-black transition-all ${
                   detailTab === 'measurements' ? 'bg-white text-[#111111] shadow-sm' : 'text-[#6B7280] hover:text-[#111111]'
@@ -1114,6 +1122,8 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
                 المقاسات والتصميم
               </button>
               <button
+                type="button"
+                aria-pressed={detailTab === 'events'}
                 onClick={() => setDetailTab('events')}
                 className={`px-6 py-2 rounded-lg text-xs font-black transition-all ${
                   detailTab === 'events' ? 'bg-white text-[#111111] shadow-sm' : 'text-[#6B7280] hover:text-[#111111]'
@@ -1142,33 +1152,41 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
                 </section>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div className="space-y-4">
-                  <div className="p-4 bg-[#F9FAFB] rounded-2xl border border-[#E5E7EB]">
-                    <h4 className="text-[11px] font-black text-[#9CA3AF] uppercase mb-3 tracking-wider">بيانات العميل</h4>
-                    <div className="space-y-2">
-                      <div className="flex justify-between">
-                        <span className="text-xs font-bold text-[#6B7280]">الاسم:</span>
-                        <span className="text-xs font-black text-[#111111]">{selectedOrder.customerName}</span>
+                      <div className="order-detail-identity-card p-4 bg-[#F9FAFB] rounded-2xl border border-[#E5E7EB]">
+                        <h4 className="text-[11px] font-black text-[#9CA3AF] uppercase mb-3 tracking-wider">العميل والطلب</h4>
+                        <div className="space-y-3">
+                          <div>
+                            <span className="block text-[11px] font-bold text-[#6B7280]">اسم العميل</span>
+                            <span className="mt-0.5 block text-lg font-black text-[#111111]">{selectedOrder.customerName}</span>
+                          </div>
+                          <div className="flex items-center justify-between gap-3 border-t border-[#E5E7EB] pt-3">
+                            <span className="text-xs font-bold text-[#6B7280]">رقم الجوال</span>
+                            <span className="text-xs font-black text-[#111111] font-mono" dir="ltr">{selectedOrder.customerPhone}</span>
+                          </div>
+                          <div className="flex items-center justify-between gap-3">
+                            <span className="text-xs font-bold text-[#6B7280]">رقم الطلب</span>
+                            <span className="rounded-lg bg-white px-2.5 py-1 text-xs font-black font-mono text-[#111111]" dir="ltr">#{selectedOrder.orderNumber}</span>
+                          </div>
+                        </div>
                       </div>
-                      <div className="flex justify-between">
-                        <span className="text-xs font-bold text-[#6B7280]">الجوال:</span>
-                        <span className="text-xs font-black text-[#111111] font-mono">{selectedOrder.customerPhone}</span>
-                      </div>
-                    </div>
-                  </div>
 
-                  <div className="p-4 bg-[#F9FAFB] rounded-2xl border border-[#E5E7EB]">
-                    <h4 className="text-[11px] font-black text-[#9CA3AF] uppercase mb-3 tracking-wider">تفاصيل الثوب</h4>
-                    <div className="space-y-2">
-                      <div className="flex justify-between">
-                        <span className="text-xs font-bold text-[#6B7280]">النوع:</span>
-                        <span className="text-xs font-black text-[#111111]">{selectedOrder.thobeTypeName}</span>
+                      <div className="p-4 bg-[#F9FAFB] rounded-2xl border border-[#E5E7EB]">
+                        <h4 className="text-[11px] font-black text-[#9CA3AF] uppercase mb-3 tracking-wider">تفاصيل التنفيذ والتسليم</h4>
+                        <div className="space-y-3">
+                          <div className="flex justify-between gap-3">
+                            <span className="text-xs font-bold text-[#6B7280]">نوع الثوب</span>
+                            <span className="text-xs font-black text-[#111111] text-left">{selectedOrder.thobeTypeName}</span>
+                          </div>
+                          <div className="flex justify-between gap-3">
+                            <span className="text-xs font-bold text-[#6B7280]">القماش واللون</span>
+                            <span className="text-xs font-black text-[#111111] text-left">{selectedOrder.fabricName} ({selectedOrder.fabricColor})</span>
+                          </div>
+                          <div className="flex items-center justify-between gap-3 border-t border-[#E5E7EB] pt-3">
+                            <span className="text-xs font-bold text-[#6B7280]">موعد التسليم</span>
+                            <span className="rounded-lg bg-white px-2.5 py-1 text-xs font-black font-mono text-[#111111]" dir="ltr">{selectedOrder.deliveryDate}</span>
+                          </div>
+                        </div>
                       </div>
-                      <div className="flex justify-between">
-                        <span className="text-xs font-bold text-[#6B7280]">القماش:</span>
-                        <span className="text-xs font-black text-[#111111]">{selectedOrder.fabricName} ({selectedOrder.fabricColor})</span>
-                      </div>
-                    </div>
-                  </div>
                 </div>
 
                 <div className="space-y-4">
@@ -1180,6 +1198,10 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
                         <span className="text-lg font-black font-mono">{selectedOrder.totalAmount} ر.س</span>
                       </div>
                       <div className="flex justify-between items-center">
+                        <span className="text-xs font-bold opacity-80">المدفوع:</span>
+                        <span className="text-lg font-black font-mono text-emerald-300">{selectedOrder.paidAmount} ر.س</span>
+                      </div>
+                      <div className="flex justify-between items-center border-t border-white/10 pt-3">
                         <span className="text-xs font-bold opacity-80">المتبقي:</span>
                         <span className={`text-lg font-black font-mono ${selectedOrder.remainingAmount > 0 ? 'text-rose-400' : 'text-emerald-400'}`}>
                           {selectedOrder.remainingAmount} ر.س
@@ -1187,6 +1209,7 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
                       </div>
                       <div className="pt-2 border-t border-white/10">
                         <Select
+                          aria-label="تحديث حالة الطلب"
                           value={selectedOrder.status}
                           onChange={(e) => handleQuickStatusChange(selectedOrder, e.target.value as OrderStatus)}
                           className="bg-white/10 border-white/20 text-white h-10"
