@@ -502,7 +502,13 @@ async function verifyCustomerCreditAndRefund(pageRef, sourceOrder) {
   assert(sourceInvoice, 'Source invoice was not found for Customer Credit acceptance.');
 
   await pageRef.evaluate(async ({ invoiceId }) => {
-    await window.electronAPI.addPayment(invoiceId, 120, 'cash', 'Windows Customer Credit overpayment', `WIN-CREDIT-OVERPAY-${Date.now()}`);
+    await window.electronAPI.addPayment({
+      invoiceId,
+      amount: 120,
+      method: 'cash',
+      note: 'Windows Customer Credit overpayment',
+      paymentId: `WIN-CREDIT-OVERPAY-${Date.now()}`,
+    });
   }, { invoiceId: sourceInvoice.id });
 
   const afterOverpayment = await getDataSnapshot(pageRef);
@@ -539,7 +545,13 @@ async function verifyCustomerCreditAndRefund(pageRef, sourceOrder) {
   const refundInvoice = refundData.invoices.find((invoice) => invoice.orderId === refundOrder.id);
   assert(refundInvoice, 'Refund fixture invoice was not generated.');
   await pageRef.evaluate(async ({ invoiceId }) => {
-    await window.electronAPI.addPayment(invoiceId, 40, 'cash', 'Windows Customer Credit refund fixture', `WIN-CREDIT-REFUND-SEED-${Date.now()}`);
+    await window.electronAPI.addPayment({
+      invoiceId,
+      amount: 40,
+      method: 'cash',
+      note: 'Windows Customer Credit refund fixture',
+      paymentId: `WIN-CREDIT-REFUND-SEED-${Date.now()}`,
+    });
   }, { invoiceId: refundInvoice.id });
   await pageRef.reload();
   await waitForAppReady(pageRef);

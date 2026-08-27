@@ -261,7 +261,9 @@ async function preparePopulatedFixture() {
       await api.createExpense({ id: 'VISUAL-EXPENSE-POLISH', category: 'تشغيل', amount: 175, expenseDate: '2026-08-07', paymentMethod: 'cash', description: 'مصروف اختبار الواجهة', notes: 'سجل معزول للفحص البصري' });
     }
     const cancelledOrder = data.orders?.find((order) => order.id === cancelledFixtureId);
-    if (cancelledOrder?.status !== 'cancelled') await api.updateOrderStatus(cancelledFixtureId, 'cancelled');
+    if (cancelledOrder?.status !== 'cancelled') {
+      await api.updateOrderStatus({ orderId: cancelledFixtureId, status: 'cancelled' });
+    }
       return { available: true, created: !existing || customerCreated || catalogCreated, orderId: fixtureId, cancelledOrderId: cancelledFixtureId, cancelledOrderCreated: !existingCancelled, customerCreated, catalogCreated, purchaseCreated, expenseCreated };
     } catch (error) {
       return { available: false, created: false, reason: error?.message || String(error) };
