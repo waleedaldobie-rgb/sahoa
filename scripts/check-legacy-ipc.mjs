@@ -23,7 +23,7 @@ export const TARGET_CHANNELS = Object.freeze([
 const TARGET_NAMES = new Set([...TARGET_METHODS, ...TARGET_CHANNELS]);
 const SCANNABLE_EXTENSIONS = new Set(['.cjs', '.js', '.mjs', '.ts', '.tsx']);
 const SCANNED_ROOTS = Object.freeze(['src', 'scripts']);
-const EXCLUDED_FILES = new Set(['scripts/check-legacy-ipc.test.mjs']);
+const EXCLUDED_FILES = new Set(['scripts/check-legacy-ipc.smoke.mjs']);
 
 function skipTrivia(source, index) {
   let cursor = index;
