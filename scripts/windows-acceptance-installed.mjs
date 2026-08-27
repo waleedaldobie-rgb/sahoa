@@ -584,7 +584,9 @@ async function verifyCustomerCreditAndRefund(pageRef, sourceOrder) {
 
 async function testAccountingAndStock(pageRef, fabric) {
   await openTab(pageRef, 'المخزون والأصناف', 'المخزون والأصناف');
-  await pageRef.getByRole('button', { name: 'حركة المخزون', exact: true }).click();
+  const movementTab = pageRef.getByRole('tab', { name: 'حركة المخزون', exact: true });
+  await movementTab.click();
+  await expect(movementTab).toHaveAttribute('aria-selected', 'true');
   await pageRef.getByLabel('نوع الصنف', { exact: true }).selectOption('fabric');
   await pageRef.getByLabel('الصنف', { exact: true }).selectOption({ label: fabric.name });
   await pageRef.getByLabel('الكمية', { exact: true }).fill('1');
