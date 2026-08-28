@@ -202,6 +202,11 @@ async function main() {
     const valid = await call('orders:create', { ...orderPayload, id: 'ORD-VALID-STATUS', orderNumber: 'INT-VALID-STATUS', status: 'processing', paidAmount: 0, fabricId: undefined, fabricName: 'بدون قماش', materialUsages: [], orderDate: '2026-09-01', deliveryDate: '2026-09-02' });
     assert.equal(valid.status, 'processing');
     await assert.rejects(call('orders:updateStatus', { orderId: 'ORD-VALID-STATUS', status: 'unknown' }), /حالة الطلب/);
+    await call('orders:updateStatus', { orderId: 'ORD-VALID-STATUS', status: 'ready' });
+    await call('orders:updateStatus', { orderId: 'ORD-VALID-STATUS', status: 'delivered' });
+    await call('orders:updateStatus', { orderId: 'ORD-VALID-STATUS', status: 'ready' });
+    const correctedStatus = db.prepare('SELECT status FROM orders WHERE id = ?').get('ORD-VALID-STATUS');
+    assert.equal(correctedStatus.status, 'ready');
   });
 
   await record('backend validates payment methods across financial entry points', async () => {
