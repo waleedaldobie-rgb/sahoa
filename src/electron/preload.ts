@@ -17,14 +17,6 @@ import {
   WhatsAppSendRequest,
   SettingsUpdateRequest
 } from '../types';
-import {
-  normalizeAddPaymentRequest,
-  normalizeAdjustStockRequest,
-  normalizeReturnPurchaseRequest,
-  normalizeSettingsUpdateRequest,
-  normalizeUpdateOrderStatusRequest,
-  normalizeWhatsAppSendRequest,
-} from '../services/shared/ipcRequestAdapters';
 
 export const electronBridge = {
   // Compatibility data facade used by the existing React state layer.
@@ -67,27 +59,12 @@ export const electronBridge = {
   createOrder: (order: Partial<Order>) => ipcRenderer.invoke('orders:create', order),
   updateOrder: (order: Order) => ipcRenderer.invoke('orders:update', order),
   deleteOrder: (id: string) => ipcRenderer.invoke('orders:delete', id),
-  updateOrderStatus: (
-    requestOrId: UpdateOrderStatusRequest | string,
-    legacyStatus?: string,
-  ) => {
-    const request = normalizeUpdateOrderStatusRequest(requestOrId, legacyStatus);
-    return ipcRenderer.invoke('orders:updateStatus', request);
-  },
+  updateOrderStatus: (request: UpdateOrderStatusRequest) => ipcRenderer.invoke('orders:updateStatus', request),
   getOrderEvents: (orderId?: string) => ipcRenderer.invoke('orders:events:list', orderId),
 
   // Invoices & Payments
   getInvoices: () => ipcRenderer.invoke('invoices:list'),
-  addPayment: (
-    requestOrInvoiceId: AddPaymentRequest | string,
-    legacyAmount?: number,
-    legacyMethod?: string,
-    legacyNote = '',
-    legacyPaymentId?: string,
-  ) => {
-    const request = normalizeAddPaymentRequest(requestOrInvoiceId, legacyAmount, legacyMethod, legacyNote, legacyPaymentId);
-    return ipcRenderer.invoke('invoices:addPayment', request);
-  },
+  addPayment: (request: AddPaymentRequest) => ipcRenderer.invoke('invoices:addPayment', request),
 
   customerCredits: {
     list: (customerId: string, filters?: CustomerCreditHistoryFilters) => ipcRenderer.invoke('customerCredits:list', customerId, filters),
@@ -107,30 +84,8 @@ export const electronBridge = {
     retry: (id: string) => ipcRenderer.invoke('notifications:retry', id)
   },
   getStockMovements: (itemType?: InventoryItemType, itemId?: string) => ipcRenderer.invoke('stockMovements:list', itemType, itemId),
-  adjustStock: (
-    requestOrItemType: AdjustStockRequest | InventoryItemType,
-    legacyItemId?: string,
-    legacyQuantity?: number,
-    legacyReason?: string,
-    legacyDirection: AdjustStockRequest['direction'] = 'adjustment',
-    legacyActorId = 'system',
-    legacyUnitCost?: number,
-  ) => {
-    const request = normalizeAdjustStockRequest(requestOrItemType, legacyItemId, legacyQuantity, legacyReason, legacyDirection, legacyActorId, legacyUnitCost);
-    return ipcRenderer.invoke('stock:adjust', request);
-  },
-  returnPurchase: (
-    requestOrItemType: ReturnPurchaseRequest | InventoryItemType,
-    legacyItemId?: string,
-    legacyQuantity?: number,
-    legacyReason?: string,
-    legacyOriginalMovementId?: string,
-    legacyPurchaseId?: string,
-    legacyActorId = 'system',
-  ) => {
-    const request = normalizeReturnPurchaseRequest(requestOrItemType, legacyItemId, legacyQuantity, legacyReason, legacyOriginalMovementId, legacyPurchaseId, legacyActorId);
-    return ipcRenderer.invoke('stock:returnPurchase', request);
-  },
+  adjustStock: (request: AdjustStockRequest) => ipcRenderer.invoke('stock:adjust', request),
+  returnPurchase: (request: ReturnPurchaseRequest) => ipcRenderer.invoke('stock:returnPurchase', request),
   getPurchases: () => ipcRenderer.invoke('purchases:list'),
   createPurchase: (purchase: any) => ipcRenderer.invoke('purchases:create', purchase),
   getExpenses: () => ipcRenderer.invoke('expenses:list'),
@@ -149,20 +104,9 @@ export const electronBridge = {
   automationPrintToPDF: (options?: Record<string, unknown>) => ipcRenderer.invoke('automation:printToPDF', options),
   
   getSettings: () => ipcRenderer.invoke('settings:get'),
-  updateSetting: (requestOrKey: SettingsUpdateRequest | string, legacyValue?: string | number) => {
-    const request = normalizeSettingsUpdateRequest(requestOrKey, legacyValue);
-    return ipcRenderer.invoke('settings:update', request);
-  },
+  updateSetting: (request: SettingsUpdateRequest) => ipcRenderer.invoke('settings:update', request),
 
-  sendWhatsAppNotice: (
-    requestOrPhone: WhatsAppSendRequest | string,
-    legacyCustomerName?: string,
-    legacyOrderNumber?: string,
-    legacyStatusText?: string,
-  ) => {
-    const request = normalizeWhatsAppSendRequest(requestOrPhone, legacyCustomerName, legacyOrderNumber, legacyStatusText);
-    return ipcRenderer.invoke('whatsapp:send', request);
-  },
+  sendWhatsAppNotice: (request: WhatsAppSendRequest) => ipcRenderer.invoke('whatsapp:send', request),
 
   printDocument: () => window.print()
 };
