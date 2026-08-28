@@ -642,10 +642,7 @@ export function initElectronMock() {
       return (data.stockMovements || []).filter((movement) => (!itemType || movement.itemType === itemType) && (!itemId || movement.itemId === itemId));
     },
 
-    async adjustStock(requestOrItemType: AdjustStockRequest | InventoryItemType, legacyItemId?: string, legacyQuantity?: number, legacyReason?: string, legacyDirection: AdjustStockRequest['direction'] = 'adjustment', legacyActorId = 'system', legacyUnitCost?: number): Promise<StockMovement> {
-      const request: AdjustStockRequest = typeof requestOrItemType === 'string'
-        ? { itemType: requestOrItemType, itemId: legacyItemId!, quantity: legacyQuantity!, reason: legacyReason!, direction: legacyDirection, actorId: legacyActorId, unitCost: legacyUnitCost }
-        : requestOrItemType;
+    async adjustStock(request: AdjustStockRequest): Promise<StockMovement> {
       if (isRealElectron && existing?.adjustStock) return existing.adjustStock(request);
       const { itemType, itemId, quantity, reason, direction, actorId = 'system', unitCost } = request;
       let movement!: StockMovement;
@@ -662,10 +659,7 @@ export function initElectronMock() {
       return movement;
     },
 
-    async returnPurchase(requestOrItemType: ReturnPurchaseRequest | InventoryItemType, legacyItemId?: string, legacyQuantity?: number, legacyReason?: string, legacyOriginalMovementId?: string, legacyPurchaseId?: string, legacyActorId = 'system'): Promise<StockMovement> {
-      const request: ReturnPurchaseRequest = typeof requestOrItemType === 'string'
-        ? { itemType: requestOrItemType, itemId: legacyItemId!, quantity: legacyQuantity!, reason: legacyReason!, originalMovementId: legacyOriginalMovementId, purchaseId: legacyPurchaseId, actorId: legacyActorId }
-        : requestOrItemType;
+    async returnPurchase(request: ReturnPurchaseRequest): Promise<StockMovement> {
       if (isRealElectron && existing?.returnPurchase) return existing.returnPurchase(request);
       const { itemType, itemId, quantity, reason, originalMovementId, purchaseId, actorId = 'system' } = request;
       let movement!: StockMovement;
@@ -881,10 +875,7 @@ export function initElectronMock() {
       return true;
     },
 
-    async updateOrderStatus(requestOrId: UpdateOrderStatusRequest | string, legacyStatus?: string): Promise<boolean> {
-      const request: UpdateOrderStatusRequest = typeof requestOrId === 'string'
-        ? { orderId: requestOrId, status: legacyStatus as UpdateOrderStatusRequest['status'] }
-        : requestOrId;
+    async updateOrderStatus(request: UpdateOrderStatusRequest): Promise<boolean> {
       if (isRealElectron && existing?.updateOrderStatus) return existing.updateOrderStatus(request);
       const { orderId: id, status } = request;
       await db.transaction((draft) => {
@@ -936,10 +927,7 @@ export function initElectronMock() {
       return data.invoices;
     },
 
-    async addPayment(requestOrInvoiceId: AddPaymentRequest | string, legacyAmount?: number, legacyMethod?: string, legacyNote = '', legacyPaymentId?: string): Promise<boolean> {
-      const request: AddPaymentRequest = typeof requestOrInvoiceId === 'string'
-        ? { invoiceId: requestOrInvoiceId, amount: legacyAmount!, method: legacyMethod as AddPaymentRequest['method'], note: legacyNote, paymentId: legacyPaymentId }
-        : requestOrInvoiceId;
+    async addPayment(request: AddPaymentRequest): Promise<boolean> {
       if (isRealElectron && existing?.addPayment) return existing.addPayment(request);
       await db.transaction((draft) => {
         applyPaymentToDraft(draft, request.invoiceId, request.amount, request.method, request.note, request.paymentId);
@@ -1055,10 +1043,7 @@ export function initElectronMock() {
       return { fabricConsumptionRatePerGarment: 3.5 };
     },
 
-    async updateSetting(requestOrKey: SettingsUpdateRequest | string, legacyValue?: string | number): Promise<boolean> {
-      const request: SettingsUpdateRequest = typeof requestOrKey === 'string'
-        ? { key: requestOrKey as SettingsUpdateRequest['key'], value: legacyValue! }
-        : requestOrKey;
+    async updateSetting(request: SettingsUpdateRequest): Promise<boolean> {
       if (isRealElectron && existing?.updateSetting) return existing.updateSetting(request);
       try {
         const settings = await window.electronAPI.getSettings();
@@ -1070,10 +1055,7 @@ export function initElectronMock() {
       }
     },
 
-    async sendWhatsAppNotice(requestOrPhone: WhatsAppSendRequest | string, legacyCustomerName?: string, legacyOrderNumber?: string, legacyStatusText?: string): Promise<boolean> {
-      const request: WhatsAppSendRequest = typeof requestOrPhone === 'string'
-        ? { phone: requestOrPhone, customerName: legacyCustomerName!, orderNumber: legacyOrderNumber!, statusText: legacyStatusText! }
-        : requestOrPhone;
+    async sendWhatsAppNotice(request: WhatsAppSendRequest): Promise<boolean> {
       const { phone, customerName, orderNumber, statusText } = request;
       const cleanPhone = phone.replace(/\D/g, '');
       const internationalPhone = cleanPhone.startsWith('05') ? '966' + cleanPhone.substring(1) : cleanPhone;
