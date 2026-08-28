@@ -5,6 +5,18 @@ import { calculatePaymentSettlement } from './paymentSettlementRules';
 
 export const ORDER_STATUSES: readonly OrderStatus[] = ['new', 'processing', 'ready', 'delivered', 'cancelled'];
 
+/**
+ * Order status changes follow the forward workflow, with adjacent backward
+ * transitions allowed so an accidental status click can be corrected safely.
+ */
+export const ALLOWED_ORDER_STATUS_TRANSITIONS: Readonly<Record<OrderStatus, readonly OrderStatus[]>> = {
+  new: ['processing', 'cancelled'],
+  processing: ['new', 'ready', 'cancelled'],
+  ready: ['processing', 'delivered', 'cancelled'],
+  delivered: ['ready'],
+  cancelled: ['new']
+};
+
 export function assertValidOrderStatus(value: unknown): OrderStatus {
   if (typeof value !== 'string' || !ORDER_STATUSES.includes(value as OrderStatus)) {
     throw new Error('حالة الطلب غير صالحة');

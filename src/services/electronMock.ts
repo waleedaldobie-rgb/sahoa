@@ -1,7 +1,7 @@
 import { AppData, UserPreferences, Customer, CustomerMeasurements, CustomerStyleDetails, Order, Invoice, FabricItem, AccessoryItem, ThobeType, ColorItem, NotificationItem,   PaymentRecord, StockMovement, PurchaseRecord, PurchaseLine, ExpenseRecord, CashTransaction, OrderMaterialUsage, OrderEvent, MeasurementHistoryRecord, CustomerCreditRecord, CustomerCreditApplyRequest, CustomerCreditHistoryFilters, CustomerCreditOperationResult, CustomerCreditRefundRequest, CustomerCreditSummary, InventoryItemType, AddPaymentRequest, AdjustStockRequest, ReturnPurchaseRequest, UpdateOrderStatusRequest, WhatsAppSendRequest, SettingsUpdateRequest } from '../types';
 import { checkAndSyncStockAlerts } from '../utils/stockAlerts';
 import { calculateStockBalance, round2 } from './shared/inventoryRules';
-import { assertSafeInitialOrderStatus } from '../domain/orderRules';
+import { ALLOWED_ORDER_STATUS_TRANSITIONS, assertSafeInitialOrderStatus } from '../domain/orderRules';
 import { assertCashTransactionContract } from '../domain/cashRules';
 import { calculateMaterialCost, calculateOrderAmounts } from './shared/orderRules';
 import { assertStoredPaymentAggregates, assertValidPaymentMethod, calculatePaymentUpdate } from '../domain/paymentRules';
@@ -882,9 +882,8 @@ export function initElectronMock() {
         const order = draft.orders.find((item) => item.id === id);
         if (!order) throw new Error('الطلب غير موجود في قاعدة البيانات');
         const oldStatus = String(order.status);
-        const allowed: Record<string, string[]> = { new: ['processing', 'cancelled'], processing: ['ready', 'cancelled'], ready: ['delivered', 'cancelled'], delivered: [], cancelled: ['new'] };
         if (oldStatus === status) return;
-        if (!allowed[oldStatus]?.includes(status)) throw new Error(`انتقال حالة الطلب من ${oldStatus} إلى ${status} غير مسموح`);
+        if (!ALLOWED_ORDER_STATUS_TRANSITIONS[oldStatus as keyof typeof ALLOWED_ORDER_STATUS_TRANSITIONS]?.includes(status)) throw new Error(`انتقال حالة الطلب من ${oldStatus} إلى ${status} غير مسموح`);
         const usages = (draft.orderMaterialUsages || []).filter((usage) => usage.orderId === id);
         let cancellationWriteoffAmount = 0;
         let cancellationPaymentStatus: 'paid' | 'settled_by_cancellation' | undefined;

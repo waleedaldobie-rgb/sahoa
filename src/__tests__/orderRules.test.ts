@@ -1,12 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { assertSafeInitialOrderStatus, assertValidOrderStatus, calculateMaterialCost, calculateOrderAmounts, materialSignature } from '../services/shared/orderRules';
+import { ALLOWED_ORDER_STATUS_TRANSITIONS, assertSafeInitialOrderStatus, assertValidOrderStatus, calculateMaterialCost, materialSignature } from '../domain/orderRules';
+import { calculateOrderAmounts as calculateOrderAmountsFromShared } from '../services/shared/orderRules';
 import { assertValidPaymentMethod } from '../domain/paymentRules';
 
 describe('shared order rules', () => {
   it('calculates order amounts and payment status consistently', () => {
-    expect(calculateOrderAmounts(300, 100)).toEqual({ totalAmount: 300, paidAmount: 100, remainingAmount: 200, paymentStatus: 'partial' });
-    expect(calculateOrderAmounts(300, 300).paymentStatus).toBe('paid');
-    expect(calculateOrderAmounts(300, 0).paymentStatus).toBe('unpaid');
+    expect(calculateOrderAmountsFromShared(300, 100)).toEqual({ totalAmount: 300, paidAmount: 100, remainingAmount: 200, paymentStatus: 'partial' });
+    expect(calculateOrderAmountsFromShared(300, 300).paymentStatus).toBe('paid');
+    expect(calculateOrderAmountsFromShared(300, 0).paymentStatus).toBe('unpaid');
   });
 
   it('calculates material cost from historical usage prices', () => {
@@ -32,9 +33,9 @@ describe('shared order rules', () => {
 
 describe('production financial invariants', () => {
   it('rejects negative totals, negative payments, and overpayment', () => {
-    expect(() => calculateOrderAmounts(-1, 0)).toThrow(/غير سالب/);
-    expect(() => calculateOrderAmounts(100, -1)).toThrow(/غير سالب/);
-    expect(() => calculateOrderAmounts(100, 101)).toThrow(/يتجاوز/);
+    expect(() => calculateOrderAmountsFromShared(-1, 0)).toThrow(/غير سالب/);
+    expect(() => calculateOrderAmountsFromShared(100, -1)).toThrow(/غير سالب/);
+    expect(() => calculateOrderAmountsFromShared(100, 101)).toThrow(/يتجاوز/);
   });
 
   it('accepts only supported order statuses and safe initial status', () => {
@@ -42,6 +43,14 @@ describe('production financial invariants', () => {
     expect(assertSafeInitialOrderStatus(undefined)).toBe('new');
     expect(() => assertValidOrderStatus('unknown')).toThrow(/حالة الطلب/);
     expect(() => assertSafeInitialOrderStatus('cancelled')).toThrow(/لا يمكن إنشاء/);
+  });
+
+  it('allows adjacent backward status corrections without allowing arbitrary jumps', () => {
+    expect(ALLOWED_ORDER_STATUS_TRANSITIONS.delivered).toEqual(['ready']);
+    expect(ALLOWED_ORDER_STATUS_TRANSITIONS.ready).toContain('processing');
+    expect(ALLOWED_ORDER_STATUS_TRANSITIONS.processing).toContain('new');
+    expect(ALLOWED_ORDER_STATUS_TRANSITIONS.new).not.toContain('ready');
+    expect(ALLOWED_ORDER_STATUS_TRANSITIONS.delivered).not.toContain('processing');
   });
 
   it('accepts only supported payment methods', () => {

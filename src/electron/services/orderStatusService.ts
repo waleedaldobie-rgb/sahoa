@@ -4,18 +4,11 @@ import { OrderRepository } from '../repositories/orderRepository';
 import { OrderWriteRepository } from '../repositories/orderWriteRepository';
 import { InventoryService } from './inventoryService';
 import { createSafeId } from '../../domain/idGenerator';
-import { assertValidOrderStatus, calculateCancellationSettlement } from '../../domain/orderRules';
+import { ALLOWED_ORDER_STATUS_TRANSITIONS, assertValidOrderStatus, calculateCancellationSettlement } from '../../domain/orderRules';
 import { assertStoredPaymentAggregates, parsePaymentLedger } from '../../domain/paymentRules';
 import { round2 } from '../../domain/inventoryRules';
 import { InvoiceRepository } from '../repositories/invoiceRepository';
 
-const ALLOWED_TRANSITIONS: Record<string, string[]> = {
-  new: ['processing', 'cancelled'],
-  processing: ['ready', 'cancelled'],
-  ready: ['delivered', 'cancelled'],
-  delivered: [],
-  cancelled: ['new']
-};
 
 export class OrderStatusService {
   constructor(
@@ -33,7 +26,7 @@ export class OrderStatusService {
       const order = this.orderRepository.findById(orderId);
       if (!order) return false;
       if (order.status === validatedStatus) return true;
-      if (!ALLOWED_TRANSITIONS[order.status]?.includes(validatedStatus)) {
+      if (!ALLOWED_ORDER_STATUS_TRANSITIONS[order.status]?.includes(validatedStatus)) {
         throw new Error(`انتقال حالة الطلب من ${order.status} إلى ${status} غير مسموح`);
       }
 
