@@ -551,10 +551,7 @@ declare global {
       getPreferences: () => Promise<UserPreferences>;
       savePreferences: (prefs: Partial<UserPreferences>) => Promise<boolean>;
       clearAllData: () => Promise<boolean>;
-      sendWhatsAppNotice: {
-        (request: WhatsAppSendRequest): Promise<boolean>;
-        (phone: string, customerName: string, orderNumber: string, statusText: string): Promise<boolean>;
-      };
+      sendWhatsAppNotice: (request: WhatsAppSendRequest) => Promise<boolean>;
       printDocument: () => void;
       
       db?: {
@@ -591,17 +588,11 @@ declare global {
       createOrder?: (order: Partial<Order>) => Promise<Order>;
       updateOrder?: (order: Order) => Promise<boolean>;
       deleteOrder?: (id: string) => Promise<boolean>;
-      updateOrderStatus?: {
-        (request: UpdateOrderStatusRequest): Promise<boolean>;
-        (id: string, status: string): Promise<boolean>;
-      };
+      updateOrderStatus?: (request: UpdateOrderStatusRequest) => Promise<boolean>;
       getOrderEvents?: (orderId?: string) => Promise<OrderEvent[]>;
 
       getInvoices?: () => Promise<Invoice[]>;
-      addPayment?: {
-        (request: AddPaymentRequest): Promise<boolean>;
-        (invoiceId: string, amount: number, method: string, note: string, paymentId?: string): Promise<boolean>;
-      };
+      addPayment?: (request: AddPaymentRequest) => Promise<boolean>;
       customerCredits?: {
         list: (customerId: string, filters?: CustomerCreditHistoryFilters) => Promise<CustomerCreditRecord[]>;
         summary: (customerId: string) => Promise<CustomerCreditSummary>;
@@ -618,14 +609,8 @@ declare global {
         retry: (id: string) => Promise<NotificationItem>;
       };
       getStockMovements?: (itemType?: InventoryItemType, itemId?: string) => Promise<StockMovement[]>;
-      adjustStock?: {
-        (request: AdjustStockRequest): Promise<StockMovement>;
-        (itemType: InventoryItemType, itemId: string, quantity: number, reason: string, direction: 'adjustment' | 'return' | 'adjustment_in' | 'adjustment_out', actorId?: string, unitCost?: number): Promise<StockMovement>;
-      };
-      returnPurchase?: {
-        (request: ReturnPurchaseRequest): Promise<StockMovement>;
-        (itemType: InventoryItemType, itemId: string, quantity: number, reason: string, originalMovementId?: string, purchaseId?: string, actorId?: string): Promise<StockMovement>;
-      };
+      adjustStock?: (request: AdjustStockRequest) => Promise<StockMovement>;
+      returnPurchase?: (request: ReturnPurchaseRequest) => Promise<StockMovement>;
       getPurchases?: () => Promise<PurchaseRecord[]>;
       createPurchase?: (purchase: { id?: string; supplier: string; invoiceNumber?: string; purchaseDate: string; paymentMethod: PaymentMethod; notes?: string; lines: Array<Omit<PurchaseLine, 'id' | 'purchaseId' | 'createdAt' | 'totalAmount'>> }) => Promise<PurchaseRecord>;
       getExpenses?: () => Promise<ExpenseRecord[]>;
@@ -644,10 +629,7 @@ declare global {
       }>;
       automationPrintToPDF?: (options?: Record<string, unknown>) => Promise<string>;
       getSettings?: () => Promise<any>;
-      updateSetting?: {
-        (request: SettingsUpdateRequest): Promise<boolean>;
-        (key: string, value: any): Promise<boolean>;
-      };
+      updateSetting?: (request: SettingsUpdateRequest) => Promise<boolean>;
     };
   }
 }

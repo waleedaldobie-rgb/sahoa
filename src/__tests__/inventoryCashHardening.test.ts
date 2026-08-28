@@ -103,16 +103,45 @@ describe('Inventory/WAC returns and Cash whitelist hardening', () => {
   });
 
   it('supports adjustment_in/out with explicit cost and permits reaching zero', async () => {
-    await window.electronAPI.adjustStock!('fabric', 'FAB-WAC', 1, 'إدخال جرد', 'adjustment_in', 'warehouse-user', 5);
+    await window.electronAPI.adjustStock!({
+      itemType: 'fabric',
+      itemId: 'FAB-WAC',
+      quantity: 1,
+      reason: 'إدخال جرد',
+      direction: 'adjustment_in',
+      actorId: 'warehouse-user',
+      unitCost: 5,
+    });
     let data = await window.electronAPI.getData();
     expect(data.fabrics[0].quantityMeters).toBe(11);
     expect(data.fabrics[0].purchasePrice).toBe(9.5455);
-    await window.electronAPI.adjustStock!('fabric', 'FAB-WAC', 1, 'إخراج جرد', 'adjustment_out', 'warehouse-user');
-    await window.electronAPI.adjustStock!('fabric', 'FAB-WAC', 10, 'تصفير المخزون', 'adjustment_out', 'warehouse-user');
+    await window.electronAPI.adjustStock!({
+      itemType: 'fabric',
+      itemId: 'FAB-WAC',
+      quantity: 1,
+      reason: 'إخراج جرد',
+      direction: 'adjustment_out',
+      actorId: 'warehouse-user',
+    });
+    await window.electronAPI.adjustStock!({
+      itemType: 'fabric',
+      itemId: 'FAB-WAC',
+      quantity: 10,
+      reason: 'تصفير المخزون',
+      direction: 'adjustment_out',
+      actorId: 'warehouse-user',
+    });
     data = await window.electronAPI.getData();
     expect(data.fabrics[0].quantityMeters).toBe(0);
     expect(data.fabrics[0].purchasePrice).toBe(9.5455);
-    await expect(window.electronAPI.adjustStock!('fabric', 'FAB-WAC', -1, 'كمية سالبة', 'adjustment_out', 'warehouse-user')).rejects.toThrow();
+    await expect(window.electronAPI.adjustStock!({
+      itemType: 'fabric',
+      itemId: 'FAB-WAC',
+      quantity: -1,
+      reason: 'كمية سالبة',
+      direction: 'adjustment_out',
+      actorId: 'warehouse-user',
+    })).rejects.toThrow();
   });
 
   it('rejects missing reason and unknown manual Cash source while preserving documented withdrawal', async () => {
