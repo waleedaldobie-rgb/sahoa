@@ -175,9 +175,9 @@ describe('IPC runtime schemas for the second hardening batch', () => {
     expect(preferencesSaveArgsSchema.safeParse({ activeTab: 'orders', unknown: true }).success).toBe(false);
   });
 
-  it('accepts supported settings and rejects unbounded types', () => {
+  it('accepts editable settings and rejects internal or unbounded values', () => {
     expect(settingsUpdateArgsSchema.safeParse({ key: 'autoBackupIntervalHours', value: 1 }).success).toBe(true);
-    expect(settingsUpdateArgsSchema.safeParse({ key: 'dataCleared', value: 'true' }).success).toBe(true);
+    expect(settingsUpdateArgsSchema.safeParse({ key: 'dataCleared', value: 'true' }).success).toBe(false);
     expect(settingsUpdateArgsSchema.safeParse({ key: 'notASetting', value: 1 }).success).toBe(false);
     expect(settingsUpdateArgsSchema.safeParse({ key: 'maxBackupFiles', value: Number.NaN }).success).toBe(false);
   });
