@@ -21,7 +21,7 @@ import {
 export const electronBridge = {
   // Compatibility data facade used by the existing React state layer.
   getData: () => ipcRenderer.invoke('data:get'),
-  saveData: (data: any) => ipcRenderer.invoke('data:save', data),
+  saveData: (data: unknown) => ipcRenderer.invoke('data:save', data),
   getPreferences: () => ipcRenderer.invoke('preferences:get'),
   savePreferences: (preferences: Record<string, unknown>) => ipcRenderer.invoke('preferences:save', preferences),
 
@@ -42,7 +42,6 @@ export const electronBridge = {
   createAccessory: (acc: Partial<AccessoryItem>) => ipcRenderer.invoke('accessories:create', acc),
   updateAccessory: (acc: AccessoryItem) => ipcRenderer.invoke('accessories:update', acc),
   deleteAccessory: (id: string) => ipcRenderer.invoke('accessories:delete', id),
-
 
   // Thobe Types & Colors
   getThobeTypes: () => ipcRenderer.invoke('thobeTypes:list'),
@@ -87,11 +86,11 @@ export const electronBridge = {
   adjustStock: (request: AdjustStockRequest) => ipcRenderer.invoke('stock:adjust', request),
   returnPurchase: (request: ReturnPurchaseRequest) => ipcRenderer.invoke('stock:returnPurchase', request),
   getPurchases: () => ipcRenderer.invoke('purchases:list'),
-  createPurchase: (purchase: any) => ipcRenderer.invoke('purchases:create', purchase),
+  createPurchase: (purchase: unknown) => ipcRenderer.invoke('purchases:create', purchase),
   getExpenses: () => ipcRenderer.invoke('expenses:list'),
-  createExpense: (expense: any) => ipcRenderer.invoke('expenses:create', expense),
+  createExpense: (expense: unknown) => ipcRenderer.invoke('expenses:create', expense),
   getCashTransactions: () => ipcRenderer.invoke('cash:list'),
-  createCashAdjustment: (transaction: any) => ipcRenderer.invoke('cash:createAdjustment', transaction),
+  createCashAdjustment: (transaction: unknown) => ipcRenderer.invoke('cash:createAdjustment', transaction),
   getOrderMaterialUsages: (orderId?: string) => ipcRenderer.invoke('orderMaterials:list', orderId),
 
   // System & Excel Reports
@@ -102,7 +101,7 @@ export const electronBridge = {
   exportExcelReport: (startDate?: string, endDate?: string) => ipcRenderer.invoke('reports:exportExcel', startDate, endDate),
   automationStorageInfo: () => ipcRenderer.invoke('automation:storageInfo'),
   automationPrintToPDF: (options?: Record<string, unknown>) => ipcRenderer.invoke('automation:printToPDF', options),
-  
+
   getSettings: () => ipcRenderer.invoke('settings:get'),
   updateSetting: (request: SettingsUpdateRequest) => ipcRenderer.invoke('settings:update', request),
 

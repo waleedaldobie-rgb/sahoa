@@ -89,9 +89,6 @@ export const settingsUpdateArgsSchema = z.object({
     'fabricConsumptionRatePerGarment',
     'autoBackupIntervalHours',
     'maxBackupFiles',
-    'lastBackupTimestamp',
-    'schemaVersion',
-    'dataCleared',
   ]),
   value: z.union([
     z.string().trim().max(500),

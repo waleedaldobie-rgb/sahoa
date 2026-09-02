@@ -2,6 +2,7 @@
  * Global Exception Handler for Electron IPC Database Operations
  * Translates low-level SQLite / Database / System errors into friendly Arabic messages for the user.
  */
+import { assertTrustedSender } from './security/ipcGuard';
 
 export function translateDatabaseError(error: any): Error {
   if (!error) {
@@ -13,7 +14,7 @@ export function translateDatabaseError(error: any): Error {
 
   console.error('[Global Exception Handler] Caught IPC Error:', { code, rawMsg, error });
 
-  // 1. Foreign Key Constraint Failure (e.g. Deleting customer/fabric/dress type linked to existing orders)
+  // 1. Foreign Key Constraint Failure
   if (
     code === 'SQLITE_CONSTRAINT_FOREIGNKEY' ||
     rawMsg.includes('FOREIGN KEY constraint failed') ||
@@ -23,7 +24,7 @@ export function translateDatabaseError(error: any): Error {
     return new Error('لا يمكن حذف هذا الصنف لارتباطه بطلبات موجودة');
   }
 
-  // 2. Unique Constraint Failure (e.g. Duplicate order_number or invoice_number)
+  // 2. Unique Constraint Failure
   if (
     code === 'SQLITE_CONSTRAINT_UNIQUE' ||
     rawMsg.includes('UNIQUE constraint failed') ||
@@ -57,7 +58,7 @@ export function translateDatabaseError(error: any): Error {
     return new Error('تنبيه: تم اكتشاف خلل في ملف قاعدة البيانات، يرجى استعادة نسخة احتياطية.');
   }
 
-  // 6. Arabic Custom Business Logic Error (already thrown with friendly Arabic text in code)
+  // 6. Arabic Custom Business Logic Error
   if (/[\u0600-\u06FF]/.test(rawMsg)) {
     const cleanMsg = rawMsg.replace(/^Error invoking remote method '.*?':\s*/, '').replace(/^Error:\s*/, '');
     return new Error(cleanMsg);
@@ -69,6 +70,7 @@ export function translateDatabaseError(error: any): Error {
 
 /**
  * Higher-order wrapper around ipcMain.handle that automatically intercepts exceptions and applies global translation.
+ * Phase 1 hardening: validates the IPC sender and rejects oversized payloads before reaching services.
  */
 export function safeIpcHandle(
   ipcMain: Electron.IpcMain,
@@ -77,6 +79,15 @@ export function safeIpcHandle(
 ) {
   ipcMain.handle(channel, async (event, ...args) => {
     try {
+      assertTrustedSender(event, channel);
+
+      // حارس حجم الحمولة: يرفض الاستدعاءات العملاقة قبل الوصول للخدمات
+      const payloadSize = JSON.stringify(args)?.length ?? 0;
+      const MAX_PAYLOAD_BYTES = 110_000_000; // 110MB
+      if (payloadSize > MAX_PAYLOAD_BYTES) {
+        throw new Error('حجم البيانات أكبر من الحد المسموح.');
+      }
+
       return await handler(event, ...args);
     } catch (error: any) {
       const friendlyError = translateDatabaseError(error);

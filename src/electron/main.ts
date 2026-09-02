@@ -1,7 +1,9 @@
-import { app, BrowserWindow, ipcMain } from 'electron';
+import { app, BrowserWindow, ipcMain, shell } from 'electron';
 import path from 'path';
 import { SahwaDatabaseManager } from './db';
 import { registerIpcHandlers } from './ipcHandlers';
+import { assertTrustedSender, setTrustedWindow } from './security/ipcGuard';
+import { isAllowedExternalUrl, isSameOriginNavigation } from './security/navigationPolicy';
 
 let mainWindow: BrowserWindow | null = null;
 let dbManager: SahwaDatabaseManager | null = null;
@@ -22,15 +24,19 @@ async function closeResourcesOnce(): Promise<void> {
 function registerAutomationDiagnostics(databaseDir: string, backupDir: string): void {
   if (process.env.SAHWA_UI_AUTOMATION !== '1') return;
 
-  ipcMain.handle('automation:storageInfo', () => ({
-    userDataPath: app.getPath('userData'),
-    databasePath: path.join(databaseDir, 'sahwa_tailoring.db'),
-    backupDir,
-    appPath: app.getAppPath(),
-    isPackaged: app.isPackaged
-  }));
+  ipcMain.handle('automation:storageInfo', (event) => {
+    assertTrustedSender(event, 'automation:storageInfo');
+    return {
+      userDataPath: app.getPath('userData'),
+      databasePath: path.join(databaseDir, 'sahwa_tailoring.db'),
+      backupDir,
+      appPath: app.getAppPath(),
+      isPackaged: app.isPackaged
+    };
+  });
 
   ipcMain.handle('automation:printToPDF', async (event, options: Electron.PrintToPDFOptions = {}) => {
+    assertTrustedSender(event, 'automation:printToPDF');
     const window = BrowserWindow.fromWebContents(event.sender) || mainWindow;
     if (!window) throw new Error('نافذة الطباعة غير متاحة');
     const pdf = await window.webContents.printToPDF({
@@ -74,11 +80,30 @@ function createWindow() {
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
-      nodeIntegration: false
+      nodeIntegration: false,
+      sandbox: true,
+      webSecurity: true
     }
   });
 
   mainWindow.maximize();
+
+  // ===== Phase 1 hardening: trusted window + navigation policy =====
+  setTrustedWindow(mainWindow);
+
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    if (isAllowedExternalUrl(url)) {
+      shell.openExternal(url).catch(() => {});
+    }
+    return { action: 'deny' };
+  });
+
+  mainWindow.webContents.on('will-navigate', (event, url) => {
+    const currentUrl = mainWindow?.webContents.getURL() || '';
+    if (!isSameOriginNavigation(currentUrl, url)) event.preventDefault();
+  });
+  // ==================================================================
+
   if (process.env.NODE_ENV === 'development') {
     mainWindow.loadURL('http://localhost:3000');
   } else {
@@ -87,6 +112,7 @@ function createWindow() {
 
   mainWindow.on('closed', () => {
     mainWindow = null;
+    setTrustedWindow(null);
   });
 }
 

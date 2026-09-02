@@ -43,13 +43,15 @@ export class OrderService {
         ? this.orderRepository.findByOrderNumber(orderData.orderNumber)
         : undefined;
     if (existing) {
+      const materialUsages = this.orderRepository.listMaterialUsages(existing.id) as unknown as OrderMaterialUsage[];
+      const materialCost = materialUsages.reduce((sum, usage) => sum + (usage.totalCost || 0), 0);
       return {
         orderId: existing.id,
         orderNumber: existing.order_number,
         remainingAmount: existing.remaining_amount,
-        materialUsages: [],
-        materialCost: 0,
-        profit: round2((existing.total_amount || 0) - 0),
+        materialUsages,
+        materialCost: round2(materialCost),
+        profit: round2((existing.total_amount || 0) - materialCost),
         alreadyExists: true
       };
     }

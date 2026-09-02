@@ -208,7 +208,24 @@ export class SahwaDatabaseManager {
     };
   }
 
+  private static readonly INTERNAL_SETTING_KEYS = new Set([
+    'schemaVersion',
+    'lastBackupTimestamp',
+    'dataCleared',
+  ] as const);
+
   public updateSetting(key: keyof DatabaseSettings | 'dataCleared', value: string | number): void {
+    if (SahwaDatabaseManager.INTERNAL_SETTING_KEYS.has(key as 'schemaVersion' | 'lastBackupTimestamp' | 'dataCleared')) {
+      throw new Error('لا يمكن تعديل إعدادات النظام الداخلية من الواجهة.');
+    }
+    this.writeSetting(key, value);
+    if (key === 'autoBackupIntervalHours') {
+      this.startPeriodicAutoBackup();
+    }
+  }
+
+  /** Internal writer used by backup/restore/migrations — bypasses the renderer-facing guard. */
+  private writeSetting(key: string, value: string | number): void {
     const db = this.getRawDb();
     db.prepare('INSERT OR REPLACE INTO system_settings (key, value) VALUES (?, ?)').run(key, String(value));
   }
@@ -302,7 +319,7 @@ export class SahwaDatabaseManager {
       fs.writeFileSync(jsonTargetPath, JSON.stringify(exportedData, null, 2), 'utf-8');
 
       // Update timestamp
-      this.updateSetting('lastBackupTimestamp', new Date().toISOString());
+      this.writeSetting('lastBackupTimestamp', new Date().toISOString());
 
       // Rotate older files keeping max 14 files per extension
       this.rotateBackups('.db', maxFiles);
@@ -338,12 +355,15 @@ export class SahwaDatabaseManager {
 
   private startPeriodicAutoBackup(): void {
     if (this.autoBackupTimer) clearInterval(this.autoBackupTimer);
-    
-    // Default 1 hour = 3600,000 ms
-    const intervalMs = 60 * 60 * 1000;
+
+    // يحترم الإعداد المحفوظ autoBackupIntervalHours (افتراضيًا ساعة واحدة)
+    const intervalHours = Number(this.getSettings().autoBackupIntervalHours);
+    const intervalMs = Number.isFinite(intervalHours) && intervalHours > 0
+      ? intervalHours * 60 * 60 * 1000
+      : 60 * 60 * 1000;
     this.autoBackupTimer = setInterval(() => {
-      this.backupDatabase('hourly_auto').catch(err => {
-        console.error('Error in hourly auto backup:', err);
+      this.backupDatabase('periodic_auto').catch(err => {
+        console.error('Error in periodic auto backup:', err);
       });
     }, intervalMs);
   }
@@ -368,7 +388,7 @@ export class SahwaDatabaseManager {
         db.prepare('UPDATE notifications SET archived_at = ?, updated_at = ? WHERE archived_at IS NULL').run(archivedAt, archivedAt);
       });
       clearTx();
-      this.updateSetting('dataCleared', 'true');
+      this.writeSetting('dataCleared', 'true');
       return true;
     } catch (error) {
       console.error('Clear data error:', error);
@@ -667,7 +687,7 @@ export class SahwaDatabaseManager {
       });
 
       restoreTx();
-      this.updateSetting('dataCleared', parsed.customers.length === 0 ? 'true' : 'false');
+      this.writeSetting('dataCleared', parsed.customers.length === 0 ? 'true' : 'false');
       return { success: true };
     } catch (err: any) {
       console.error('Restore error:', err);
