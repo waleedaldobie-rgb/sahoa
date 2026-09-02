@@ -195,12 +195,17 @@ jobs:
           $blockmap = Get-ChildItem -Path release -Filter '*.blockmap' -File | Select-Object -First 1
           $assets = @($installer)
           if ($null -ne $blockmap) { $assets += $blockmap.FullName }
-          gh release create $env:RELEASE_TAG @assets `
-            --repo $env:GH_REPO `
-            --target $env:SAHWA_EXPECTED_COMMIT `
-            --title "صهوة للخياطة $env:RELEASE_TAG (Unsigned, Acceptance Verified)" `
-            --notes "Unsigned Windows build. Packaged Acceptance passed on Windows runner. SmartScreen may show an Unknown Publisher warning." `
-            --prerelease
+          gh release view $env:RELEASE_TAG --repo $env:GH_REPO 2>$null
+          if ($LASTEXITCODE -eq 0) {
+            gh release upload $env:RELEASE_TAG @assets --repo $env:GH_REPO --clobber
+          } else {
+            gh release create $env:RELEASE_TAG @assets `
+              --repo $env:GH_REPO `
+              --target $env:SAHWA_EXPECTED_COMMIT `
+              --title "صهوة للخياطة $env:RELEASE_TAG (Unsigned, Acceptance Verified)" `
+              --notes "Unsigned Windows build. Packaged Acceptance passed on Windows runner. SmartScreen may show an Unknown Publisher warning." `
+              --prerelease
+          }
 
       - name: Cleanup isolated install directory
         if: always()
